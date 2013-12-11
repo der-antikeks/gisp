@@ -1,0 +1,11 @@
+tmp/
+prototypes/
+*.exe
+*.prof
+*.mprof
+*.cprof
+*.cover
+notes.txt
+Thumbs.db
+Desktop.ini
+.DS_Store
