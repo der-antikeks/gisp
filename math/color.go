@@ -16,10 +16,18 @@ func ColorFromHex(hex int) Color {
 	}
 }
 
+/*
+	0.0 < r/g/b < 1.0
+*/
 func ColorFromRGB(r, g, b float64) Color {
 	return Color{r, g, b}
 }
 
+/*
+	-0.5 < h < 0.5
+	 0.0 < s < 1.0
+	 0.0 < l < 1.0
+*/
 func ColorFromHSL(h, s, l float64) Color {
 	if s == 0 {
 		return Color{l, l, l}

@@ -24,6 +24,10 @@ func BoundaryFromPoints(pts ...Vector) Boundary {
 	return b
 }
 
+func (b Boundary) Equals(e Boundary, precision int) bool {
+	return b.Min.Equals(e.Min, precision) && b.Max.Equals(e.Max, precision)
+}
+
 func (b *Boundary) AddPoint(p Vector) {
 	b.Min[0], b.Max[0] = math.Min(b.Min[0], p[0]), math.Max(b.Max[0], p[0])
 	b.Min[1], b.Max[1] = math.Min(b.Min[1], p[1]), math.Max(b.Max[1], p[1])
