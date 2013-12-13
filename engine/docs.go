@@ -6,15 +6,14 @@
 		* add missing tests
 		* documentation
 
-		short-term features:
+		needed features, in order:
 		* unify shader materials, move buffer binding/attribute enabling into material struct
 		* distance field fonts
+		* billboards
 		* move lights from hardcoded shader to objects
 		* fog/skycube
-
-		later:
 		* load managers that handle allocation/deallocation
-		* scene object loading/unloading, curret scene
+		* scene object loading/unloading, current scene, scene preload
 
 
 
