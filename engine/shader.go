@@ -97,12 +97,13 @@ func init() {
 					fragmentColor = fragmentColor * vec4( Color, opacity );
 				}`,
 			uniforms: map[string]interface{}{
-				"projectionMatrix": [16]float32{}, // matrix.Float32()
-				"viewMatrix":       [16]float32{},
-				"modelMatrix":      [16]float32{},
-				"modelViewMatrix":  [16]float32{},
-				"normalMatrix":     [9]float32{}, // matrix.Matrix3Float32()
-
+				/*
+					"projectionMatrix": [16]float32{}, // matrix.Float32()
+					"viewMatrix":       [16]float32{},
+					"modelMatrix":      [16]float32{},
+					"modelViewMatrix":  [16]float32{},
+					"normalMatrix":     [9]float32{}, // matrix.Matrix3Float32()
+				*/
 				"diffuseMap": nil, // texture
 				"opacity":    1.0,
 				"diffuse":    math.Color{1, 1, 1},
@@ -126,13 +127,13 @@ type ShaderMaterial struct {
 }
 
 func NewShaderMaterial(name string) (*ShaderMaterial, error) {
-	// shader is in library
+	// is shader in library?
 	data, found := programLibrary[name]
 	if !found {
 		return nil, fmt.Errorf("unknown shader name: %v", name)
 	}
 
-	// is program cached
+	// is program cached?
 	programCache2.Lock()
 	defer programCache2.Unlock()
 
@@ -215,11 +216,125 @@ func (m *ShaderMaterial) Program() *Program { return nil }
 func (m *ShaderMaterial) Opaque() bool      { return true }
 func (m *ShaderMaterial) Wireframe() bool   { return true }
 
-func (m *ShaderMaterial) Dispose() {
-	m.program.program.Delete()
+func (m *ShaderMaterial) UseProgram() bool {
+	if m.program.enabled {
+		return false
+	}
+
+	m.program.program.Use()
+	m.program.enabled = true
+	return true
 }
 
-func (m *ShaderMaterial) DisableAttributes()          {}
-func (m *ShaderMaterial) EnableAttribute(name string) {}
-func (m *ShaderMaterial) UpdateUniforms()             {}
-func (m *ShaderMaterial) Unbind()                     {}
+// temporary
+func (m *ShaderMaterial) UnuseProgram() {
+	gl.ProgramUnuse()
+	m.program.enabled = false
+}
+
+func (m *ShaderMaterial) Dispose() {
+	m.program.program.Delete()
+
+	for _, u := range m.uniforms {
+		switch t := u.(type) {
+		case Texture:
+			t.Dispose()
+		}
+	}
+}
+
+func (m *ShaderMaterial) DisableAttributes() {
+	for n, v := range m.program.attributes {
+		if v.enabled {
+			v.location.DisableArray()
+			v.enabled = false
+			m.program.attributes[n] = v
+		}
+	}
+}
+
+func (m *ShaderMaterial) EnableAttribute(name string) {
+	if _, ok := m.attributes[name]; !ok {
+		//return err
+		panic("unknown attribute: " + name)
+	}
+
+	if v := m.program.attributes[name]; !v.enabled {
+		v.location.EnableArray()
+		v.enabled = true
+
+		m.program.attributes[name] = v
+	}
+
+	m.program.attributes[name].location.AttribPointer(m.attributes[name], gl.FLOAT, false, 0, nil)
+}
+
+func (m *ShaderMaterial) SetUniform(name string, value interface{}) {
+	if _, ok := m.uniforms[name]; !ok {
+		return
+	}
+	m.uniforms[name] = value
+}
+
+func (m *ShaderMaterial) Uniform(name string) interface{} {
+	return m.uniforms[name]
+}
+
+func (m *ShaderMaterial) UpdateUniforms() /*error*/ {
+	var usedTextureUnits int
+
+	for n, v := range m.uniforms {
+		switch t := v.(type) {
+		case Texture:
+			t.Bind(usedTextureUnits)
+			//m.program.uniforms[n].Uniform1i(usedTextureUnits)
+			if err := m.UpdateUniform(n, usedTextureUnits); err != nil {
+				//return err
+				panic(err.Error())
+			}
+			usedTextureUnits++
+
+		default:
+			if err := m.UpdateUniform(n, v); err != nil {
+				//return err
+				panic(err.Error())
+			}
+		}
+	}
+
+	return //nil
+}
+
+func (m *ShaderMaterial) UpdateUniform(name string, value interface{}) error {
+	switch t := value.(type) {
+	case int:
+		m.program.uniforms[name].Uniform1i(t)
+	case float64:
+		m.program.uniforms[name].Uniform1f(float32(t))
+	case float32:
+		m.program.uniforms[name].Uniform1f(t)
+
+	case [16]float32:
+		m.program.uniforms[name].UniformMatrix4fv(false, t)
+	case [9]float32:
+		m.program.uniforms[name].UniformMatrix3fv(false, t)
+
+	case math.Color:
+		m.program.uniforms[name].Uniform3f(float32(t.R), float32(t.G), float32(t.B))
+
+	default:
+		panic(fmt.Sprintf("%v has unknown type: %T", name, value))
+		return fmt.Errorf("%v has unknown type: %T", name, value)
+	}
+
+	return nil
+}
+
+func (m *ShaderMaterial) Unbind() {
+	for _, v := range m.uniforms {
+		switch t := v.(type) {
+		case Texture:
+			t.Unbind()
+		}
+	}
+}

@@ -172,10 +172,19 @@ func generateScene() (*engine.Scene, engine.Camera) {
 		log.Fatalf("could not load texture: %v\n", err)
 	}
 
-	opaque := engine.NewBasicMaterial()
-	opaque.SetDiffuseMap(texture)
-	opaque.SetDiffuseColor(math.Color{0, 1, 1})
-	opaque.SetOpacity(1.0)
+	/*
+		opaque := engine.NewBasicMaterial()
+		opaque.SetDiffuseMap(texture)
+		opaque.SetDiffuseColor(math.Color{0, 1, 1})
+		opaque.SetOpacity(1.0)
+	*/
+	opaque, err := engine.NewShaderMaterial("basic")
+	if err != nil {
+		log.Fatalf("could not load shader material: %v\n", err)
+	}
+	opaque.SetUniform("diffuseMap", texture)
+	opaque.SetUniform("diffuse", math.Color{0, 1, 1})
+	opaque.SetUniform("opacity", 1.0)
 
 	obj1 := engine.NewMesh(cube, opaque)
 
