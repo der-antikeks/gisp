@@ -5,10 +5,10 @@
 		fix:
 		* add missing tests
 		* documentation
+		* rendertarget
+		* distance field fonts
 
 		needed features, in order:
-		* unify shader materials, move buffer binding/attribute enabling into material struct
-		* distance field fonts
 		* billboards
 		* move lights from hardcoded shader to objects
 		* fog/skycube

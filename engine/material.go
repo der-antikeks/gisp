@@ -473,6 +473,72 @@ func init() {
 				"vertexColor":    3,
 			},
 		},
+		"font": {
+			vertex: `
+				#version 330 core
+
+				// Input vertex data, different for all executions of this shader.
+				in vec3 vertexPosition;
+				in vec3 vertexNormal;
+				in vec2 vertexUV;
+				in vec2 vertexUV2;
+				in vec3 vertexColor;
+
+				// Values that stay constant for the whole mesh.
+				uniform mat4 projectionMatrix;
+				uniform mat4 viewMatrix;
+				uniform mat4 modelMatrix;
+				uniform mat4 modelViewMatrix;
+				uniform mat3 normalMatrix;
+
+				// Output data, will be interpolated for each fragment.
+				out vec2 UV;
+
+				void main(){
+					// Output position of the vertex, clipspace
+					gl_Position = projectionMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
+
+					// UV of the vertex
+					UV = vertexUV;
+				}`,
+			fragment: `
+				#version 330 core
+
+				// Interpolated values from the vertex shaders
+				in vec2 UV;
+
+				// Values that stay constant for the whole mesh.
+				uniform vec3 diffuse;
+				uniform sampler2D distanceFieldMap;
+
+				// Output data
+				out vec4 fragmentColor;
+
+				const float smoothing = 1.0/16.0;
+
+				void main()
+				{
+					float distance = texture(distanceFieldMap, UV).a;
+					float opacity = smoothstep(0.5 - smoothing, 0.5 + smoothing, distance);
+					fragmentColor = vec4(diffuse, opacity);
+				}`,
+			uniforms: map[string]interface{}{
+				"projectionMatrix": nil, //[16]float32{}, // matrix.Float32()
+				"viewMatrix":       nil, //[16]float32{},
+				"modelMatrix":      nil, //[16]float32{},
+				"modelViewMatrix":  nil, //[16]float32{},
+				"normalMatrix":     nil, //[9]float32{}, // matrix.Matrix3Float32()
+
+				"distanceFieldMap": nil, // texture
+				"diffuse":          math.Color{1, 1, 1},
+			},
+			attributes: map[string]uint{
+				"vertexPosition": 3,
+				"vertexNormal":   3,
+				"vertexUV":       2,
+				"vertexColor":    3,
+			},
+		},
 	}
 }
 

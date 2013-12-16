@@ -309,9 +309,17 @@ func generateHud() (*engine.Scene, engine.Camera) {
 	planeL := engine.NewMesh(engine.NewPlaneGeometry(50, 50), transparent)
 	planeL.SetPosition(math.Vector{-75, -75, 0})
 
+	// font
+	font, err := engine.LoadFont("assets/luxisr.ttf")
+	if err != nil {
+		log.Fatalf("could not load font: %v\n", err)
+	}
+	fontMesh := font.Printf("testing font")
+	fontMesh.SetPosition(math.Vector{20, -75, 0})
+
 	// scene
 	scene := engine.NewScene()
-	scene.AddChild(planeR, planeL)
+	scene.AddChild(planeR, planeL, fontMesh)
 
 	return scene, camera
 }
