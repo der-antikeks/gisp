@@ -142,7 +142,7 @@ func NewRenderPass(scene *Scene, camera Camera, target *RenderTarget) *RenderPas
 	}
 }
 
-func NewShaderPass(material Material, target *RenderTarget) *RenderPass {
+func NewShaderPass(material *Material, target *RenderTarget) *RenderPass {
 	// default ortho camera
 	camera := NewOrthographicCamera(-1, 1, 1, -1, 0, 1)
 	//camera.SetPosition(math.Vector{0, 0, -1})

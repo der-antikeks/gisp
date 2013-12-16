@@ -19,8 +19,7 @@ type Renderer struct {
 	window *glfw.Window
 
 	// state cache
-	currentProgram      *Program // if prg of mat.prg != current, prg.use and reset uniforms
-	currentMaterial     Material // if mat != current, reset uniforms
+	currentMaterial     *Material // if mat != current, reset uniforms
 	currentCamera       Camera
 	currentGeometry     *Geometry
 	currentRendertarget *RenderTarget
@@ -347,106 +346,7 @@ func (r *Renderer) SwapBuffers() {
 }
 
 func (r *Renderer) renderObject(m Renderable, camera Camera) {
-	if _, ok := m.Material().(*ShaderMaterial); ok {
-		r.renderObjectNew(m, camera)
-		return
-	}
-
 	material := m.Material()
-	var refreshMaterial bool
-
-	if r.currentMaterial != material {
-		if r.currentMaterial != nil {
-			r.currentMaterial.Unbind()
-		}
-
-		r.currentMaterial = material
-		refreshMaterial = true
-	}
-
-	// use program
-	program := material.Program()
-	if r.currentProgram != program {
-		program.Use()
-		r.currentProgram = program
-
-		// different materials may have different programs
-		// same material with different values of same uniforms (diffuse, reflection, ...) have same program
-		refreshMaterial = true
-	}
-
-	if refreshMaterial || r.currentCamera != camera {
-		program.Uniform("projectionMatrix").UniformMatrix4fv(false, camera.ProjectionMatrix().Float32())
-
-		if r.currentCamera != camera {
-			r.currentCamera = camera
-		}
-	}
-
-	if refreshMaterial {
-		material.UpdateUniforms()
-	}
-
-	geometry := m.Geometry()
-	if r.currentGeometry != geometry {
-		r.currentGeometry = geometry
-
-		program.DisableAttributes()
-		geometry.BindVertexArray()
-
-		// vertices
-		geometry.BindPositionBuffer()
-		program.EnableAttribute("vertexPosition")
-		program.Attribute("vertexPosition").AttribPointer(3, gl.FLOAT, false, 0, nil)
-		//geometry.positionBuffer.Unbind(gl.ARRAY_BUFFER)
-
-		// normal
-		geometry.BindNormalBuffer()
-		program.EnableAttribute("vertexNormal")
-		program.Attribute("vertexNormal").AttribPointer(3, gl.FLOAT, false, 0, nil)
-
-		// uv
-		geometry.BindUvBuffer()
-		program.EnableAttribute("vertexUV")
-		program.Attribute("vertexUV").AttribPointer(2, gl.FLOAT, false, 0, nil)
-
-		// color
-		geometry.BindColorBuffer()
-		program.EnableAttribute("vertexColor")
-		program.Attribute("vertexColor").AttribPointer(3, gl.FLOAT, false, 0, nil)
-	}
-
-	// for each object of same material and geometry
-
-	// Model matrix : an identity matrix (model will be at the origin)
-	program.Uniform("modelMatrix").UniformMatrix4fv(false, m.MatrixWorld().Float32())
-
-	// viewMatrix
-	viewMatrix := camera.MatrixWorld().Inverse()
-	program.Uniform("viewMatrix").UniformMatrix4fv(false, viewMatrix.Float32())
-
-	// modelViewMatrix
-	modelViewMatrix := viewMatrix.Mul(m.MatrixWorld())
-	program.Uniform("modelViewMatrix").UniformMatrix4fv(false, modelViewMatrix.Float32())
-
-	// normalMatrix
-	normalMatrix := modelViewMatrix.Normal()
-	program.Uniform("normalMatrix").UniformMatrix3fv(false, normalMatrix.Matrix3Float32())
-
-	// draw triangles
-	if material.Wireframe() {
-		gl.LineWidth(float32(2))
-
-		geometry.BindLineBuffer()
-		gl.DrawElements(gl.LINES, geometry.LineCount(), gl.UNSIGNED_SHORT, nil) // gl.UNSIGNED_INT, UNSIGNED_SHORT
-	} else {
-		geometry.BindFaceBuffer()
-		gl.DrawElements(gl.TRIANGLES, geometry.FaceCount(), gl.UNSIGNED_SHORT, nil /* uintptr(start) */) // gl.UNSIGNED_INT, UNSIGNED_SHORT
-	}
-}
-
-func (r *Renderer) renderObjectNew(m Renderable, camera Camera) {
-	material := m.Material().(*ShaderMaterial)
 	var refreshMaterial bool
 
 	if r.currentMaterial != material {
@@ -462,17 +362,6 @@ func (r *Renderer) renderObjectNew(m Renderable, camera Camera) {
 	if material.UseProgram() {
 		refreshMaterial = true
 	}
-	/*
-		program := material.Program()
-		if r.currentProgram != program {
-			program.Use()
-			r.currentProgram = program
-
-			// different materials may have different programs
-			// same material with different values of same uniforms (diffuse, reflection, ...) have same program
-			refreshMaterial = true
-		}
-	*/
 
 	if refreshMaterial || r.currentCamera != camera {
 		//program.Uniform("projectionMatrix").UniformMatrix4fv(false, camera.ProjectionMatrix().Float32())
@@ -540,7 +429,7 @@ func (r *Renderer) renderObjectNew(m Renderable, camera Camera) {
 	// normalMatrix
 	normalMatrix := modelViewMatrix.Normal()
 	//program.Uniform("normalMatrix").UniformMatrix3fv(false, normalMatrix.Matrix3Float32())
-	material.UpdateUniform("normalMatrix", normalMatrix.Float32())
+	material.UpdateUniform("normalMatrix", normalMatrix.Matrix3Float32())
 
 	// draw triangles
 	if material.Wireframe() {

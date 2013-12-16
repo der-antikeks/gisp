@@ -17,7 +17,7 @@ import (
 
 func LoadObject(obj, mtl string) (Object, error) {
 	// load materials
-	materials := map[string]PhongMaterial{}
+	materials := map[string]Material{}
 	if mtl != "" {
 		var err error
 		materials, err = loadMTL(mtl)
@@ -41,7 +41,10 @@ func LoadObject(obj, mtl string) (Object, error) {
 
 	// starting mesh
 	geo := NewGeometry()
-	mat := NewPhongMaterial()
+	mat, err := NewMaterial("phong")
+	if err != nil {
+		return nil, err
+	}
 	mesh := NewMesh(geo, mat)
 
 	// cache
@@ -182,7 +185,10 @@ func LoadObject(obj, mtl string) (Object, error) {
 					mat = &m
 					mesh.SetMaterial(mat)
 				} else {
-					mat = NewPhongMaterial()
+					mat, err = NewMaterial("phong")
+					if err != nil {
+						return nil, err
+					}
 				}
 
 			case "mtllib": // mtl file
@@ -217,7 +223,7 @@ func LoadObject(obj, mtl string) (Object, error) {
 	return group, nil
 }
 
-func loadMTL(path string) (map[string]PhongMaterial, error) {
+func loadMTL(path string) (map[string]Material, error) {
 	// open file, init reader
 	file, err := os.Open(path)
 	if err != nil {
@@ -354,29 +360,36 @@ func loadMTL(path string) (map[string]PhongMaterial, error) {
 		}
 	}
 
-	results := map[string]PhongMaterial{}
+	results := map[string]Material{}
 
 	for n, i := range materials {
 		// invert transparency
 		//i.d = 1 - i.d
 
-		m := NewPhongMaterial()
+		m, err := NewMaterial("phong")
+		if err != nil {
+			return nil, err
+		}
 
 		// diffuse
 		if i.kd != nil {
-			m.SetDiffuseColor(*i.kd)
+			//m.SetDiffuseColor(*i.kd)
+			m.SetUniform("diffuse", *i.kd)
 		}
 
 		// ambient
 		if i.ka != nil {
-			m.SetAmbientColor(*i.ka)
+			//m.SetAmbientColor(*i.ka)
+			m.SetUniform("ambient", *i.ka)
 		} else if i.kd != nil {
-			m.SetAmbientColor(m.DiffuseColor())
+			//m.SetAmbientColor(m.DiffuseColor())
+			m.SetUniform("ambient", m.Uniform("ambient"))
 		}
 
 		// specular
 		if i.ks != nil {
-			m.SetSpecularColor(*i.ks)
+			//m.SetSpecularColor(*i.ks)
+			m.SetUniform("specular", *i.ks)
 		}
 
 		// diffuse texture map
@@ -386,12 +399,15 @@ func loadMTL(path string) (map[string]PhongMaterial, error) {
 				return nil, err
 			}
 
-			m.SetDiffuseMap(tx)
+			//m.SetDiffuseMap(tx)
+			m.SetUniform("diffuseMap", tx)
 		}
 
-		m.SetShininess(i.ns) // specular exponent
+		//m.SetShininess(i.ns) // specular exponent
+		m.SetUniform("shininess", i.ns)
 		//i.ni // optical density
-		m.SetOpacity(i.d) // dissolve
+		//m.SetOpacity(i.d) // dissolve
+		m.SetUniform("opacity", i.d)
 		//i.illum // illumination model
 
 		results[n] = *m

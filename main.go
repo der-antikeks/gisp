@@ -46,13 +46,23 @@ func main() {
 
 	// blur shader
 	/*
-		hBlurMaterial := engine.NewBlurMaterial(3.0/1024.0, false)
-		hBlurMaterial.SetDiffuseMap(targetB)
-		renderer.AddPass(engine.NewShaderPass(hBlurMaterial, targetA))
+		hBlurMaterial, err := engine.NewMaterial("blur")
+		if err != nil {
+			log.Fatalf("could not load shader material: %v\n", err)
+		}
+		hBlurMaterial.SetUniform("diffuseMap", targetA)
+		hBlurMaterial.SetUniform("size", 3.0/1024.0)
+		hBlurMaterial.SetUniform("vertical", false)
+		renderer.AddPass(engine.NewShaderPass(hBlurMaterial, targetB))
 
-		vBlurMaterial := engine.NewBlurMaterial(3.0/768.0, true)
-		vBlurMaterial.SetDiffuseMap(targetA)
-		renderer.AddPass(engine.NewShaderPass(vBlurMaterial, targetB))
+		vBlurMaterial, err := engine.NewMaterial("blur")
+		if err != nil {
+			log.Fatalf("could not load shader material: %v\n", err)
+		}
+		vBlurMaterial.SetUniform("diffuseMap", targetB)
+		vBlurMaterial.SetUniform("size", 3.0/1024.0)
+		vBlurMaterial.SetUniform("vertical", true)
+		renderer.AddPass(engine.NewShaderPass(vBlurMaterial, nil))
 	*/
 
 	// test scene
@@ -63,10 +73,13 @@ func main() {
 
 	// blend shader
 	/*
-		blendMaterial := engine.NewBlendMaterial()
-		blendMaterial.SetDiffuseMapA(targetA)
-		blendMaterial.SetDiffuseMapB(targetC)
-		blendMaterial.SetRatio(0.5)
+		blendMaterial, err := engine.NewMaterial("blend")
+		if err != nil {
+			log.Fatalf("could not load shader material: %v\n", err)
+		}
+		blendMaterial.SetUniform("diffuseMapA",targetA)
+		blendMaterial.SetUniform("diffuseMapB",targetC)
+		blendMaterial.SetUniform("ratio",0.5)
 		renderer.AddPass(engine.NewShaderPass(blendMaterial, nil))
 	*/
 
@@ -172,13 +185,7 @@ func generateScene() (*engine.Scene, engine.Camera) {
 		log.Fatalf("could not load texture: %v\n", err)
 	}
 
-	/*
-		opaque := engine.NewBasicMaterial()
-		opaque.SetDiffuseMap(texture)
-		opaque.SetDiffuseColor(math.Color{0, 1, 1})
-		opaque.SetOpacity(1.0)
-	*/
-	opaque, err := engine.NewShaderMaterial("basic")
+	opaque, err := engine.NewMaterial("basic")
 	if err != nil {
 		log.Fatalf("could not load shader material: %v\n", err)
 	}
@@ -189,10 +196,13 @@ func generateScene() (*engine.Scene, engine.Camera) {
 	obj1 := engine.NewMesh(cube, opaque)
 
 	// object 2
-	transparent := engine.NewBasicMaterial()
-	transparent.SetDiffuseMap(texture)
-	transparent.SetDiffuseColor(math.Color{1, 0, 1})
-	transparent.SetOpacity(0.7)
+	transparent, err := engine.NewMaterial("basic")
+	if err != nil {
+		log.Fatalf("could not load shader material: %v\n", err)
+	}
+	transparent.SetUniform("diffuseMap", texture)
+	transparent.SetUniform("diffuse", math.Color{1, 0, 1})
+	transparent.SetUniform("opacity", 0.7)
 
 	obj2 := engine.NewMesh(cube, transparent)
 	obj2.SetPosition(math.Vector{-3, 0, 0})
@@ -214,8 +224,11 @@ func generateScene() (*engine.Scene, engine.Camera) {
 		log.Fatalf("could not load texture: %v\n", err)
 	}
 
-	moonMat := engine.NewPhongMaterial() // engine.NewBasicMaterial()
-	moonMat.SetDiffuseMap(moonTex)
+	moonMat, err := engine.NewMaterial("phong")
+	if err != nil {
+		log.Fatalf("could not load shader material: %v\n", err)
+	}
+	moonMat.SetUniform("diffuseMap", moonTex)
 
 	moon = engine.NewMesh(sphere, moonMat)
 	moon.SetPosition(math.Vector{0, 0, 10})
@@ -271,20 +284,26 @@ func generateHud() (*engine.Scene, engine.Camera) {
 		log.Fatalf("could not load texture: %v\n", err)
 	}
 
-	opaque := engine.NewBasicMaterial()
-	opaque.SetDiffuseMap(texture)
-	opaque.SetDiffuseColor(math.Color{1, 0, 0})
-	opaque.SetOpacity(1.0)
+	opaque, err := engine.NewMaterial("basic")
+	if err != nil {
+		log.Fatalf("could not load shader material: %v\n", err)
+	}
+	opaque.SetUniform("diffuseMap", texture)
+	opaque.SetUniform("diffuse", math.Color{1, 0, 1})
+	opaque.SetUniform("opacity", 1.0)
 
 	// right plane
 	planeR := engine.NewMesh(engine.NewPlaneGeometry(50, 50), opaque)
 	planeR.SetPosition(math.Vector{75, -75, 0})
 
 	// transparent
-	transparent := engine.NewBasicMaterial()
-	transparent.SetDiffuseMap(texture)
-	transparent.SetDiffuseColor(math.Color{1, 0, 1})
-	transparent.SetOpacity(0.7)
+	transparent, err := engine.NewMaterial("basic")
+	if err != nil {
+		log.Fatalf("could not load shader material: %v\n", err)
+	}
+	transparent.SetUniform("diffuseMap", texture)
+	transparent.SetUniform("diffuse", math.Color{1, 0, 1})
+	transparent.SetUniform("opacity", 0.7)
 
 	// left plane
 	planeL := engine.NewMesh(engine.NewPlaneGeometry(50, 50), transparent)
@@ -307,10 +326,13 @@ func generateBackground() (*engine.Scene, engine.Camera) {
 		log.Fatalf("could not load texture: %v\n", err)
 	}
 
-	opaque := engine.NewBasicMaterial()
-	opaque.SetDiffuseMap(texture)
-	opaque.SetDiffuseColor(math.Color{0.1, 0.1, 0.5})
-	opaque.SetOpacity(1.0)
+	opaque, err := engine.NewMaterial("basic")
+	if err != nil {
+		log.Fatalf("could not load shader material: %v\n", err)
+	}
+	opaque.SetUniform("diffuseMap", texture)
+	opaque.SetUniform("diffuse", math.Color{0.1, 0.1, 0.5})
+	opaque.SetUniform("opacity", 1.0)
 
 	// plane
 	plane := engine.NewMesh(engine.NewPlaneGeometry(2, 2), opaque)

@@ -9,8 +9,8 @@ type Renderable interface {
 
 	Geometry() *Geometry
 	SetGeometry(g *Geometry)
-	Material() Material
-	SetMaterial(m Material)
+	Material() *Material
+	SetMaterial(m *Material)
 	Dispose()
 }
 
@@ -18,7 +18,7 @@ type Mesh struct {
 	Renderable
 
 	geometry *Geometry
-	material Material
+	material *Material
 
 	// 3d
 	position math.Vector
@@ -36,7 +36,7 @@ type Mesh struct {
 	children []Object
 }
 
-func NewMesh(geo *Geometry, mat Material) *Mesh {
+func NewMesh(geo *Geometry, mat *Material) *Mesh {
 	return &Mesh{
 		geometry: geo,
 		material: mat,
@@ -62,11 +62,11 @@ func (m *Mesh) SetGeometry(g *Geometry) {
 	m.geometry = g
 }
 
-func (m *Mesh) Material() Material {
+func (m *Mesh) Material() *Material {
 	return m.material
 }
 
-func (m *Mesh) SetMaterial(mat Material) {
+func (m *Mesh) SetMaterial(mat *Material) {
 	m.material = mat
 }
 
