@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"io/ioutil"
@@ -20,8 +21,9 @@ type Glyph struct {
 
 // http://www.valvesoftware.com/publications/2007/SIGGRAPH2007_AlphaTestedMagnification.pdf
 type Font struct {
-	material *Material
-	charset  map[rune]Glyph
+	material      *Material
+	width, height int
+	charset       map[rune]Glyph
 }
 
 func LoadFont(fontfile string /*, size, low, high int*/) (*Font, error) {
@@ -39,6 +41,7 @@ func LoadFont(fontfile string /*, size, low, high int*/) (*Font, error) {
 
 	// generate distance field
 	img = generateDistanceField(img, glyphs, spread)
+	bounds := img.Bounds().Size()
 
 	// generate texture
 	tex := &ImageTexture{
@@ -59,10 +62,13 @@ func LoadFont(fontfile string /*, size, low, high int*/) (*Font, error) {
 	}
 	mat.SetUniform("distanceFieldMap", tex)
 	mat.SetUniform("diffuse", math.Color{1, 0, 1})
+	mat.SetUniform("smoothing", 0.25 /* / (float64(spread) * scale)*/)
 
 	return &Font{
 		material: mat,
 		charset:  glyphs,
+		width:    bounds.X,
+		height:   bounds.Y,
 	}, nil
 }
 
@@ -73,9 +79,79 @@ func (f *Font) Dispose() {
 }
 
 func (f *Font) Printf(format string, a ...interface{}) *Mesh {
-	// TODO
-	var geo *Geometry
-	geo = NewPlaneGeometry(50, 50)
+	geo := &Geometry{
+		initialized: false,
+		needsUpdate: true,
+		hint:        gl.STATIC_DRAW,
+	}
+
+	normal := math.Vector{0, 0, 1}
+	color := math.Color{1, 1, 1}
+	str := fmt.Sprintf(format, a...)
+	size := 100.0
+	sx := 0.0
+
+	for _, c := range str {
+		glyph, found := f.charset[c]
+		if !found {
+			continue
+		}
+
+		x := float64(glyph.x) / float64(f.width)
+		y := float64(glyph.y) / float64(f.height)
+		w := float64(glyph.advance) / float64(f.width)
+		h := float64(glyph.h) / float64(f.height)
+
+		a := math.Vector{sx + size*w, size * h, 0}
+		b := math.Vector{sx, size * h, 0}
+		c := math.Vector{sx, 0, 0}
+		d := math.Vector{sx + size*w, 0, 0}
+		sx += size * w
+
+		tl := math.Vector{x, y}
+		tr := math.Vector{x + w, y}
+		bl := math.Vector{x, y + h}
+		br := math.Vector{x + w, y + h}
+
+		geo.AddFace(
+			Vertex{
+				position: a,
+				normal:   normal,
+				uv:       tr,
+				color:    color,
+			}, Vertex{
+				position: b,
+				normal:   normal,
+				uv:       tl,
+				color:    color,
+			}, Vertex{
+				position: c,
+				normal:   normal,
+				uv:       bl,
+				color:    color,
+			})
+		geo.AddFace(
+			Vertex{
+				position: c,
+				normal:   normal,
+				uv:       bl,
+				color:    color,
+			}, Vertex{
+				position: d,
+				normal:   normal,
+				uv:       br,
+				color:    color,
+			}, Vertex{
+				position: a,
+				normal:   normal,
+				uv:       tr,
+				color:    color,
+			})
+
+	}
+
+	geo.MergeVertices()
+	geo.ComputeBoundary()
 
 	return &Mesh{
 		geometry: geo,

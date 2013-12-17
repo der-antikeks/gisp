@@ -509,12 +509,11 @@ func init() {
 
 				// Values that stay constant for the whole mesh.
 				uniform vec3 diffuse;
+				uniform float smoothing;
 				uniform sampler2D distanceFieldMap;
 
 				// Output data
 				out vec4 fragmentColor;
-
-				const float smoothing = 1.0/16.0;
 
 				void main()
 				{
@@ -530,6 +529,7 @@ func init() {
 				"normalMatrix":     nil, //[9]float32{}, // matrix.Matrix3Float32()
 
 				"distanceFieldMap": nil, // texture
+				"smoothing":        0.25,
 				"diffuse":          math.Color{1, 1, 1},
 			},
 			attributes: map[string]uint{
@@ -544,6 +544,8 @@ func init() {
 
 type Material struct {
 	program    *program
+	wireframe  bool
+	opaque     bool
 	uniforms   map[string]interface{} // value
 	attributes map[string]uint        // size
 }
@@ -634,13 +636,23 @@ func NewMaterial(name string) (*Material, error) {
 	return mat, nil
 }
 
-func (m *Material) Wireframe() bool { return false }
+func (m *Material) SetWireframe(b bool) {
+	m.wireframe = b
+}
+
+func (m *Material) Wireframe() bool {
+	return m.wireframe
+}
+
+func (m *Material) SetOpaque(b bool) {
+	m.opaque = b
+}
 
 func (m *Material) Opaque() bool {
 	if o, ok := m.uniforms["opacity"]; ok {
 		return o == 1.0
 	}
-	return true
+	return m.opaque
 }
 
 func (m *Material) UseProgram() bool {

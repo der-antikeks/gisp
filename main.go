@@ -314,8 +314,8 @@ func generateHud() (*engine.Scene, engine.Camera) {
 	if err != nil {
 		log.Fatalf("could not load font: %v\n", err)
 	}
-	fontMesh := font.Printf("testing font")
-	fontMesh.SetPosition(math.Vector{20, -75, 0})
+	fontMesh := font.Printf("Testing Font 012345679")
+	fontMesh.SetPosition(math.Vector{-100, 90, 0})
 
 	// scene
 	scene := engine.NewScene()
