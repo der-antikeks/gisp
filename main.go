@@ -269,6 +269,27 @@ func generateScene() (*engine.Scene, engine.Camera) {
 	moon2.SetPosition(math.Vector{-5, 0, 0})
 	moon.AddChild(moon2)
 
+	// font
+	font, err := engine.LoadFont("assets/luxisr.ttf")
+	if err != nil {
+		log.Fatalf("could not load font: %v\n", err)
+	}
+	fontMesh := font.Printf("Another Font Test!")
+	fontMesh.SetPosition(math.Vector{0, 0, 1})
+	fontMesh.SetScale(math.Vector{5, 5, 5})
+	rotatingCube.AddChild(fontMesh)
+
+	// billboard
+	billboardMat, err := engine.NewMaterial("billboard")
+	if err != nil {
+		log.Fatalf("could not load shader material: %v\n", err)
+	}
+
+	billboard := engine.NewMesh(engine.NewPlaneGeometry(5, 5), billboardMat)
+	billboard.SetRotation(math.QuaternionFromAxisAngle(math.Vector{1, 0, 0}, math.Pi))
+	billboard.SetPosition(math.Vector{5, 0, 2})
+	scene.AddChild(billboard)
+
 	return scene, camera
 }
 
@@ -316,6 +337,7 @@ func generateHud() (*engine.Scene, engine.Camera) {
 	}
 	fontMesh := font.Printf("Testing Font 012345679")
 	fontMesh.SetPosition(math.Vector{-100, 90, 0})
+	fontMesh.SetScale(math.Vector{100, 100, 100})
 
 	// scene
 	scene := engine.NewScene()

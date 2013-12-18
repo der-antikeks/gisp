@@ -15,11 +15,12 @@
 		* load managers that handle allocation/deallocation
 		* scene object loading/unloading, current scene, scene preload
 
-
-
-	MaterialLoader
-	GeometryLoader
-	TextureLoader
+	loaders for caching
+		MaterialLoader (only program)
+		GeometryLoader
+		TextureLoader
+		FontLoader
+		ObjMtlLoader
 
 	scene (object)
 		mesh (renderable object)

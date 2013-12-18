@@ -539,6 +539,94 @@ func init() {
 				"vertexColor":    3,
 			},
 		},
+		"billboard": {
+			vertex: `
+				#version 330 core
+
+				// Input vertex data, different for all executions of this shader.
+				in vec3 vertexPosition;
+				in vec3 vertexNormal;
+				in vec2 vertexUV;
+				in vec2 vertexUV2;
+				in vec3 vertexColor;
+
+				// Values that stay constant for the whole mesh.
+				uniform mat4 projectionMatrix;
+				uniform mat4 viewMatrix;
+				uniform mat4 modelMatrix;
+				uniform mat4 modelViewMatrix;
+				uniform mat3 normalMatrix;
+
+				uniform float size;
+
+				// Output data, will be interpolated for each fragment.
+				out vec2 UV;
+				out vec3 Color;
+
+				void main(){
+					// Output position of the vertex
+					//gl_Position = projectionMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
+					//gl_Position = projectionMatrix * vec4(vertexPosition + modelMatrix[3].xyz, 0);
+
+					vec3 cameraRight = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
+					vec3 cameraUp = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
+
+					//vec4 vertexPosition = modelMatrix * vec4(vertexPosition, 1.0);
+					//vertexPosition = vertexPosition + modelMatrix[3].xyz;
+
+					vec3 center = (modelMatrix * vec4(0, 0, 0, 1)).xyz;
+
+					vec3 vertexPosition_billboard = 
+						center
+						+ cameraRight * vertexPosition.x * size
+						+ cameraUp * vertexPosition.y * size;
+
+					gl_Position = projectionMatrix * viewMatrix * vec4(vertexPosition_billboard, 1.0);
+
+					// UV of the vertex
+					UV = vertexUV;
+
+					Color = vertexColor;
+				}`,
+			fragment: `
+				#version 330 core
+
+				// Interpolated values from the vertex shaders
+				in vec2 UV;
+				in vec3 Color;
+
+				// Values that stay constant for the whole mesh.
+				//uniform mat4 viewMatrix;
+				//uniform vec3 diffuse;
+				//uniform float opacity;
+				//uniform sampler2D diffuseMap;
+
+				// Output data
+				out vec4 fragmentColor;
+
+				void main()
+				{
+					fragmentColor = vec4(1, 0, 0, 1);
+				}`,
+			uniforms: map[string]interface{}{
+				"projectionMatrix": nil, //[16]float32{}, // matrix.Float32()
+				"viewMatrix":       nil, //[16]float32{},
+				"modelMatrix":      nil, //[16]float32{},
+				"modelViewMatrix":  nil, //[16]float32{},
+				"normalMatrix":     nil, //[9]float32{}, // matrix.Matrix3Float32()
+
+				//"diffuse":    math.Color{1, 1, 1},
+				//"opacity":    1.0,
+				"size": 1.0,
+				//"diffuseMap": nil, // texture
+			},
+			attributes: map[string]uint{
+				"vertexPosition": 3,
+				"vertexNormal":   3,
+				"vertexUV":       2,
+				"vertexColor":    3,
+			},
+		},
 	}
 }
 

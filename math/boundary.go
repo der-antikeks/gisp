@@ -34,6 +34,15 @@ func (b *Boundary) AddPoint(p Vector) {
 	b.Min[2], b.Max[2] = math.Min(b.Min[2], p[2]), math.Max(b.Max[2], p[2])
 }
 
+func (b *Boundary) AddBoundary(a Boundary) {
+	if b.Equals(a, 6) {
+		return
+	}
+
+	b.AddPoint(a.Max)
+	b.AddPoint(a.Min)
+}
+
 func (b Boundary) Center() Vector {
 	return b.Min.Add(b.Max).MulScalar(0.5)
 }

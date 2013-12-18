@@ -88,7 +88,7 @@ func (f *Font) Printf(format string, a ...interface{}) *Mesh {
 	normal := math.Vector{0, 0, 1}
 	color := math.Color{1, 1, 1}
 	str := fmt.Sprintf(format, a...)
-	size := 100.0
+	size := 1.0
 	sx := 0.0
 
 	for _, c := range str {

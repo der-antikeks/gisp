@@ -128,6 +128,38 @@ func TestBoundary_AddPoint(t *testing.T) {
 	}
 }
 
+func TestBoundary_AddBoundary(t *testing.T) {
+	b := NewBoundary()
+
+	tests := []struct {
+		A        Boundary
+		Expected Boundary
+	}{
+		{
+			NewBoundary(),
+			NewBoundary(),
+		},
+		{
+			Boundary{Vector{0, 0, 0, 1}, Vector{0, 0, 0, 1}},
+			Boundary{Vector{0, 0, 0, 1}, Vector{0, 0, 0, 1}},
+		},
+		{
+			Boundary{Vector{-1, 0, 0, 1}, Vector{0, 0, 0, 1}},
+			Boundary{Vector{-1, 0, 0, 1}, Vector{0, 0, 0, 1}},
+		},
+		{
+			Boundary{Vector{-1, -1, 0, 1}, Vector{1, 0, 1, 1}},
+			Boundary{Vector{-1, -1, 0, 1}, Vector{1, 0, 1, 1}},
+		},
+	}
+
+	for _, c := range tests {
+		if b.AddBoundary(c.A); !b.Equals(c.Expected, 6) {
+			t.Errorf("Boundary().AddBoundary(%v) != %v (got %v)", c.A, c.Expected, b)
+		}
+	}
+}
+
 func TestBoundary_Center(t *testing.T) {
 	tests := []struct {
 		B        Boundary
