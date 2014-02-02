@@ -49,12 +49,12 @@ func newSpaceship() *ecs.Entity {
 }
 
 func newAsteroid() *ecs.Entity {
-	s := ecs.NewEntity("Asteroid01")
-	s.Add(&PositionComponent{X: 10, Y: 10, Rotation: 12})
-	s.Add(&VelocityComponent{VelocityX: -1, VelocityY: -5, AngularVelocity: 1})
-	s.Add(&DisplayComponent{View: DisplayObject{}})
-
-	return s
+	return ecs.NewEntity(
+		"Asteroid01",
+		&PositionComponent{X: 10, Y: 10, Rotation: 12},
+		&VelocityComponent{VelocityX: -1, VelocityY: -5, AngularVelocity: 1},
+		&DisplayComponent{View: DisplayObject{}},
+	)
 }
 
 // components
