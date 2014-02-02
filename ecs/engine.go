@@ -24,8 +24,8 @@ func NewEngine() *Engine {
 // Add System to Engine. Already registered Entites are added to the System
 func (e *Engine) AddSystem(system *System, priority int) {
 	e.systems = append(e.systems, system)
-	system.SetEngine(e)
-	system.Init()
+	system.setEngine(e)
+	system.init()
 
 	// priority
 	system.Priority = priority
@@ -34,14 +34,14 @@ func (e *Engine) AddSystem(system *System, priority int) {
 	// late system adding
 	for _, entity := range e.entities {
 		//fmt.Printf("adding entity %s at %T\n", entity.Name, system)
-		system.Add(entity)
+		system.add(entity)
 	}
 }
 
-// Remove System from Engine. Calls Cleaup-Function of System.
+// Remove System from Engine
 func (e *Engine) RemoveSystem(system *System) {
-	system.Cleanup()
-	system.SetEngine(nil)
+	system.cleanup()
+	system.setEngine(nil)
 
 	for i, f := range e.systems {
 		if f == system {
@@ -57,23 +57,23 @@ func (e *Engine) RemoveSystem(system *System) {
 	}
 }
 
-// ByPriority attaches the methods of sort.Interface to []*System, sorting in increasing order of the System.Priority Field.
-type ByPriority []*System
+// byPriority attaches the methods of sort.Interface to []*System, sorting in increasing order of the System.Priority Field.
+type byPriority []*System
 
-func (a ByPriority) Len() int           { return len(a) }
-func (a ByPriority) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a ByPriority) Less(i, j int) bool { return a[i].Priority < a[j].Priority }
+func (a byPriority) Len() int           { return len(a) }
+func (a byPriority) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a byPriority) Less(i, j int) bool { return a[i].Priority < a[j].Priority }
 
 // Update each Systems in order of priority field
 func (e *Engine) Update(time time.Duration) error {
 	if e.updatePriority {
-		sort.Sort(ByPriority(e.systems))
+		sort.Sort(byPriority(e.systems))
 		e.updatePriority = false
 	}
 
 	for _, s := range e.systems {
 		//fmt.Printf("updating system %s\n", s.Name)
-		if err := s.Update(time); err != nil {
+		if err := s.update(time); err != nil {
 			return fmt.Errorf("Error in System %s: %s", s.Name, err)
 		}
 	}
@@ -81,14 +81,13 @@ func (e *Engine) Update(time time.Duration) error {
 	return nil
 }
 
-// Add Entity to Engine and all registered Systems.
-// Calls SetEngine of Entity to get noticed of later changes of the components.
+// Add Entity to Engine and all registered Systems. The Engine is noticed of later changes of the Entity.
 func (e *Engine) AddEntity(entity *Entity) {
 	e.entities = append(e.entities, entity)
-	entity.SetEngine(e)
+	entity.setEngine(e)
 
 	for _, s := range e.systems {
-		s.Add(entity)
+		s.add(entity)
 	}
 }
 
@@ -100,10 +99,10 @@ func (e *Engine) RemoveEntity(entity *Entity) {
 			e.entities[len(e.entities)-1] = nil
 			e.entities = e.entities[:len(e.entities)-1]
 
-			entity.SetEngine(nil)
+			entity.setEngine(nil)
 
 			for _, s := range e.systems {
-				s.Remove(entity)
+				s.remove(entity)
 			}
 
 			return
@@ -114,7 +113,7 @@ func (e *Engine) RemoveEntity(entity *Entity) {
 // TODO: update each system with new components
 
 // Called by Entity whose components have changed after Adding
-func (e *Engine) EntityUpdated(entity *Entity) {}
+func (e *Engine) entityUpdated(entity *Entity) {}
 
 //func (e *Engine) EntityComponentAdded(entity *Entity, component interface{})   {}
 //func (e *Engine) EntityComponentRemoved(entity *Entity, component interface{}) {}

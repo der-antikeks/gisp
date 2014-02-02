@@ -11,14 +11,14 @@ type System struct {
 	Priority int
 	engine   *Engine
 
-	types   []reflect.Type
-	targets map[*Entity]map[reflect.Type]reflect.Value
-	update  reflect.Value
+	types      []reflect.Type
+	targets    map[*Entity]map[reflect.Type]reflect.Value
+	updatefunc reflect.Value
 
-	init       func() error
-	cleanup    func() error
-	preupdate  func()
-	postupdate func()
+	initfunc       func() error
+	cleanupfunc    func() error
+	preupdatefunc  func()
+	postupdatefunc func()
 }
 
 // Creates a new System that takes Entities with the set of components determined by the supplied update function
@@ -28,9 +28,9 @@ func NewSystem(name string, update interface{}) *System {
 	s := &System{
 		Name: name,
 
-		types:   make([]reflect.Type, t.NumIn()),
-		targets: map[*Entity]map[reflect.Type]reflect.Value{},
-		update:  reflect.ValueOf(update),
+		types:      make([]reflect.Type, t.NumIn()),
+		targets:    map[*Entity]map[reflect.Type]reflect.Value{},
+		updatefunc: reflect.ValueOf(update),
 	}
 
 	for i := 0; i < t.NumIn(); i++ {
@@ -41,32 +41,32 @@ func NewSystem(name string, update interface{}) *System {
 }
 
 // Set Engine
-func (s *System) SetEngine(engine *Engine) { s.engine = engine }
+func (s *System) setEngine(engine *Engine) { s.engine = engine }
 
-// Set init function
-func (s *System) SetInitFunc(f func() error) { s.init = f }
+// Set init function that is called before the system is added to an engine
+func (s *System) SetInitFunc(f func() error) { s.initfunc = f }
 
-// Set clean up function
-func (s *System) SetCleanupFunc(f func() error) { s.cleanup = f }
+// Set clean up function that is called before the system is removed from an engine
+func (s *System) SetCleanupFunc(f func() error) { s.cleanupfunc = f }
 
-// Set function which is executed before the update function
-func (s *System) SetPreUpdateFunc(f func()) { s.preupdate = f }
+// Set function which is executed every time before the Entities are updated
+func (s *System) SetPreUpdateFunc(f func()) { s.preupdatefunc = f }
 
-// Set function which is executed after the update function
-func (s *System) SetPostUpdateFunc(f func()) { s.postupdate = f }
+// Set function which is executed every time after the Entities are updated
+func (s *System) SetPostUpdateFunc(f func()) { s.postupdatefunc = f }
 
 // Initialize System and call user supplied init function
-func (s *System) Init() error {
-	if s.init != nil {
-		return s.init()
+func (s *System) init() error {
+	if s.initfunc != nil {
+		return s.initfunc()
 	}
 	return nil
 }
 
 // Call user supplied clean up function and clean up System, release mapped pointers
-func (s *System) Cleanup() error {
-	if s.cleanup != nil {
-		if err := s.cleanup(); err != nil {
+func (s *System) cleanup() error {
+	if s.cleanupfunc != nil {
+		if err := s.cleanupfunc(); err != nil {
 			return err
 		}
 	}
@@ -83,7 +83,7 @@ func (s *System) Cleanup() error {
 
 // Adds the Entity to the System if it contains the specific set of components and returns true.
 // Returns false if components do not match.
-func (s *System) Add(entity *Entity) bool {
+func (s *System) add(entity *Entity) bool {
 	//fmt.Printf("adding Entity %s to System %s\n", entity.Name, s.Name)
 
 	//fmt.Println("using set", s.types)
@@ -96,7 +96,7 @@ func (s *System) Add(entity *Entity) bool {
 		case "*ecs.Engine", "*ecs.System", "time.Duration", "*ecs.Entity":
 			//fmt.Println("ignoring", t.String())
 		default:
-			r := entity.Components.Get(t)
+			r := entity.Get(t)
 			if r == nil {
 				//fmt.Println("set is not matching")
 				return false
@@ -112,18 +112,18 @@ func (s *System) Add(entity *Entity) bool {
 }
 
 // Remove Entity from System
-func (s *System) Remove(entity *Entity) {
+func (s *System) remove(entity *Entity) {
 	delete(s.targets, entity)
 }
 
 // Call update function on all Entities
-func (s *System) Update(td time.Duration) error {
-	if s.preupdate != nil {
-		s.preupdate()
+func (s *System) update(td time.Duration) error {
+	if s.preupdatefunc != nil {
+		s.preupdatefunc()
 	}
 
-	if s.postupdate != nil {
-		defer s.postupdate()
+	if s.postupdatefunc != nil {
+		defer s.postupdatefunc()
 	}
 
 	args := make([]reflect.Value, len(s.types))
@@ -166,7 +166,7 @@ func (s *System) Update(td time.Duration) error {
 		//fmt.Println(args)
 
 		// TODO: break if error returned?
-		/*ret :=*/ s.update.Call(args)
+		/*ret :=*/ s.updatefunc.Call(args)
 		/*
 			if ret != nil {
 				fmt.Println("returned:", ret)

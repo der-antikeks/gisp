@@ -6,13 +6,14 @@ import (
 	"sync"
 )
 
-type Set struct {
+// set of components
+type set struct {
 	sync.Mutex
 	data map[reflect.Type]interface{}
 }
 
-func NewSet(components ...interface{}) Set {
-	s := Set{
+func newset(components ...interface{}) set {
+	s := set{
 		data: make(map[reflect.Type]interface{}),
 	}
 
@@ -23,15 +24,15 @@ func NewSet(components ...interface{}) Set {
 	return s
 }
 
-func (s Set) String() string {
-	r := "Set{"
+func (s set) String() string {
+	r := "set{"
 	for t, d := range s.data {
 		r += fmt.Sprintf("%s: %v, ", t, d)
 	}
 	return r + "}"
 }
 
-func (s Set) ctype(component interface{}) reflect.Type {
+func (s set) ctype(component interface{}) reflect.Type {
 	var t reflect.Type
 	if c, ok := component.(reflect.Type); ok {
 		t = c
@@ -43,7 +44,7 @@ func (s Set) ctype(component interface{}) reflect.Type {
 	return t
 }
 
-func (s Set) Add(component interface{}) {
+func (s set) Add(component interface{}) {
 	s.Lock()
 	defer s.Unlock()
 
@@ -53,14 +54,14 @@ func (s Set) Add(component interface{}) {
 	}
 }
 
-func (s Set) Remove(component interface{}) {
+func (s set) Remove(component interface{}) {
 	s.Lock()
 	defer s.Unlock()
 
 	delete(s.data, s.ctype(component))
 }
 
-func (s Set) Reset() {
+func (s set) Reset() {
 	s.Lock()
 	defer s.Unlock()
 
@@ -69,7 +70,7 @@ func (s Set) Reset() {
 	}
 }
 
-func (s Set) Get(component interface{}) interface{} {
+func (s set) Get(component interface{}) interface{} {
 	s.Lock()
 	defer s.Unlock()
 
@@ -81,18 +82,18 @@ func (s Set) Get(component interface{}) interface{} {
 
 /*
 // If A and B are sets and every element of A is also an element of B
-func (a Set) SubsetOf(b Set) (Set, bool) {
+func (a set) SubsetOf(b set) (set, bool) {
 	a.Lock()
 	defer a.Unlock()
 
 	b.Lock()
 	defer b.Unlock()
 
-	subset := NewSet()
+	subset := Newset()
 
 	for t := range a.data {
 		if b.data[t] == nil {
-			return Set{}, false
+			return set{}, false
 		}
 
 		subset.data[t] = b.data[t]
