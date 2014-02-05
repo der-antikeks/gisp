@@ -7,14 +7,10 @@ import (
 	"github.com/der-antikeks/gisp/ecs"
 )
 
-var (
-	engine *ecs.Engine
-)
-
 func main() {
 	log.Println("init")
 
-	engine = ecs.NewEngine()
+	engine := ecs.NewEngine()
 	engine.AddSystem(RenderSystem(), 1)
 	engine.AddSystem(MovementSystem(), 0)
 
