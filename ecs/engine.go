@@ -22,10 +22,12 @@ func NewEngine() *Engine {
 }
 
 // Add System to Engine. Already registered Entites are added to the System
-func (e *Engine) AddSystem(system *System, priority int) {
+func (e *Engine) AddSystem(system *System, priority int) error {
 	e.systems = append(e.systems, system)
 	system.setEngine(e)
-	system.init()
+	if err := system.init(); err != nil {
+		return err
+	}
 
 	// priority
 	system.Priority = priority
@@ -36,6 +38,8 @@ func (e *Engine) AddSystem(system *System, priority int) {
 		//fmt.Printf("adding entity %s at %T\n", entity.Name, system)
 		system.add(entity)
 	}
+
+	return nil
 }
 
 // Remove System from Engine

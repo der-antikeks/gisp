@@ -35,15 +35,11 @@ func (e *Entity) setEngine(engine *Engine) {
 }
 
 func componentType(component interface{}) reflect.Type {
-	var t reflect.Type
 	if c, ok := component.(reflect.Type); ok {
-		t = c
-	} else {
-		t = reflect.TypeOf(component)
-		//t = reflect.ValueOf(component).Elem().Type()
+		return c
 	}
 
-	return t
+	return reflect.TypeOf(component) // .Elem()
 }
 
 // Attach Component
@@ -51,9 +47,7 @@ func (e *Entity) Add(component interface{}) {
 	t := componentType(component)
 
 	e.Lock()
-	if _, ok := e.components[t]; !ok {
-		e.components[t] = component
-	}
+	e.components[t] = component
 	e.Unlock()
 
 	if e.engine != nil {
