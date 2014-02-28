@@ -1,14 +1,25 @@
 package ecs
 
 import (
-	"fmt"
-	"reflect"
+	//"fmt"
+	//"reflect"
 	"time"
 )
 
-type System struct {
-	Name     string
-	Priority int
+type SystemPriority int
+
+type System interface {
+	Priority() SystemPriority
+	AddedToEngine(*Engine) error
+	RemovedFromEngine(*Engine) error
+	Update(time.Duration) error
+}
+
+/*
+TODO:
+
+type magicSystem struct {
+	priority SystemPriority
 	engine   *Engine
 
 	types      []reflect.Type
@@ -22,12 +33,10 @@ type System struct {
 }
 
 // Creates a new System that takes Entities with the set of components determined by the supplied update function
-func NewSystem(name string, update interface{}) *System {
+func newMagicSystem(update interface{}) *magicSystem {
 	t := reflect.TypeOf(update)
 
-	s := &System{
-		Name: name,
-
+	s := &magicSystem{
 		types:      make([]reflect.Type, t.NumIn()),
 		targets:    map[*Entity]map[reflect.Type]reflect.Value{},
 		updatefunc: reflect.ValueOf(update),
@@ -41,22 +50,22 @@ func NewSystem(name string, update interface{}) *System {
 }
 
 // Set Engine
-func (s *System) setEngine(engine *Engine) { s.engine = engine }
+func (s *magicSystem) setEngine(engine *Engine) { s.engine = engine }
 
 // Set init function that is called before the system is added to an engine
-func (s *System) SetInitFunc(f func() error) { s.initfunc = f }
+func (s *magicSystem) SetInitFunc(f func() error) { s.initfunc = f }
 
 // Set clean up function that is called before the system is removed from an engine
-func (s *System) SetCleanupFunc(f func() error) { s.cleanupfunc = f }
+func (s *magicSystem) SetCleanupFunc(f func() error) { s.cleanupfunc = f }
 
 // Set function which is executed every time before the Entities are updated
-func (s *System) SetPreUpdateFunc(f func()) { s.preupdatefunc = f }
+func (s *magicSystem) SetPreUpdateFunc(f func()) { s.preupdatefunc = f }
 
 // Set function which is executed every time after the Entities are updated
-func (s *System) SetPostUpdateFunc(f func()) { s.postupdatefunc = f }
+func (s *magicSystem) SetPostUpdateFunc(f func()) { s.postupdatefunc = f }
 
 // Initialize System and call user supplied init function
-func (s *System) init() error {
+func (s *magicSystem) init() error {
 	if s.initfunc != nil {
 		return s.initfunc()
 	}
@@ -64,7 +73,7 @@ func (s *System) init() error {
 }
 
 // Call user supplied clean up function and clean up System, release mapped pointers
-func (s *System) cleanup() error {
+func (s *magicSystem) cleanup() error {
 	if s.cleanupfunc != nil {
 		if err := s.cleanupfunc(); err != nil {
 			return err
@@ -83,7 +92,7 @@ func (s *System) cleanup() error {
 
 // Adds the Entity to the System if it contains the specific set of components and returns true.
 // Returns false if components do not match.
-func (s *System) add(entity *Entity) bool {
+func (s *magicSystem) add(entity *Entity) bool {
 	//fmt.Printf("adding Entity %s to System %s\n", entity.Name, s.Name)
 
 	//fmt.Println("using set", s.types)
@@ -93,7 +102,7 @@ func (s *System) add(entity *Entity) bool {
 
 	for _, t := range s.types {
 		switch t.String() { // TODO: there must be a better way than string comparison!
-		case "*ecs.Engine", "*ecs.System", "time.Duration", "*ecs.Entity":
+		case "*ecs.Engine", "ecs.System", "time.Duration", "*ecs.Entity":
 			//fmt.Println("ignoring", t.String())
 		default:
 			r := entity.Get(t)
@@ -112,12 +121,12 @@ func (s *System) add(entity *Entity) bool {
 }
 
 // Remove Entity from System
-func (s *System) remove(entity *Entity) {
+func (s *magicSystem) remove(entity *Entity) {
 	delete(s.targets, entity)
 }
 
 // Call update function on all Entities
-func (s *System) update(td time.Duration) error {
+func (s *magicSystem) update(td time.Duration) error {
 	if s.preupdatefunc != nil {
 		s.preupdatefunc()
 	}
@@ -133,7 +142,7 @@ func (s *System) update(td time.Duration) error {
 		case "*ecs.Engine":
 			args[i] = reflect.ValueOf(s.engine)
 			//fmt.Println("set engine")
-		case "*ecs.System":
+		case "ecs.System":
 			args[i] = reflect.ValueOf(s)
 			//fmt.Println("set system")
 		case "time.Duration":
@@ -166,30 +175,73 @@ func (s *System) update(td time.Duration) error {
 		//fmt.Println(args)
 
 		// TODO: break if error returned?
-		/*ret :=*/ s.updatefunc.Call(args)
-		/*
-			if ret != nil {
-				fmt.Println("returned:", ret)
-			}
-		*/
+		s.updatefunc.Call(args)
+	}
+
+	return nil
+}
+*/
+
+type collectionSystem struct {
+	priority SystemPriority
+	types    []ComponentType
+	update   func(time.Duration, *Entity)
+
+	engine     *Engine
+	collection *Collection
+}
+
+// Creates a System with a single Collection of Components
+func CollectionSystem(update func(time.Duration, *Entity), p SystemPriority, types []ComponentType) System {
+	return &collectionSystem{
+		priority: p,
+		types:    types,
+		update:   update,
+	}
+}
+
+func (s *collectionSystem) Priority() SystemPriority {
+	return s.priority
+}
+
+func (s *collectionSystem) AddedToEngine(e *Engine) error {
+	s.engine = e
+	s.collection = e.Collection(s.types...)
+	return nil
+}
+
+func (s *collectionSystem) RemovedFromEngine(*Engine) error {
+	s.engine = nil
+	s.collection = nil
+	return nil
+}
+
+func (s *collectionSystem) Update(delta time.Duration) error {
+	for _, e := range s.collection.Entities() {
+		s.update(delta, e)
 	}
 
 	return nil
 }
 
-//type Component interface{}
-/*
-func ResetComponent(c interface{}) (err error) {
-	defer func() {
-		if e := recover(); e != nil {
-			err = fmt.Errorf("could not reset component %T: %s", c, e)
-		}
-	}()
+type updateSystem struct {
+	priority SystemPriority
+	update   func(time.Duration)
+}
 
-	value := reflect.ValueOf(c).Elem()
-	zero := reflect.Zero(value.Type())
-	value.Set(zero)
+// Creates a simple update loop System without a Collections
+func UpdateSystem(update func(time.Duration), p SystemPriority) System {
+	return &updateSystem{
+		priority: p,
+		update:   update,
+	}
+}
 
+func (s *updateSystem) Priority() SystemPriority        { return s.priority }
+func (s *updateSystem) AddedToEngine(*Engine) error     { return nil }
+func (s *updateSystem) RemovedFromEngine(*Engine) error { return nil }
+
+func (s *updateSystem) Update(delta time.Duration) error {
+	s.update(delta)
 	return nil
 }
-*/
