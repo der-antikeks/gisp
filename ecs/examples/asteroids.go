@@ -14,6 +14,13 @@ import (
 	"github.com/der-antikeks/gisp/ecs"
 )
 
+const (
+	_ ecs.SystemPriority = iota
+	PriorityBeforeRender
+	PriorityRender
+	PriorityAfterRender
+)
+
 var (
 	deg2rad = math.Pi / 180.0
 
@@ -44,12 +51,12 @@ func main() {
 
 	// systems
 	maxx, maxy := float64(w)*0.5, float64(h)*0.5
-	engine.AddSystem(NewMovementSystem(-maxx, maxx, -maxy, maxy))
-	engine.AddSystem(NewRenderSystem())
-	engine.AddSystem(NewCollisionSystem())
-	engine.AddSystem(NewAsteroidSpawnSystem(em))
-	engine.AddSystem(NewMotionControlSystem(im))
-	engine.AddSystem(NewBulletSystem(im, em))
+	engine.AddSystem(NewMovementSystem(-maxx, maxx, -maxy, maxy), PriorityBeforeRender)
+	engine.AddSystem(NewRenderSystem(), PriorityRender)
+	engine.AddSystem(NewCollisionSystem(), PriorityAfterRender)
+	engine.AddSystem(NewAsteroidSpawnSystem(em), PriorityBeforeRender)
+	engine.AddSystem(NewMotionControlSystem(im), PriorityBeforeRender)
+	engine.AddSystem(NewBulletSystem(im, em), PriorityBeforeRender)
 
 	// entities
 	em.createSpaceship(0, 0)
@@ -502,13 +509,6 @@ func (c BulletStatusComponent) Type() ecs.ComponentType {
 
 // SYSTEMS
 
-const (
-	_ ecs.SystemPriority = iota
-	PriorityBeforeRender
-	PriorityRender
-	PriorityAfterRender
-)
-
 func NewAsteroidSpawnSystem(em *EntityManager) ecs.System {
 	return ecs.CollectionSystem(
 		func(delta time.Duration, en *ecs.Entity) {
@@ -529,7 +529,6 @@ func NewAsteroidSpawnSystem(em *EntityManager) ecs.System {
 				en.Delete()
 			}
 		},
-		PriorityBeforeRender,
 		[]ecs.ComponentType{AsteroidStatusType, PositionType},
 	)
 }
@@ -548,10 +547,6 @@ func NewBulletSystem(im *InputManager, em *EntityManager) *BulletSystem {
 		im: im,
 		em: em,
 	}
-}
-
-func (s *BulletSystem) Priority() ecs.SystemPriority {
-	return PriorityBeforeRender
 }
 
 func (s *BulletSystem) AddedToEngine(e *ecs.Engine) error {
@@ -631,7 +626,6 @@ func NewMotionControlSystem(im *InputManager) ecs.System {
 			}
 
 		},
-		PriorityBeforeRender,
 		[]ecs.ComponentType{PositionType, MotionControlType, VelocityType},
 	)
 }
@@ -669,7 +663,6 @@ func NewMovementSystem(minx, maxx, miny, maxy float64) ecs.System {
 				p.Position.Y -= maxy - miny
 			}
 		},
-		PriorityBeforeRender,
 		[]ecs.ComponentType{PositionType, VelocityType},
 	)
 }
@@ -681,10 +674,6 @@ type RenderSystem struct {
 
 func NewRenderSystem() ecs.System {
 	return &RenderSystem{}
-}
-
-func (s *RenderSystem) Priority() ecs.SystemPriority {
-	return PriorityRender
 }
 
 func (s *RenderSystem) AddedToEngine(e *ecs.Engine) error {
@@ -731,10 +720,6 @@ type CollisionSystem struct {
 
 func NewCollisionSystem() *CollisionSystem {
 	return &CollisionSystem{}
-}
-
-func (s *CollisionSystem) Priority() ecs.SystemPriority {
-	return PriorityAfterRender
 }
 
 func (s *CollisionSystem) AddedToEngine(e *ecs.Engine) error {

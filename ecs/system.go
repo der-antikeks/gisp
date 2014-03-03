@@ -9,7 +9,6 @@ import (
 type SystemPriority int
 
 type System interface {
-	Priority() SystemPriority
 	AddedToEngine(*Engine) error
 	RemovedFromEngine(*Engine) error
 	Update(time.Duration) error
@@ -19,7 +18,6 @@ type System interface {
 TODO:
 
 type magicSystem struct {
-	priority SystemPriority
 	engine   *Engine
 
 	types      []reflect.Type
@@ -183,25 +181,19 @@ func (s *magicSystem) update(td time.Duration) error {
 */
 
 type collectionSystem struct {
-	priority SystemPriority
-	types    []ComponentType
-	update   func(time.Duration, *Entity)
+	types  []ComponentType
+	update func(time.Duration, *Entity)
 
 	engine     *Engine
 	collection *Collection
 }
 
 // Creates a System with a single Collection of Components
-func CollectionSystem(update func(time.Duration, *Entity), p SystemPriority, types []ComponentType) System {
+func CollectionSystem(update func(time.Duration, *Entity), types []ComponentType) System {
 	return &collectionSystem{
-		priority: p,
-		types:    types,
-		update:   update,
+		types:  types,
+		update: update,
 	}
-}
-
-func (s *collectionSystem) Priority() SystemPriority {
-	return s.priority
 }
 
 func (s *collectionSystem) AddedToEngine(e *Engine) error {
@@ -225,19 +217,16 @@ func (s *collectionSystem) Update(delta time.Duration) error {
 }
 
 type updateSystem struct {
-	priority SystemPriority
-	update   func(time.Duration)
+	update func(time.Duration)
 }
 
 // Creates a simple update loop System without a Collections
-func UpdateSystem(update func(time.Duration), p SystemPriority) System {
+func UpdateSystem(update func(time.Duration)) System {
 	return &updateSystem{
-		priority: p,
-		update:   update,
+		update: update,
 	}
 }
 
-func (s *updateSystem) Priority() SystemPriority        { return s.priority }
 func (s *updateSystem) AddedToEngine(*Engine) error     { return nil }
 func (s *updateSystem) RemovedFromEngine(*Engine) error { return nil }
 

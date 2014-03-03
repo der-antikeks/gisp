@@ -11,8 +11,8 @@ func main() {
 	log.Println("init")
 
 	engine := ecs.NewEngine()
-	engine.AddSystem(RenderSystem())
-	engine.AddSystem(MovementSystem())
+	engine.AddSystem(RenderSystem(), 1)
+	engine.AddSystem(MovementSystem(), 0)
 
 	ship := newSpaceship()
 	engine.AddEntity(ship)
@@ -102,7 +102,7 @@ func RenderSystem() ecs.System {
 			display.View.X = position.X
 			display.View.Y = position.Y
 			display.View.Rotation = position.Rotation
-		}, 1,
+		},
 		[]ecs.ComponentType{PositionType, DisplayType},
 	)
 
@@ -134,7 +134,7 @@ func MovementSystem() ecs.System {
 			position.X += velocity.VelocityX * t.Seconds()
 			position.Y += velocity.VelocityY * t.Seconds()
 			position.Rotation += velocity.AngularVelocity * t.Seconds()
-		}, 1,
+		},
 		[]ecs.ComponentType{PositionType, VelocityType},
 	)
 

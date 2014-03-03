@@ -8,8 +8,9 @@ import (
 
 // Engine collects and connects Systems with matching Entities
 type Engine struct {
-	systems        []System
-	updatePriority bool
+	systems          []System
+	systemPriorities []SystemPriority
+	updatePriority   bool
 
 	entities    map[*Entity][]*Collection
 	Collections map[*Collection][]*Entity
@@ -20,13 +21,13 @@ type Engine struct {
 // Creates a new Engine
 func NewEngine() *Engine {
 	return &Engine{
-		systems:     []System{},
+		systems:          []System{},
+		systemPriorities: []SystemPriority{},
+
 		entities:    map[*Entity][]*Collection{},
 		Collections: map[*Collection][]*Entity{},
-		deleted:     []*Entity{},
-		// map[struct{*Entity, *Collection}]bool
-		// map[*Entity]map[*Collection]int
-		// map[*collecton]map[int]*Entity
+
+		deleted: []*Entity{},
 	}
 }
 
@@ -135,12 +136,13 @@ func (e *Engine) entityAddedComponent(en *Entity, _ Component) {
 }
 
 // Add System to Engine. Already registered Entites are added to the System
-func (e *Engine) AddSystem(s System) error {
+func (e *Engine) AddSystem(s System, p SystemPriority) error {
 	if err := s.AddedToEngine(e); err != nil {
 		return err
 	}
 
 	e.systems = append(e.systems, s)
+	e.systemPriorities = append(e.systemPriorities, p)
 	e.updatePriority = true
 	return nil
 }
@@ -154,6 +156,9 @@ func (e *Engine) RemoveSystem(s System) {
 				copy(e.systems[i:], e.systems[i+1:])
 				e.systems[len(e.systems)-1] = nil
 				e.systems = e.systems[:len(e.systems)-1]
+
+				// remove priority
+				e.systemPriorities = e.systemPriorities[:i+copy(e.systemPriorities[i:], e.systemPriorities[i+1:])]
 
 				//e.updatePriority = true
 				return
@@ -187,17 +192,32 @@ func (e *Engine) Collection(types ...ComponentType) *Collection {
 }
 
 // byPriority attaches the methods of sort.Interface to []System, sorting in increasing order of the System.Priority() method.
-type byPriority []System
+type byPriority struct {
+	systems    []System
+	priorities []SystemPriority
+}
 
-func (a byPriority) Len() int           { return len(a) }
-func (a byPriority) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a byPriority) Less(i, j int) bool { return a[i].Priority() < a[j].Priority() }
+func (a byPriority) Len() int { return len(a.systems) }
+func (a byPriority) Swap(i, j int) {
+	a.systems[i], a.systems[j] = a.systems[j], a.systems[i]
+	a.priorities[i], a.priorities[j] = a.priorities[j], a.priorities[i]
+}
+func (a byPriority) Less(i, j int) bool {
+	return a.priorities[i] < a.priorities[j]
+}
+
+func (e *Engine) sortSystems() {
+	sort.Sort(byPriority{
+		systems:    e.systems,
+		priorities: e.systemPriorities,
+	})
+	e.updatePriority = false
+}
 
 // Update each Systems in order of priority
 func (e *Engine) Update(delta time.Duration) error {
 	if e.updatePriority {
-		sort.Sort(byPriority(e.systems))
-		e.updatePriority = false
+		e.sortSystems()
 	}
 
 	for _, s := range e.systems {
