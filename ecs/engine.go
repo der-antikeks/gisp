@@ -13,7 +13,7 @@ type Engine struct {
 	updatePriority   bool
 
 	entities    map[*Entity][]*Collection
-	Collections map[*Collection][]*Entity
+	collections []*Collection
 
 	deleted []*Entity
 }
@@ -25,13 +25,13 @@ func NewEngine() *Engine {
 		systemPriorities: []SystemPriority{},
 
 		entities:    map[*Entity][]*Collection{},
-		Collections: map[*Collection][]*Entity{},
+		collections: []*Collection{},
 
 		deleted: []*Entity{},
 	}
 }
 
-// Add Entity to Engine and all registered Systems. The Engine is noticed of later changes of the Entity.
+// Add Entity to Engine and all registered Systems. The Engine is notified of later Component-changes.
 func (e *Engine) AddEntity(en *Entity) error {
 	if _, found := e.entities[en]; found {
 		return fmt.Errorf("entity '%v' already registered", en.Name)
@@ -43,10 +43,10 @@ func (e *Engine) AddEntity(en *Entity) error {
 	// add entity to entities map
 	e.entities[en] = []*Collection{}
 
-	// add entity to matching Collections slice
-	for c := range e.Collections {
+	// add entity to matching collections slice
+	for _, c := range e.collections {
 		if c.accepts(en) {
-			e.Collections[c] = append(e.Collections[c], en)
+			c.add(en)
 			e.entities[en] = append(e.entities[en], c)
 		}
 	}
@@ -54,7 +54,7 @@ func (e *Engine) AddEntity(en *Entity) error {
 	return nil
 }
 
-// Remove Entity from Engine and all registered Collections
+// Remove Entity from Engine and all registered collections
 func (e *Engine) RemoveEntity(en *Entity) {
 	e.deleted = append(e.deleted, en)
 }
@@ -73,24 +73,15 @@ func (e *Engine) removeDeletedEntities() {
 	e.deleted = e.deleted[:0]
 }
 
-// Remove Entity from from Engine an Collections
+// Remove Entity from from Engine and collections
 func (e *Engine) removeEntity(en *Entity) {
 	if _, found := e.entities[en]; !found {
 		return
 	}
 
-	// search in all Collections of entity
+	// search in all collections of entity
 	for _, c := range e.entities[en] {
-		for i, f := range e.Collections[c] {
-			if f == en {
-				// found, remove from Collections slice
-				copy(e.Collections[c][i:], e.Collections[c][i+1:])
-				e.Collections[c][len(e.Collections[c])-1] = nil
-				e.Collections[c] = e.Collections[c][:len(e.Collections[c])-1]
-
-				break
-			}
-		}
+		c.remove(en)
 	}
 
 	// remove entity from entities map
@@ -110,26 +101,17 @@ func (e *Engine) entityRemovedComponent(en *Entity, _ Component) {
 			e.entities[en][len(e.entities[en])-1] = nil
 			e.entities[en] = e.entities[en][:len(e.entities[en])-1]
 
-			for j, f := range e.Collections[c] {
-				if f == en {
-					// found, remove entity from Collections slice
-					copy(e.Collections[c][j:], e.Collections[c][j+1:])
-					e.Collections[c][len(e.Collections[c])-1] = nil
-					e.Collections[c] = e.Collections[c][:len(e.Collections[c])-1]
-
-					break
-				}
-			}
+			c.remove(en)
 		}
 	}
 }
 
 // Called by the Entity, if components are added after adding it to the Engine
 func (e *Engine) entityAddedComponent(en *Entity, _ Component) {
-	// add entity to matching Collections slice
-	for c := range e.Collections {
+	// add entity to matching collections slice
+	for _, c := range e.collections {
 		if c.accepts(en) {
-			e.Collections[c] = append(e.Collections[c], en)
+			c.add(en)
 			e.entities[en] = append(e.entities[en], c)
 		}
 	}
@@ -170,20 +152,20 @@ func (e *Engine) RemoveSystem(s System) {
 // Get Collection of Components. Creates new Collection if necessary
 func (e *Engine) Collection(types ...ComponentType) *Collection {
 	// old Collection
-	for c := range e.Collections {
+	for _, c := range e.collections {
 		if c.equals(types) {
 			return c
 		}
 	}
 
 	// new Collection
-	c := &Collection{types, e}
-	e.Collections[c] = []*Entity{}
+	c := NewCollection(types)
+	e.collections = append(e.collections, c)
 
 	// add matching entities to Collection slice
 	for en := range e.entities {
 		if c.accepts(en) {
-			e.Collections[c] = append(e.Collections[c], en)
+			c.add(en)
 			e.entities[en] = append(e.entities[en], c)
 		}
 	}
