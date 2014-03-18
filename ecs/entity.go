@@ -13,7 +13,7 @@ type Entity struct {
 	// components that define the entity's current state
 	components   map[ComponentType]Component
 	states       map[string]map[ComponentType]Component
-	CurrentState string
+	currentState string
 }
 
 // Creates a new entity attach multiple components if supplied
@@ -95,14 +95,19 @@ func (en *Entity) State(s string) *state {
 	return &state{en, en.states[s]}
 }
 
+// return current state of Entity
+func (en *Entity) CurrentState() string {
+	return en.currentState
+}
+
 // Change internal state of Entity, adds/removes registered Components
 func (en *Entity) ChangeState(s string) {
-	if s == en.CurrentState {
+	if s == en.currentState {
 		return
 	}
 
 	// remove Components of old state
-	for t := range en.states[en.CurrentState] {
+	for t := range en.states[en.currentState] {
 		en.Remove(t)
 	}
 
@@ -111,7 +116,7 @@ func (en *Entity) ChangeState(s string) {
 		en.Add(c)
 	}
 
-	en.CurrentState = s
+	en.currentState = s
 }
 
 type state struct {
@@ -129,7 +134,7 @@ func (s *state) Add(components ...Component) {
 	}
 }
 
-// Remvoe Component from State
+// Remove Component from State
 func (s *state) Remove(t ComponentType) {
 	s.entity.lock.Lock()
 	defer s.entity.lock.Unlock()

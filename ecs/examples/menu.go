@@ -27,8 +27,8 @@ func main() {
 	defer wm.cleanup()
 
 	// systems
-	engine.AddSystem(NewGameStateSystem(em), 1)
-	engine.AddSystem(NewMenuSystem(im, wm), 2)
+	engine.AddSystem(NewGameStateSystem(em, wm), 1)
+	engine.AddSystem(NewMenuSystem(im), 2)
 	engine.AddSystem(NewRenderSystem(), 10)
 
 	// entities
@@ -161,6 +161,7 @@ func (m *WindowManager) Close() {
 type InputManager struct {
 	keyPressed   map[glfw.Key]bool
 	mousePressed map[glfw.MouseButton]bool
+	mouseClicked map[glfw.MouseButton]bool
 	mx, my, zoom float64
 }
 
@@ -168,6 +169,7 @@ func NewInputManager() *InputManager {
 	return &InputManager{
 		keyPressed:   map[glfw.Key]bool{},
 		mousePressed: map[glfw.MouseButton]bool{},
+		mouseClicked: map[glfw.MouseButton]bool{},
 	}
 }
 
@@ -191,6 +193,10 @@ func (m *InputManager) IsKeyDown(key glfw.Key) bool {
 
 func (m *InputManager) onMouseMove(window *glfw.Window, xpos float64, ypos float64) {
 	m.mx, m.my = xpos, ypos
+
+	for b := range m.mouseClicked {
+		delete(m.mouseClicked, b)
+	}
 }
 
 func (m *InputManager) MousePos() (x, y float64) {
@@ -205,13 +211,25 @@ func (m *InputManager) onMouseButton(w *glfw.Window, b glfw.MouseButton, action 
 	switch action {
 	case glfw.Press:
 		m.mousePressed[b] = true
+		m.mouseClicked[b] = false
 	case glfw.Release:
 		delete(m.mousePressed, b)
+
+		if v, ok := m.mouseClicked[b]; ok && !v {
+			m.mouseClicked[b] = true
+		}
 	}
 }
 
 func (m *InputManager) IsMouseDown(button glfw.MouseButton) bool {
 	return m.mousePressed[button]
+}
+
+// mouse up after a down without movement
+func (m *InputManager) IsMouseClick(button glfw.MouseButton) bool {
+	s := m.mouseClicked[button]
+	m.mouseClicked[button] = false
+	return s
 }
 
 const (
@@ -374,14 +392,27 @@ func (em *EntityManager) CreateButton(name string, x, y, w, h float64) {
 	}
 }
 
-func NewGameStateSystem(em *EntityManager) ecs.System {
+func (em *EntityManager) RemoveAllButtons() {
+	for _, en := range em.engine.Collection(MenuType, PositionType, MeshType).Entities() {
+		em.engine.RemoveEntity(en)
+	}
+}
+
+func NewGameStateSystem(em *EntityManager, wm *WindowManager) ecs.System {
 	return ecs.CollectionSystem(
 		func(delta time.Duration, en *ecs.Entity) {
 			s := en.Get(GameStateType).(*GameStateComponent)
 
 			switch s.State {
 			case "init":
-				em.CreateButton("A", 0, 100, 100, 20)
+				log.Println("init")
+				s.State = "load-menu"
+
+			case "load-menu":
+				log.Println("load menu")
+				em.RemoveAllButtons()
+
+				em.CreateButton("LoadSubmenu", 0, 100, 100, 20)
 				em.CreateButton("B", 0, 70, 100, 20)
 				em.CreateButton("C", 0, 40, 100, 20)
 				em.CreateButton("D", 0, 10, 100, 20)
@@ -390,6 +421,23 @@ func NewGameStateSystem(em *EntityManager) ecs.System {
 				em.CreateButton("Exit", 0, -80, 100, 20)
 
 				s.State = "menu"
+			case "menu":
+
+			case "load-submenu":
+				log.Println("load submenu")
+				em.RemoveAllButtons()
+
+				em.CreateButton("ReturnMenu", 0, 100, 100, 20)
+				em.CreateButton("F", 0, 70, 100, 20)
+
+				em.CreateButton("Exit", 0, -80, 100, 20)
+
+				s.State = "submenu"
+			case "submenu":
+
+			case "exit":
+				log.Println("exit")
+				wm.Close()
 			default:
 			}
 
@@ -398,35 +446,68 @@ func NewGameStateSystem(em *EntityManager) ecs.System {
 	)
 }
 
-func NewMenuSystem(im *InputManager, wm *WindowManager) ecs.System {
-	return ecs.CollectionSystem(
-		func(delta time.Duration, en *ecs.Entity) {
-			x, y := im.MousePos()
-			// TODO: cache old position & compare
+type MenuSystem struct {
+	im *InputManager
 
-			m := en.Get(MenuType).(*MenuComponent)
-			p := en.Get(PositionType).(*PositionComponent).Position
-			c := en.Get(MeshType).(*MeshComponent).Collider
-			mp := Point{(x - 320) - p.X, (240 - y) - p.Y}
+	buttons   *ecs.Collection
+	gamestate *ecs.Collection
+}
 
-			if c.ContainsPoint(mp) {
-				if im.IsMouseDown(glfw.MouseButton1) {
-					en.ChangeState("pressed")
+func NewMenuSystem(im *InputManager) ecs.System {
+	return &MenuSystem{
+		im: im,
+	}
+}
 
-					// TODO: replace with some kind of state/closer-component
-					// maybe set gamestate="exit" and handle cleanup in gamestate-sytem
-					if m.Name == "Exit" {
-						wm.Close()
-					}
-				} else {
-					en.ChangeState("hover")
+func (s *MenuSystem) AddedToEngine(e *ecs.Engine) error {
+	s.buttons = e.Collection(MenuType, PositionType, MeshType)
+	s.gamestate = e.Collection(GameStateType)
+	return nil
+}
+
+func (s *MenuSystem) RemovedFromEngine(*ecs.Engine) error {
+	s.buttons = nil
+	s.gamestate = nil
+	return nil
+}
+
+func (s *MenuSystem) Update(delta time.Duration) error {
+	state := s.gamestate.First().Get(GameStateType).(*GameStateComponent)
+
+	for _, en := range s.buttons.Entities() {
+		x, y := s.im.MousePos()
+		// TODO: cache old position & compare
+
+		m := en.Get(MenuType).(*MenuComponent)
+		p := en.Get(PositionType).(*PositionComponent).Position
+		c := en.Get(MeshType).(*MeshComponent).Collider
+		mp := Point{(x - 320) - p.X, (240 - y) - p.Y}
+
+		if c.ContainsPoint(mp) {
+			if s.im.IsMouseClick(glfw.MouseButton1) {
+				log.Println("clicked", m.Name)
+
+				switch m.Name {
+				case "Exit":
+					state.State = "exit"
+				case "LoadSubmenu":
+					state.State = "load-submenu"
+				case "ReturnMenu":
+					state.State = "load-menu"
 				}
-			} else {
-				en.ChangeState("normal")
 			}
-		},
-		[]ecs.ComponentType{MenuType, PositionType, MeshType},
-	)
+
+			if s.im.IsMouseDown(glfw.MouseButton1) {
+				en.ChangeState("pressed")
+			} else {
+				en.ChangeState("hover")
+			}
+		} else {
+			en.ChangeState("normal")
+		}
+	}
+
+	return nil
 }
 
 type RenderSystem struct {
