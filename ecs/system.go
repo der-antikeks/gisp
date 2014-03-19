@@ -220,7 +220,7 @@ type updateSystem struct {
 	update func(time.Duration)
 }
 
-// Creates a simple update loop System without a Collections
+// Creates a simple update loop System without a Collection
 func UpdateSystem(update func(time.Duration)) System {
 	return &updateSystem{
 		update: update,

@@ -38,21 +38,52 @@ func (e *ReflectEntity) Get(c ReflectComponent) ReflectComponent {
 	return nil
 }
 
+func (e *ReflectEntity) Scan(c ReflectComponent) {
+	cvp := reflect.ValueOf(c)
+	cv := reflect.Indirect(cvp)
+
+	if r, ok := e.components[cv.Type()]; ok {
+		cv.Set(reflect.ValueOf(r))
+	}
+	return
+}
+
 func BenchmarkReflectComponent(b *testing.B) {
 	e := NewReflectEntity()
 	ca := &TestReflectComponentA{Value: 1.23}
 	cb := &TestReflectComponentB{Value: "a"}
-	ka := TestReflectComponentA{}
-	kb := TestReflectComponentB{}
+	var va *TestReflectComponentA
+	var vb *TestReflectComponentB
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		e.Add(ca)
 		e.Add(cb)
 
-		e.Get(ka)
-		e.Get(kb)
+		va = e.Get(va).(*TestReflectComponentA)
+		vb = e.Get(vb).(*TestReflectComponentB)
 	}
+
+	b.Log(va, vb)
+}
+
+func BenchmarkReflectScanComponent(b *testing.B) {
+	e := NewReflectEntity()
+	ca := &TestReflectComponentA{Value: 1.23}
+	cb := &TestReflectComponentB{Value: "a"}
+	var va *TestReflectComponentA
+	var vb *TestReflectComponentB
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		e.Add(ca)
+		e.Add(cb)
+
+		e.Scan(&va)
+		e.Scan(&vb)
+	}
+
+	b.Log(va, vb)
 }
 
 type ConstComponentType int
@@ -109,13 +140,17 @@ func BenchmarkConstComponent(b *testing.B) {
 	e := NewConstEntity()
 	ca := &TestConstComponentA{Value: 1.23}
 	cb := &TestConstComponentB{Value: "a"}
+	var va *TestConstComponentA
+	var vb *TestConstComponentB
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		e.Add(ca)
 		e.Add(cb)
 
-		e.Get(ConstComponentTypeA)
-		e.Get(ConstComponentTypeB)
+		va = e.Get(ConstComponentTypeA).(*TestConstComponentA)
+		vb = e.Get(ConstComponentTypeB).(*TestConstComponentB)
 	}
+
+	b.Log(va, vb)
 }

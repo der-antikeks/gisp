@@ -5,18 +5,19 @@ import ()
 // Collection is a specific set of components
 type Collection struct {
 	types    []ComponentType
-	entities []*Entity
+	entities []*Entity // TODO: sync.RWMutex?
 
-	EntityAdded   *EntityObserver
-	EntityRemoved *EntityObserver
+	added   map[System]func(en *Entity)
+	removed map[System]func(en *Entity)
 }
 
 func NewCollection(types []ComponentType) *Collection {
 	return &Collection{
-		types:         types,
-		entities:      []*Entity{},
-		EntityAdded:   new(EntityObserver),
-		EntityRemoved: new(EntityObserver),
+		types:    types,
+		entities: []*Entity{},
+
+		added:   map[System]func(en *Entity){},
+		removed: map[System]func(en *Entity){},
 	}
 }
 
@@ -52,11 +53,28 @@ func (c *Collection) equals(b []ComponentType) bool {
 	return true
 }
 
-func (c *Collection) add(en *Entity) {
-	c.entities = append(c.entities, en)
-	c.EntityAdded.Publish(en)
+// added/removed functions are called upon the occurrence of the respective action by the Collection
+func (c *Collection) Subscribe(s System, added, removed func(en *Entity)) {
+	c.added[s] = added
+	c.removed[s] = removed
 }
 
+// added/removed function  of the passed system are no longer called
+func (c *Collection) Unsubscribe(s System) {
+	delete(c.added, s)
+	delete(c.removed, s)
+}
+
+// add Entity to Collection without any checking of Components
+func (c *Collection) add(en *Entity) {
+	c.entities = append(c.entities, en)
+
+	for _, f := range c.added {
+		f(en)
+	}
+}
+
+// remove Entity from Collection
 func (c *Collection) remove(en *Entity) {
 	for i, f := range c.entities {
 		if f == en {
@@ -64,7 +82,9 @@ func (c *Collection) remove(en *Entity) {
 			c.entities[len(c.entities)-1] = nil
 			c.entities = c.entities[:len(c.entities)-1]
 
-			c.EntityRemoved.Publish(en)
+			for _, f := range c.removed {
+				f(en)
+			}
 
 			return
 		}
