@@ -15,7 +15,8 @@ type Engine struct {
 	entities    map[*Entity][]*Collection
 	collections []*Collection
 
-	deleted []*Entity
+	deleted           []*Entity
+	updating, running bool
 }
 
 // Creates a new Engine
@@ -28,6 +29,7 @@ func NewEngine() *Engine {
 		collections: []*Collection{},
 
 		deleted: []*Entity{},
+		running: true,
 	}
 }
 
@@ -56,6 +58,11 @@ func (e *Engine) AddEntity(en *Entity) error {
 
 // Remove Entity from Engine and all registered collections
 func (e *Engine) RemoveEntity(en *Entity) {
+	if !e.updating {
+		e.removeEntity(en)
+		return
+	}
+
 	e.deleted = append(e.deleted, en)
 }
 
@@ -198,6 +205,19 @@ func (e *Engine) sortSystems() {
 
 // Update each Systems in order of priority
 func (e *Engine) Update(delta time.Duration) error {
+	if !e.running {
+		for _, s := range e.systems {
+			e.RemoveSystem(s)
+		}
+
+		for en := range e.entities {
+			e.RemoveEntity(en)
+		}
+
+		return nil
+	}
+
+	e.updating = true
 	if e.updatePriority {
 		e.sortSystems()
 	}
@@ -209,5 +229,14 @@ func (e *Engine) Update(delta time.Duration) error {
 		}
 	}
 
+	e.updating = false
 	return nil
+}
+
+func (e *Engine) IsRunning() bool {
+	return e.running
+}
+
+func (e *Engine) ShutDown() {
+	e.running = false
 }
