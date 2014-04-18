@@ -1,4 +1,4 @@
-package main
+package game
 
 import (
 	"log"
@@ -44,8 +44,9 @@ func (s *GameStateSystem) RemovedFromEngine(e *ecs.Engine) error {
 }
 
 func (s *GameStateSystem) Update(delta time.Duration) error {
-	if s.im.IsKeyDown(glfw.KeyEscape) {
-		s.engine.ShutDown()
+	if s.im.IsKeyDown(KeyEscape) {
+		s.wm.Close()
+		running = false
 		return nil
 	}
 

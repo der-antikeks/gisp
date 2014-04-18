@@ -182,14 +182,14 @@ func (s *magicSystem) update(td time.Duration) error {
 
 type collectionSystem struct {
 	types  []ComponentType
-	update func(time.Duration, *Entity)
+	update func(time.Duration, *Entity) error
 
 	engine     *Engine
 	collection *Collection
 }
 
 // Creates a System with a single Collection of Components
-func CollectionSystem(update func(time.Duration, *Entity), types []ComponentType) System {
+func CollectionSystem(update func(time.Duration, *Entity) error, types []ComponentType) System {
 	return &collectionSystem{
 		types:  types,
 		update: update,
@@ -209,19 +209,25 @@ func (s *collectionSystem) RemovedFromEngine(*Engine) error {
 }
 
 func (s *collectionSystem) Update(delta time.Duration) error {
+	if s.collection == nil {
+		return nil
+	}
+
 	for _, e := range s.collection.Entities() {
-		s.update(delta, e)
+		if err := s.update(delta, e); err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
 type updateSystem struct {
-	update func(time.Duration)
+	update func(time.Duration) error
 }
 
 // Creates a simple update loop System without a Collection
-func UpdateSystem(update func(time.Duration)) System {
+func UpdateSystem(update func(time.Duration) error) System {
 	return &updateSystem{
 		update: update,
 	}
@@ -231,6 +237,5 @@ func (s *updateSystem) AddedToEngine(*Engine) error     { return nil }
 func (s *updateSystem) RemovedFromEngine(*Engine) error { return nil }
 
 func (s *updateSystem) Update(delta time.Duration) error {
-	s.update(delta)
-	return nil
+	return s.update(delta)
 }

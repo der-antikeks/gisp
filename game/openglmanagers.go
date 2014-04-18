@@ -1,4 +1,4 @@
-package main
+package game
 
 import (
 	"log"
@@ -84,7 +84,7 @@ func (m *WindowManager) update() {
 	glfw.PollEvents()
 }
 
-func (m *WindowManager) cleanup() {
+func (m *WindowManager) Cleanup() {
 	glfw.Terminate()
 }
 
@@ -111,6 +111,12 @@ func (m *WindowManager) Close() {
 	m.window.SetShouldClose(true)
 }
 
+type Key glfw.Key
+
+const (
+	KeyEscape = glfw.KeyEscape
+)
+
 type InputManager struct {
 	keyPressed   map[glfw.Key]bool
 	mousePressed map[glfw.MouseButton]bool
@@ -130,11 +136,6 @@ func (m *InputManager) onKey(w *glfw.Window, key glfw.Key, scancode int, action 
 	switch action {
 	case glfw.Press:
 		m.keyPressed[key] = true
-
-		if key == glfw.KeyEscape { // TODO: move to game-status-system
-			w.SetShouldClose(true)
-		}
-
 	case glfw.Release:
 		delete(m.keyPressed, key)
 	}

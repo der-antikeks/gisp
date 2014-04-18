@@ -14,9 +14,6 @@ type Engine struct {
 
 	entities    map[*Entity][]*Collection
 	collections []*Collection
-
-	deleted           []*Entity
-	updating, running bool
 }
 
 // Creates a new Engine
@@ -27,9 +24,6 @@ func NewEngine() *Engine {
 
 		entities:    map[*Entity][]*Collection{},
 		collections: []*Collection{},
-
-		deleted: []*Entity{},
-		running: true,
 	}
 }
 
@@ -58,48 +52,18 @@ func (e *Engine) AddEntity(en *Entity) error {
 
 // Remove Entity from Engine and all registered collections
 func (e *Engine) RemoveEntity(en *Entity) {
-	if !e.updating {
-		e.removeEntity(en)
-		return
-	}
-
-	e.deleted = append(e.deleted, en)
-}
-
-// remove all as deleted marked entities
-func (e *Engine) removeDeletedEntities() {
-	if len(e.deleted) == 0 {
-		return
-	}
-
-	for i, en := range e.deleted {
-		e.removeEntity(en)
-		e.deleted[i] = nil
-	}
-
-	e.deleted = e.deleted[:0]
-}
-
-// Remove Entity from from Engine and collections
-func (e *Engine) removeEntity(en *Entity) {
 	if _, found := e.entities[en]; !found {
 		return
 	}
-
-	// search in all collections of entity
+	en.engine = nil
 	for _, c := range e.entities[en] {
 		c.remove(en)
 	}
-
-	// remove entity from entities map
 	delete(e.entities, en)
-
-	// remove engine from entity
-	en.engine = nil
 }
 
 // Called by the Entity whose components are removed after adding it to the Engine
-func (e *Engine) entityRemovedComponent(en *Entity, _ Component) {
+func (e *Engine) entityRemovedComponent(en *Entity) {
 	for i, c := range e.entities[en] {
 		if !c.accepts(en) {
 			// component does not accept entity anymore
@@ -114,10 +78,19 @@ func (e *Engine) entityRemovedComponent(en *Entity, _ Component) {
 }
 
 // Called by the Entity, if components are added after adding it to the Engine
-func (e *Engine) entityAddedComponent(en *Entity, _ Component) {
-	// add entity to matching collections slice
+func (e *Engine) entityAddedComponent(en *Entity) {
+	var already bool
 	for _, c := range e.collections {
-		if c.accepts(en) {
+		already = false
+		for _, h := range e.entities[en] {
+			if c == h {
+				already = true
+				break
+			}
+		}
+
+		// add entity to matching collections slice
+		if !already && c.accepts(en) {
 			c.add(en)
 			e.entities[en] = append(e.entities[en], c)
 		}
@@ -148,8 +121,6 @@ func (e *Engine) RemoveSystem(s System) {
 
 				// remove priority
 				e.systemPriorities = e.systemPriorities[:i+copy(e.systemPriorities[i:], e.systemPriorities[i+1:])]
-
-				//e.updatePriority = true
 				return
 			}
 		}
@@ -205,38 +176,15 @@ func (e *Engine) sortSystems() {
 
 // Update each Systems in order of priority
 func (e *Engine) Update(delta time.Duration) error {
-	if !e.running {
-		for _, s := range e.systems {
-			e.RemoveSystem(s)
-		}
-
-		for en := range e.entities {
-			e.RemoveEntity(en)
-		}
-
-		return nil
-	}
-
-	e.updating = true
 	if e.updatePriority {
 		e.sortSystems()
 	}
 
 	for _, s := range e.systems {
-		e.removeDeletedEntities()
 		if err := s.Update(delta); err != nil {
 			return err
 		}
 	}
 
-	e.updating = false
 	return nil
-}
-
-func (e *Engine) IsRunning() bool {
-	return e.running
-}
-
-func (e *Engine) ShutDown() {
-	e.running = false
 }

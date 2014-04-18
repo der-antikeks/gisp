@@ -1,14 +1,11 @@
 package ecs
 
-import (
-	"sync"
-)
+import ()
 
 // General purpose object that consists of a name and a set of components.
 type Entity struct {
-	Name   string
+	Name   string // TODO: only for debugging
 	engine *Engine
-	lock   sync.RWMutex
 
 	// components that define the entity's current state
 	components   map[ComponentType]Component
@@ -24,70 +21,44 @@ func NewEntity(name string, components ...Component) *Entity {
 		states:     map[string]map[ComponentType]Component{},
 	}
 
-	for _, c := range components {
-		en.Add(c)
-	}
-
+	en.Add(components...)
 	return en
 }
 
 // Attach Component to the Entity
-func (en *Entity) Add(c Component) {
-	en.lock.Lock()
-	en.components[c.Type()] = c
-	en.lock.Unlock()
+func (en *Entity) Add(components ...Component) {
+	for _, c := range components {
+		en.components[c.Type()] = c
+	}
 
 	if en.engine != nil {
-		en.engine.entityAddedComponent(en, c)
+		en.engine.entityAddedComponent(en)
 	}
 }
 
 // Detach Component from Entity
 func (en *Entity) Remove(t ComponentType) {
-	en.lock.Lock()
-	c := en.components[t]
+	if _, found := en.components[t]; !found {
+		return
+	}
+
 	delete(en.components, t)
-	en.lock.Unlock()
 
 	if en.engine != nil {
-		en.engine.entityRemovedComponent(en, c)
+		en.engine.entityRemovedComponent(en)
 	}
 }
 
 // Get specific Component of Entity
 func (en *Entity) Get(t ComponentType) Component {
-	en.lock.RLock()
-	c, found := en.components[t]
-	en.lock.RUnlock()
-
-	if found {
+	if c, found := en.components[t]; found {
 		return c
 	}
 	return nil
 }
 
-// Remove all components of Entity
-func (en *Entity) reset() {
-	en.lock.Lock()
-	defer en.lock.Unlock()
-
-	for t := range en.components {
-		delete(en.components, t)
-	}
-}
-
-// helper function, calls engine.RemoveEntity(en)
-func (en *Entity) Delete() {
-	if en.engine != nil {
-		en.engine.RemoveEntity(en)
-	}
-}
-
 // returns state representation where components can be added
 func (en *Entity) State(s string) *state {
-	en.lock.Lock()
-	defer en.lock.Unlock()
-
 	if _, ok := en.states[s]; !ok {
 		en.states[s] = map[ComponentType]Component{}
 	}
@@ -126,9 +97,6 @@ type state struct {
 
 // Attach Component to State
 func (s *state) Add(components ...Component) {
-	s.entity.lock.Lock()
-	defer s.entity.lock.Unlock()
-
 	for _, c := range components {
 		s.components[c.Type()] = c
 	}
@@ -136,8 +104,5 @@ func (s *state) Add(components ...Component) {
 
 // Remove Component from State
 func (s *state) Remove(t ComponentType) {
-	s.entity.lock.Lock()
-	defer s.entity.lock.Unlock()
-
 	delete(s.components, t)
 }

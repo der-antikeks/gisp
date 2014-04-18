@@ -5,7 +5,7 @@ import ()
 // Collection is a specific set of components
 type Collection struct {
 	types    []ComponentType
-	entities []*Entity // TODO: sync.RWMutex?
+	entities []*Entity
 
 	added   map[System]func(en *Entity)
 	removed map[System]func(en *Entity)
@@ -37,8 +37,9 @@ func (c *Collection) equals(b []ComponentType) bool {
 		return false
 	}
 
+	var found bool
 	for _, t := range c.types {
-		var found bool
+		found = false
 		for _, t2 := range b {
 			if t == t2 {
 				found = true
@@ -93,7 +94,11 @@ func (c *Collection) remove(en *Entity) {
 
 // Return all registered Entities of the Engine, that matches the Collection
 func (c *Collection) Entities() []*Entity {
-	return c.entities
+	//return c.entities // invalid nil pointer after removing entity
+
+	ret := make([]*Entity, len(c.entities))
+	copy(ret, c.entities)
+	return ret
 }
 
 // Returns the first matched Entity
