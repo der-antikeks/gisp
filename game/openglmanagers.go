@@ -79,7 +79,7 @@ func (m *WindowManager) isRunning() bool {
 	return !m.window.ShouldClose()
 }
 
-func (m *WindowManager) update() {
+func (m *WindowManager) Update() {
 	m.window.SwapBuffers()
 	glfw.PollEvents()
 }
@@ -115,6 +115,8 @@ type Key glfw.Key
 
 const (
 	KeyEscape = glfw.KeyEscape
+	KeyEnter  = glfw.KeyEnter
+	KeyPause  = glfw.KeyPause
 )
 
 type InputManager struct {

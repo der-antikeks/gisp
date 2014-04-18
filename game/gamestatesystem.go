@@ -4,8 +4,6 @@ import (
 	"log"
 	"time"
 
-	glfw "github.com/go-gl/glfw3"
-
 	"github.com/der-antikeks/gisp/ecs"
 )
 
@@ -47,6 +45,7 @@ func (s *GameStateSystem) Update(delta time.Duration) error {
 	if s.im.IsKeyDown(KeyEscape) {
 		s.wm.Close()
 		running = false
+		// TODO: later replace with quit screen
 		return nil
 	}
 
@@ -61,6 +60,8 @@ func (s *GameStateSystem) Update(delta time.Duration) error {
 	case "init":
 		log.Println("create splash screen")
 
+		s.em.CreateAsteroid(100, 100, 5)
+
 		s.em.CreateSplashScreen()
 		se.State = "splash"
 		se.Since = time.Now()
@@ -69,13 +70,20 @@ func (s *GameStateSystem) Update(delta time.Duration) error {
 		if time.Now().After(se.Since.Add(5*time.Second)) || s.im.AnyKeyDown() {
 			log.Println("create main menu")
 
+			for _, e := range s.engine.Collection().Entities() {
+				if e == s.state {
+					continue
+				}
+				s.engine.RemoveEntity(e)
+			}
+
 			s.em.CreateMainMenu()
 			se.State = "mainmenu"
 			se.Since = time.Now()
 		}
 
 	case "mainmenu":
-		if s.im.IsKeyDown(glfw.KeyEnter) {
+		if s.im.IsKeyDown(KeyEnter) {
 			log.Println("starting game")
 
 			se.State = "playing"
@@ -83,7 +91,7 @@ func (s *GameStateSystem) Update(delta time.Duration) error {
 		}
 
 	case "optionsmenu":
-		if s.im.IsKeyDown(glfw.KeyEscape) {
+		if s.im.IsKeyDown(KeyEscape) {
 			log.Println("back to main menu")
 
 			se.State = "mainmenu"
@@ -91,7 +99,7 @@ func (s *GameStateSystem) Update(delta time.Duration) error {
 		}
 
 	case "playing":
-		if s.im.IsKeyDown(glfw.KeyPause) {
+		if s.im.IsKeyDown(KeyPause) {
 			log.Println("pausing")
 
 			se.State = "pause"
@@ -99,7 +107,7 @@ func (s *GameStateSystem) Update(delta time.Duration) error {
 		}
 
 	case "pause":
-		if s.im.AnyKeyDown() {
+		if !s.im.IsKeyDown(KeyPause) && s.im.AnyKeyDown() {
 			log.Println("restarting")
 
 			se.State = "playing"
