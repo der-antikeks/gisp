@@ -2,7 +2,6 @@ package game
 
 import (
 	"log"
-	"math"
 	"math/rand"
 	"runtime"
 	"time"
@@ -50,6 +49,7 @@ func Run() error {
 		lastTime = time.Now()
 		now      time.Time
 		delta    time.Duration
+		ds       float64
 
 		ratio     = 0.01
 		curfps    = float64(fps)
@@ -66,9 +66,8 @@ func Run() error {
 			lastTime = now
 
 			// fps test
-			curfps = curfps*(1-ratio) + (1.0/delta.Seconds())*ratio
-			if curfps >= math.Inf(1) {
-				curfps = 72.0
+			if ds = delta.Seconds(); ds > 0 {
+				curfps = curfps*(1-ratio) + (1.0/ds)*ratio
 			}
 			if now.After(nextPrint) {
 				nextPrint = now.Add(time.Second / 2.0)
