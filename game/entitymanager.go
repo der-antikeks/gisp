@@ -2,12 +2,12 @@ package game
 
 import (
 	"log"
-	m "math"
-	"math/rand"
 	"time"
 
 	"github.com/der-antikeks/gisp/ecs"
 	"github.com/der-antikeks/gisp/math"
+
+	"github.com/go-gl/gl"
 )
 
 type EntityManager struct {
@@ -35,67 +35,343 @@ func (m *EntityManager) CreateSplashScreen() {}
 
 func (m *EntityManager) CreateMainMenu() {}
 
-var (
-	deg2rad = m.Pi / 180.0
+func (em *EntityManager) CreateCube() {
+	// Transformation
+	trans := &Transformation{
+		Position: math.Vector{-2, 2, 0},
+		Rotation: math.Quaternion{},
+		Scale:    math.Vector{1, 1, 1},
+		Up:       math.Vector{0, 1, 0},
+	}
 
-	MaxShipSpeed      = 100.0 // pixels per second
-	MaxAccelerate     = MaxShipSpeed
-	ShipRotationSpeed = 180.0 // deg per second
+	// Geometry
+	geo := &Geometry{}
+	size := 2.0
+	halfSize := size / 2.0
 
-	TimeBetweenBullets = 250 * time.Millisecond
-	BulletSpeed        = 2 * MaxShipSpeed
-	BulletLifetime     = 5 * time.Second
+	// vertices
+	a := math.Vector{halfSize, halfSize, halfSize}
+	b := math.Vector{-halfSize, halfSize, halfSize}
+	c := math.Vector{-halfSize, -halfSize, halfSize}
+	d := math.Vector{halfSize, -halfSize, halfSize}
+	e := math.Vector{halfSize, halfSize, -halfSize}
+	f := math.Vector{halfSize, -halfSize, -halfSize}
+	g := math.Vector{-halfSize, -halfSize, -halfSize}
+	h := math.Vector{-halfSize, halfSize, -halfSize}
 
-	MaxAsteroidRotation = 2 * ShipRotationSpeed
-	MaxAsteroidSpeed    = MaxShipSpeed
-)
+	// uvs
+	tl := math.Vector{0, 1}
+	tr := math.Vector{1, 1}
+	bl := math.Vector{0, 0}
+	br := math.Vector{1, 0}
 
-func (em *EntityManager) CreateAsteroid(x, y float64, size int) {
-	rot := rand.Float64() * 360
-	rad := (rot + 90) * deg2rad
-	speed := rand.Float64() * MaxAsteroidSpeed
+	var normal math.Vector
 
-	a := ecs.NewEntity(
-		"asteroid",
+	// front
+	normal = math.Vector{0, 0, 1}
+	geo.AddFace(
+		Vertex{ // a
+			position: a,
+			normal:   normal,
+			uv:       tr,
+		}, Vertex{ // b
+			position: b,
+			normal:   normal,
+			uv:       tl,
+		}, Vertex{ // c
+			position: c,
+			normal:   normal,
+			uv:       bl,
+		})
+	geo.AddFace(
+		Vertex{
+			position: c,
+			normal:   normal,
+			uv:       bl,
+		}, Vertex{
+			position: d,
+			normal:   normal,
+			uv:       br,
+		}, Vertex{
+			position: a,
+			normal:   normal,
+			uv:       tr,
+		})
 
-		&PositionComponent{Point{x, y}, rot},
-		&VelocityComponent{
-			Point{
-				speed * m.Cos(rad),
-				speed * m.Sin(rad),
-			}, MaxAsteroidRotation * rand.Float64(),
-		},
+	// back
+	normal = math.Vector{0, 0, -1}
+	geo.AddFace(
+		Vertex{
+			position: e,
+			normal:   normal,
+			uv:       tl,
+		}, Vertex{
+			position: f,
+			normal:   normal,
+			uv:       bl,
+		}, Vertex{
+			position: g,
+			normal:   normal,
+			uv:       br,
+		})
+	geo.AddFace(
+		Vertex{
+			position: g,
+			normal:   normal,
+			uv:       br,
+		}, Vertex{
+			position: h,
+			normal:   normal,
+			uv:       tr,
+		}, Vertex{
+			position: e,
+			normal:   normal,
+			uv:       tl,
+		})
 
-		&ColorComponent{1, 1, 0},
+	// top
+	normal = math.Vector{0, 1, 0}
+	geo.AddFace(
+		Vertex{
+			position: e,
+			normal:   normal,
+			uv:       tr,
+		}, Vertex{
+			position: h,
+			normal:   normal,
+			uv:       tl,
+		}, Vertex{
+			position: b,
+			normal:   normal,
+			uv:       bl,
+		})
+	geo.AddFace(
+		Vertex{
+			position: b,
+			normal:   normal,
+			uv:       bl,
+		}, Vertex{
+			position: a,
+			normal:   normal,
+			uv:       br,
+		}, Vertex{
+			position: e,
+			normal:   normal,
+			uv:       tr,
+		})
+
+	// bottom
+	normal = math.Vector{0, -1, 0}
+	geo.AddFace(
+		Vertex{
+			position: f,
+			normal:   normal,
+			uv:       br,
+		}, Vertex{
+			position: d,
+			normal:   normal,
+			uv:       tr,
+		}, Vertex{
+			position: c,
+			normal:   normal,
+			uv:       tl,
+		})
+	geo.AddFace(
+		Vertex{
+			position: c,
+			normal:   normal,
+			uv:       tl,
+		}, Vertex{
+			position: g,
+			normal:   normal,
+			uv:       bl,
+		}, Vertex{
+			position: f,
+			normal:   normal,
+			uv:       br,
+		})
+
+	// left
+	normal = math.Vector{-1, 0, 0}
+	geo.AddFace(
+		Vertex{
+			position: b,
+			normal:   normal,
+			uv:       tr,
+		}, Vertex{
+			position: h,
+			normal:   normal,
+			uv:       tl,
+		}, Vertex{
+			position: g,
+			normal:   normal,
+			uv:       bl,
+		})
+	geo.AddFace(
+		Vertex{
+			position: g,
+			normal:   normal,
+			uv:       bl,
+		}, Vertex{
+			position: c,
+			normal:   normal,
+			uv:       br,
+		}, Vertex{
+			position: b,
+			normal:   normal,
+			uv:       tr,
+		})
+
+	// right
+	normal = math.Vector{1, 0, 0}
+	geo.AddFace(
+		Vertex{
+			position: e,
+			normal:   normal,
+			uv:       tr,
+		}, Vertex{
+			position: a,
+			normal:   normal,
+			uv:       tl,
+		}, Vertex{
+			position: d,
+			normal:   normal,
+			uv:       bl,
+		})
+	geo.AddFace(
+		Vertex{
+			position: d,
+			normal:   normal,
+			uv:       bl,
+		}, Vertex{
+			position: f,
+			normal:   normal,
+			uv:       br,
+		}, Vertex{
+			position: e,
+			normal:   normal,
+			uv:       tr,
+		})
+
+	geo.MergeVertices()
+	geo.ComputeBoundary()
+
+	// Material
+	mat := &Material{
+		Uniforms:   make(map[string]interface{}),
+		Attributes: make(map[string]uint),
+	}
+
+	// vertex shader
+	vshader := gl.CreateShader(gl.VERTEX_SHADER)
+	vshader.Source(`
+				#version 330 core
+
+				// Input vertex data, different for all executions of this shader.
+				in vec3 vertexPosition;
+				in vec3 vertexNormal;
+				in vec2 vertexUV;
+
+				// Values that stay constant for the whole mesh.
+				uniform mat4 projectionMatrix;
+				uniform mat4 viewMatrix;
+				uniform mat4 modelMatrix;
+				uniform mat4 modelViewMatrix;
+				uniform mat3 normalMatrix;
+
+				void main(){
+					// Output position of the vertex
+					//gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(vertexPosition, 1.0);
+					gl_Position = projectionMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
+				}`)
+	vshader.Compile()
+	if vshader.Get(gl.COMPILE_STATUS) != gl.TRUE {
+		log.Fatalf("vertex shader error: %v", vshader.GetInfoLog())
+	}
+	defer vshader.Delete()
+
+	// fragment shader
+	fshader := gl.CreateShader(gl.FRAGMENT_SHADER)
+	fshader.Source(`
+				#version 330 core
+
+				// Output data
+				out vec4 fragmentColor;
+
+				void main()
+				{
+					fragmentColor = vec4(1, 1, 0, 1);
+				}`)
+	fshader.Compile()
+	if fshader.Get(gl.COMPILE_STATUS) != gl.TRUE {
+		log.Fatalf("fragment shader error: %v", fshader.GetInfoLog())
+	}
+	defer fshader.Delete()
+
+	// program
+	prg := &program{
+		program:  gl.CreateProgram(),
+		uniforms: make(map[string]gl.UniformLocation),
+		attributes: make(map[string]struct {
+			location gl.AttribLocation
+			enabled  bool
+		}),
+	}
+
+	prg.program.AttachShader(vshader)
+	prg.program.AttachShader(fshader)
+	prg.program.Link()
+	if prg.program.Get(gl.LINK_STATUS) != gl.TRUE {
+		log.Fatalf("linker error: %v", prg.program.GetInfoLog())
+	}
+
+	// locations
+	uniforms := map[string]interface{}{
+		"projectionMatrix": nil, //[16]float32{}, // matrix.Float32()
+		"viewMatrix":       nil, //[16]float32{},
+		"modelMatrix":      nil, //[16]float32{},
+		"modelViewMatrix":  nil, //[16]float32{},
+		"normalMatrix":     nil, //[9]float32{}, // matrix.Matrix3Float32()
+	}
+	for n, _ := range uniforms {
+		prg.uniforms[n] = prg.program.GetUniformLocation(n)
+	}
+
+	attributes := map[string]uint{
+		"vertexPosition": 3,
+		"vertexNormal":   3,
+		"vertexUV":       2,
+	}
+	for n, _ := range attributes {
+		prg.attributes[n] = struct {
+			location gl.AttribLocation
+			enabled  bool
+		}{
+			location: prg.program.GetAttribLocation(n),
+			enabled:  false,
+		}
+	}
+
+	mat.Program = prg
+
+	// default values
+	for n, v := range uniforms {
+		mat.Uniforms[n] = v
+	}
+
+	for n, v := range attributes {
+		mat.Attributes[n] = v
+	}
+
+	// Entity
+	cube := ecs.NewEntity(
+		"cube", trans, geo, mat,
 	)
 
-	mc := &MeshComponent{
-		Points: make([]Point, 7),
-		Max:    0,
-	}
-
-	step := (2.0 * m.Pi) / float64(len(mc.Points))
-	max := float64(size * 10)
-	min := max / 2
-
-	for i := range mc.Points {
-		length := (rand.Float64() * (max - min)) + min
-		angle := float64(i) * step
-
-		mc.Points[i].X = length * m.Cos(angle)
-		mc.Points[i].Y = length * m.Sin(angle)
-
-		mc.Max = m.Max(mc.Max, length)
-	}
-
-	a.Add(mc)
-
-	if err := em.engine.AddEntity(a); err != nil {
+	if err := em.engine.AddEntity(cube); err != nil {
 		log.Fatal(err)
 	}
 }
-
-func (em *EntityManager) CreateCube() {}
 
 func (em *EntityManager) CreatePerspectiveCamera(fov, aspect, near, far float64) {
 	t := &Transformation{

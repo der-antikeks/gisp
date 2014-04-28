@@ -61,7 +61,7 @@ func (s *GameStateSystem) Update(delta time.Duration) error {
 	case "init":
 		log.Println("create splash screen")
 
-		s.em.CreateAsteroid(100, 100, 5)
+		s.em.CreateCube()
 
 		s.em.CreateSplashScreen()
 		se.State = "splash"

@@ -111,27 +111,74 @@ func (s *RenderSystem) visibleEntities(frustum math.Frustum) (opaque, transparen
 }
 
 func (s *RenderSystem) renderEntity(object, camera *ecs.Entity) {
-	// bind material
-	m := object.Get(MaterialType).(*Material)
+	// ### bind material
+	material := object.Get(MaterialType).(*Material)
 	// unbind old material if not equals
 	// enable shader program if not already by previous material (could have same program but different uniforms (texture))
+	if !material.Program.enabled {
+		material.Program.program.Use()
+		material.Program.enabled = true
+	}
 	// update uniforms
+	projection := camera.Get(ProjectionType).(*Projection)
+	material.UpdateUniform("projectionMatrix", projection.ProjectionMatrix().Float32())
+	material.UpdateUniforms()
 
-	// bind geometry
-	g := object.Get(GeometryType).(*Geometry)
+	// ### bind geometry
+	geometry := object.Get(GeometryType).(*Geometry)
 	// if old geometry not equals, disable all material buffers
 	// bind each geometry buffer
 	// enable material attributes for each
+	geometry.init()
 
-	// set matrices
-	t := object.Get(TransformationType).(*Transformation)
+	// disable old attributes
+	material.DisableAttributes()
+	geometry.VertexArrayObject.Bind()
+
+	// vertices
+	geometry.PositionBuffer.Bind(gl.ARRAY_BUFFER)
+	//program.EnableAttribute("vertexPosition")
+	//program.Attribute("vertexPosition").AttribPointer(3, gl.FLOAT, false, 0, nil)
+	material.EnableAttribute("vertexPosition")
+	//geometry.positionBuffer.Unbind(gl.ARRAY_BUFFER)
+
+	// normal
+	geometry.NormalBuffer.Bind(gl.ARRAY_BUFFER)
+	//program.EnableAttribute("vertexNormal")
+	//program.Attribute("vertexNormal").AttribPointer(3, gl.FLOAT, false, 0, nil)
+	material.EnableAttribute("vertexNormal")
+
+	// uv
+	geometry.UvBuffer.Bind(gl.ARRAY_BUFFER)
+	//program.EnableAttribute("vertexUV")
+	//program.Attribute("vertexUV").AttribPointer(2, gl.FLOAT, false, 0, nil)
+	material.EnableAttribute("vertexUV")
+
+	// ### set matrices
+	transform := object.Get(TransformationType).(*Transformation)
 	// material update uniforms model/view/normal/projection-matrix
 
-	// draw
-	// bind geometry face buffer
-	faceCount := 0 // geometry.FaceCount()
+	// Model matrix : an identity matrix (model will be at the origin)
+	//program.Uniform("modelMatrix").UniformMatrix4fv(false, m.MatrixWorld().Float32())
+	material.UpdateUniform("modelMatrix", transform.MatrixWorld().Float32())
 
-	gl.DrawElements(gl.TRIANGLES, faceCount, gl.UNSIGNED_SHORT, nil /* uintptr(start) */) // gl.UNSIGNED_INT, UNSIGNED_SHORT
+	// viewMatrix
+	cameratransform := camera.Get(TransformationType).(*Transformation)
+	viewMatrix := cameratransform.MatrixWorld().Inverse()
+	//program.Uniform("viewMatrix").UniformMatrix4fv(false, viewMatrix.Float32())
+	material.UpdateUniform("viewMatrix", viewMatrix.Float32())
 
-	fmt.Println(m, g, t)
+	// modelViewMatrix
+	modelViewMatrix := viewMatrix.Mul(transform.MatrixWorld())
+	//program.Uniform("modelViewMatrix").UniformMatrix4fv(false, modelViewMatrix.Float32())
+	material.UpdateUniform("modelViewMatrix", modelViewMatrix.Float32())
+
+	// normalMatrix
+	normalMatrix := modelViewMatrix.Normal()
+	//program.Uniform("normalMatrix").UniformMatrix3fv(false, normalMatrix.Matrix3Float32())
+	material.UpdateUniform("normalMatrix", normalMatrix.Matrix3Float32())
+
+	// ### draw
+	geometry.FaceBuffer.Bind(gl.ELEMENT_ARRAY_BUFFER)
+	gl.DrawElements(gl.TRIANGLES, geometry.FaceCount(), gl.UNSIGNED_SHORT, nil /* uintptr(start) */) // gl.UNSIGNED_INT, UNSIGNED_SHORT
 }
