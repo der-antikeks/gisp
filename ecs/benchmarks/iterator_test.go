@@ -35,9 +35,11 @@ func BenchmarkIntCallbackIterator(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var sum int = 0
+		b.StopTimer()
 		cb := func(val int) {
 			sum += val
 		}
+		b.StartTimer()
 		IntCallbackIterator(cb)
 	}
 }
@@ -72,8 +74,59 @@ func BenchmarkIntStatefulIterator(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var sum int = 0
-		for it := NewIntStatefulIterator(int_data); it.Next(); {
+		b.StopTimer()
+		sit := NewIntStatefulIterator(int_data)
+		b.StartTimer()
+		for it := sit; it.Next(); {
 			sum += it.Value()
+		}
+	}
+}
+
+func IntChannelIterator() <-chan int {
+	ch := make(chan int)
+	go func() {
+		for _, val := range int_data {
+			ch <- val
+		}
+		close(ch)
+	}()
+	return ch
+}
+
+func BenchmarkIntsChannelIterator(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var sum int = 0
+		b.StopTimer()
+		ichan := IntChannelIterator()
+		b.StartTimer()
+		for val := range ichan {
+			sum += val
+		}
+	}
+}
+
+func IntBufChannelIterator() <-chan int {
+	ch := make(chan int, 50)
+	go func() {
+		for _, val := range int_data {
+			ch <- val
+		}
+		close(ch)
+	}()
+	return ch
+}
+
+func BenchmarkIntsBufChannelIterator(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var sum int = 0
+		b.StopTimer()
+		ichan := IntBufChannelIterator()
+		b.StartTimer()
+		for val := range ichan {
+			sum += val
 		}
 	}
 }
