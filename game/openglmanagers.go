@@ -107,6 +107,16 @@ func (m *WindowManager) onResize(w *glfw.Window, width int, height int) {
 	m.height = height
 }
 
+func (m *WindowManager) SetSize(width, height int) {
+	m.width = width
+	m.height = height
+	m.window.SetSize(width, height) // TODO: Loops to onResize()?
+}
+
+func (m *WindowManager) Size() (width, height int) {
+	return m.width, m.height
+}
+
 func (m *WindowManager) Close() {
 	m.window.SetShouldClose(true)
 }

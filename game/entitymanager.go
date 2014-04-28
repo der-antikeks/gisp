@@ -2,11 +2,12 @@ package game
 
 import (
 	"log"
-	"math"
+	m "math"
 	"math/rand"
 	"time"
 
 	"github.com/der-antikeks/gisp/ecs"
+	"github.com/der-antikeks/gisp/math"
 )
 
 type EntityManager struct {
@@ -35,7 +36,7 @@ func (m *EntityManager) CreateSplashScreen() {}
 func (m *EntityManager) CreateMainMenu() {}
 
 var (
-	deg2rad = math.Pi / 180.0
+	deg2rad = m.Pi / 180.0
 
 	MaxShipSpeed      = 100.0 // pixels per second
 	MaxAccelerate     = MaxShipSpeed
@@ -60,8 +61,8 @@ func (em *EntityManager) CreateAsteroid(x, y float64, size int) {
 		&PositionComponent{Point{x, y}, rot},
 		&VelocityComponent{
 			Point{
-				speed * math.Cos(rad),
-				speed * math.Sin(rad),
+				speed * m.Cos(rad),
+				speed * m.Sin(rad),
 			}, MaxAsteroidRotation * rand.Float64(),
 		},
 
@@ -73,7 +74,7 @@ func (em *EntityManager) CreateAsteroid(x, y float64, size int) {
 		Max:    0,
 	}
 
-	step := (2.0 * math.Pi) / float64(len(mc.Points))
+	step := (2.0 * m.Pi) / float64(len(mc.Points))
 	max := float64(size * 10)
 	min := max / 2
 
@@ -81,10 +82,10 @@ func (em *EntityManager) CreateAsteroid(x, y float64, size int) {
 		length := (rand.Float64() * (max - min)) + min
 		angle := float64(i) * step
 
-		mc.Points[i].X = length * math.Cos(angle)
-		mc.Points[i].Y = length * math.Sin(angle)
+		mc.Points[i].X = length * m.Cos(angle)
+		mc.Points[i].Y = length * m.Sin(angle)
 
-		mc.Max = math.Max(mc.Max, length)
+		mc.Max = m.Max(mc.Max, length)
 	}
 
 	a.Add(mc)
@@ -95,3 +96,27 @@ func (em *EntityManager) CreateAsteroid(x, y float64, size int) {
 }
 
 func (em *EntityManager) CreateCube() {}
+
+func (em *EntityManager) CreatePerspectiveCamera(fov, aspect, near, far float64) {
+	t := &Transformation{
+		Position: math.Vector{0, 0, -10},
+		//Rotation: math.Quaternion{},
+		Scale: math.Vector{1, 1, 1},
+		Up:    math.Vector{0, 1, 0},
+	}
+	t.Rotation = math.QuaternionFromRotationMatrix(math.LookAt(t.Position, math.Vector{0, 0, 0}, t.Up))
+
+	c := ecs.NewEntity(
+		"camera",
+		&Projection{
+			Fovy:   fov,
+			Aspect: aspect,
+			Near:   near,
+			Far:    far,
+		}, t,
+	)
+
+	if err := em.engine.AddEntity(c); err != nil {
+		log.Fatal(err)
+	}
+}

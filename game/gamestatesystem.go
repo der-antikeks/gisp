@@ -52,6 +52,7 @@ func (s *GameStateSystem) Update(delta time.Duration) error {
 	if s.state == nil {
 		log.Println("initialize")
 		s.em.Initalize()
+		s.em.CreatePerspectiveCamera(45.0, 4.0/3.0, 0.1, 100.0) // TODO: replace with orthographic camera for menu
 		return nil
 	}
 
