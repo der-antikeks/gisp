@@ -31,6 +31,8 @@ func (s *TestSystem) RemovedFromEngine(*Engine) error { return nil }
 func (s *TestSystem) Update(time.Duration) error      { return nil }
 
 func TestCollectionObserver(t *testing.T) {
+	engine := NewEngine()
+
 	obs := NewCollection([]ComponentType{TestAType})
 	s := &TestSystem{}
 	var cnt int
@@ -44,7 +46,7 @@ func TestCollectionObserver(t *testing.T) {
 	n := 10
 	for i := 0; i < n; i++ {
 		cnt += 2
-		en := NewEntity(fmt.Sprintf("Entity %v", i))
+		en := engine.CreateEntity(fmt.Sprintf("Entity %v", i))
 		obs.add(en)
 		obs.remove(en)
 	}

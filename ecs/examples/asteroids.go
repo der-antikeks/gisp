@@ -272,8 +272,8 @@ func (em *EntityManager) createSpaceship(x, y float64) {
 		velocity = delta position / delta time
 	*/
 
-	s := ecs.NewEntity(
-		"spaceship",
+	s := em.engine.CreateEntity("spaceship")
+	s.Set(
 		&ShipStatusComponent{
 			Lifes: 5,
 		},
@@ -309,10 +309,6 @@ func (em *EntityManager) createSpaceship(x, y float64) {
 			FireKey:     glfw.KeySpace,
 		},
 	)
-
-	if err := em.engine.AddEntity(s); err != nil {
-		log.Fatal(err)
-	}
 }
 
 func (em *EntityManager) createAsteroid(x, y float64, size int) {
@@ -320,8 +316,8 @@ func (em *EntityManager) createAsteroid(x, y float64, size int) {
 	rad := (rot + 90) * deg2rad
 	speed := rand.Float64() * MaxAsteroidSpeed
 
-	a := ecs.NewEntity(
-		fmt.Sprintf("asteroid%d", em.asteroidsNum),
+	a := em.engine.CreateEntity(fmt.Sprintf("asteroid%d", em.asteroidsNum))
+	a.Set(
 		&AsteroidStatusComponent{
 			Size: size,
 		},
@@ -358,16 +354,12 @@ func (em *EntityManager) createAsteroid(x, y float64, size int) {
 		mc.Max = math.Max(mc.Max, length)
 	}
 
-	a.Add(mc)
-
-	if err := em.engine.AddEntity(a); err != nil {
-		log.Fatal(err)
-	}
+	a.Set(mc)
 }
 
 func (em *EntityManager) createBullet(x, y, vx, vy float64) {
-	b := ecs.NewEntity(
-		fmt.Sprintf("bullet%d", em.bulletsNum),
+	b := em.engine.CreateEntity(fmt.Sprintf("bullet%d", em.bulletsNum))
+	b.Set(
 		&BulletStatusComponent{
 			LifeTime: time.Now().Add(2 * time.Second),
 		},
@@ -388,10 +380,6 @@ func (em *EntityManager) createBullet(x, y, vx, vy float64) {
 	)
 
 	em.bulletsNum++
-
-	if err := em.engine.AddEntity(b); err != nil {
-		log.Fatal(err)
-	}
 }
 
 // COMPONENTS
@@ -511,7 +499,7 @@ func (c BulletStatusComponent) Type() ecs.ComponentType {
 
 func NewAsteroidSpawnSystem(em *EntityManager) ecs.System {
 	return ecs.CollectionSystem(
-		func(delta time.Duration, en *ecs.Entity) {
+		func(delta time.Duration, en *ecs.Entity) error {
 			p := en.Get(PositionType).(*PositionComponent)
 			c := en.Get(AsteroidStatusType).(*AsteroidStatusComponent)
 
@@ -526,8 +514,10 @@ func NewAsteroidSpawnSystem(em *EntityManager) ecs.System {
 				}
 
 				// remove dead asteroid
-				en.Delete()
+				em.engine.DeleteEntity(en)
 			}
+
+			return nil
 		},
 		[]ecs.ComponentType{AsteroidStatusType, PositionType},
 	)
@@ -583,7 +573,7 @@ func (s *BulletSystem) Update(delta time.Duration) error {
 	for _, e := range s.bullets.Entities() {
 		b := e.Get(BulletStatusType).(*BulletStatusComponent)
 		if b.LifeTime.Before(time.Now()) {
-			s.engine.RemoveEntity(e)
+			s.engine.DeleteEntity(e)
 		}
 	}
 
@@ -592,7 +582,7 @@ func (s *BulletSystem) Update(delta time.Duration) error {
 
 func NewMotionControlSystem(im *InputManager) ecs.System {
 	return ecs.CollectionSystem(
-		func(delta time.Duration, en *ecs.Entity) {
+		func(delta time.Duration, en *ecs.Entity) error {
 
 			p := en.Get(PositionType).(*PositionComponent)
 			m := en.Get(MotionControlType).(*MotionControlComponent)
@@ -625,6 +615,7 @@ func NewMotionControlSystem(im *InputManager) ecs.System {
 				v.Velocity.Y *= factor
 			}
 
+			return nil
 		},
 		[]ecs.ComponentType{PositionType, MotionControlType, VelocityType},
 	)
@@ -640,7 +631,7 @@ type MovementSystem struct {
 
 func NewMovementSystem(minx, maxx, miny, maxy float64) ecs.System {
 	return ecs.CollectionSystem(
-		func(delta time.Duration, en *ecs.Entity) {
+		func(delta time.Duration, en *ecs.Entity) error {
 			p := en.Get(PositionType).(*PositionComponent)
 			v := en.Get(VelocityType).(*VelocityComponent)
 
@@ -662,6 +653,8 @@ func NewMovementSystem(minx, maxx, miny, maxy float64) ecs.System {
 			} else if p.Position.Y > maxy {
 				p.Position.Y -= maxy - miny
 			}
+
+			return nil
 		},
 		[]ecs.ComponentType{PositionType, VelocityType},
 	)

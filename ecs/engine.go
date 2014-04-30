@@ -1,7 +1,6 @@
 package ecs
 
 import (
-	"fmt"
 	"sort"
 	"time"
 )
@@ -27,31 +26,22 @@ func NewEngine() *Engine {
 	}
 }
 
-// Add Entity to Engine and all registered Systems. The Engine is notified of later Component-changes.
-func (e *Engine) AddEntity(en *Entity) error {
-	if _, found := e.entities[en]; found {
-		return fmt.Errorf("entity '%v' already registered", en.Name)
+// Create a Entity and add to all registered Systems.
+func (e *Engine) CreateEntity(name string) *Entity {
+	en := &Entity{
+		Name:       name,
+		engine:     e,
+		components: map[ComponentType]Component{},
 	}
-
-	// set engine of entity
-	en.engine = e
 
 	// add entity to entities map
 	e.entities[en] = []*Collection{}
 
-	// add entity to matching collections slice
-	for _, c := range e.collections {
-		if c.accepts(en) {
-			c.add(en)
-			e.entities[en] = append(e.entities[en], c)
-		}
-	}
-
-	return nil
+	return en
 }
 
-// Remove Entity from Engine and all registered collections
-func (e *Engine) RemoveEntity(en *Entity) {
+// Delete Entity from Engine and all registered collections
+func (e *Engine) DeleteEntity(en *Entity) {
 	if _, found := e.entities[en]; !found {
 		return
 	}
@@ -62,7 +52,7 @@ func (e *Engine) RemoveEntity(en *Entity) {
 	delete(e.entities, en)
 }
 
-// Called by the Entity whose components are removed after adding it to the Engine
+// Called by the Entity whose components are removed
 func (e *Engine) entityRemovedComponent(en *Entity) {
 	for i, c := range e.entities[en] {
 		if !c.accepts(en) {
@@ -77,7 +67,15 @@ func (e *Engine) entityRemovedComponent(en *Entity) {
 	}
 }
 
-// Called by the Entity, if components are added after adding it to the Engine
+// Called by the Entity, if components are updated
+func (e *Engine) entityUpdatedComponent(en *Entity) {
+	for _, c := range e.entities[en] {
+		// TODO: notify observers
+		_ = c
+	}
+}
+
+// Called by the Entity, if components are added
 func (e *Engine) entityAddedComponent(en *Entity) {
 	var already bool
 	for _, c := range e.collections {

@@ -14,11 +14,8 @@ func main() {
 	engine.AddSystem(RenderSystem(), 1)
 	engine.AddSystem(MovementSystem(), 0)
 
-	ship := newSpaceship()
-	engine.AddEntity(ship)
-
-	as1 := newAsteroid()
-	engine.AddEntity(as1)
+	newSpaceship(engine)
+	newAsteroid(engine)
 
 	log.Println("update")
 	log.Println("error:", engine.Update(time.Duration(1)*time.Second))
@@ -28,29 +25,29 @@ func main() {
 
 // entitites
 
-func newSpaceship() *ecs.Entity {
-	s := ecs.NewEntity("spaceship")
+func newSpaceship(engine *ecs.Engine) *ecs.Entity {
+	s := engine.CreateEntity("spaceship")
 
 	position := &PositionComponent{}
 	position.X = 100 / 2
 	position.Y = 100 / 2
 	position.Rotation = 0
-	s.Add(position)
 
 	display := &DisplayComponent{}
 	display.View = DisplayObject{} // NewImage(w, h);
-	s.Add(display)
+	s.Set(position, display)
 
 	return s
 }
 
-func newAsteroid() *ecs.Entity {
-	return ecs.NewEntity(
-		"Asteroid01",
+func newAsteroid(engine *ecs.Engine) *ecs.Entity {
+	a := engine.CreateEntity("Asteroid01")
+	a.Set(
 		&PositionComponent{X: 10, Y: 10, Rotation: 12},
 		&VelocityComponent{VelocityX: -1, VelocityY: -5, AngularVelocity: 1},
 		&DisplayComponent{View: DisplayObject{}},
 	)
+	return a
 }
 
 // components
@@ -95,13 +92,15 @@ func (c DisplayComponent) Type() ecs.ComponentType {
 
 func RenderSystem() ecs.System {
 	s := ecs.CollectionSystem(
-		func(delta time.Duration, en *ecs.Entity) {
+		func(delta time.Duration, en *ecs.Entity) error {
 			position := en.Get(PositionType).(*PositionComponent)
 			display := en.Get(DisplayType).(*DisplayComponent)
 
 			display.View.X = position.X
 			display.View.Y = position.Y
 			display.View.Rotation = position.Rotation
+
+			return nil
 		},
 		[]ecs.ComponentType{PositionType, DisplayType},
 	)
@@ -127,13 +126,15 @@ func RenderSystem() ecs.System {
 
 func MovementSystem() ecs.System {
 	s := ecs.CollectionSystem(
-		func(t time.Duration, en *ecs.Entity) {
+		func(t time.Duration, en *ecs.Entity) error {
 			position := en.Get(PositionType).(*PositionComponent)
 			velocity := en.Get(VelocityType).(*VelocityComponent)
 
 			position.X += velocity.VelocityX * t.Seconds()
 			position.Y += velocity.VelocityY * t.Seconds()
 			position.Rotation += velocity.AngularVelocity * t.Seconds()
+
+			return nil
 		},
 		[]ecs.ComponentType{PositionType, VelocityType},
 	)
