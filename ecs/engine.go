@@ -125,6 +125,21 @@ func (e *Engine) RemoveSystem(s System) {
 	}
 }
 
+// TODO: move old Collection observers to subscribe channels
+func (e *Engine) SubscribeEntityAdd(c chan<- *Entity, types ...ComponentType)    {}
+func (e *Engine) SubscribeEntityUpdate(c chan<- *Entity, types ...ComponentType) {}
+func (e *Engine) SubscribeEntityRemove(c chan<- *Entity, types ...ComponentType) {}
+func (e *Engine) SubscribeUpdate(c chan<- time.Duration)                         {}
+
+func (e *Engine) UnsubscribeEntityAdd(c chan<- *Entity, types ...ComponentType)    {}
+func (e *Engine) UnsubscribeEntityUpdate(c chan<- *Entity, types ...ComponentType) {}
+func (e *Engine) UnsubscribeEntityRemove(c chan<- *Entity, types ...ComponentType) {}
+func (e *Engine) UnsubscribeUpdate(c chan<- time.Duration)                         {}
+
+func (e *Engine) EntitiesWithComponentTypes(types ...ComponentType) EntityList {
+	return SliceEntityList(e.Collection(types...).Entities())
+}
+
 // Get collection of Components. Creates new collection if necessary
 func (e *Engine) Collection(types ...ComponentType) *collection {
 	// old collection

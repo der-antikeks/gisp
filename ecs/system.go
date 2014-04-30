@@ -16,8 +16,8 @@ type collectionSystem struct {
 	types  []ComponentType
 	update func(time.Duration, *Entity) error
 
-	engine     *Engine
-	collection *collection
+	engine   *Engine
+	entities EntityList
 }
 
 // Creates a System with a single Collection of Components
@@ -30,22 +30,22 @@ func CollectionSystem(update func(time.Duration, *Entity) error, types []Compone
 
 func (s *collectionSystem) AddedToEngine(e *Engine) error {
 	s.engine = e
-	s.collection = e.Collection(s.types...)
+	s.entities = e.Collection(s.types...)
 	return nil
 }
 
 func (s *collectionSystem) RemovedFromEngine(*Engine) error {
 	s.engine = nil
-	s.collection = nil
+	s.entities = nil
 	return nil
 }
 
 func (s *collectionSystem) Update(delta time.Duration) error {
-	if s.collection == nil {
+	if s.entities == nil {
 		return nil
 	}
 
-	for _, e := range s.collection.Entities() {
+	for _, e := range s.entities.Entities() {
 		if err := s.update(delta, e); err != nil {
 			return err
 		}

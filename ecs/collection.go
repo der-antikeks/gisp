@@ -108,8 +108,3 @@ func (c *collection) First() *Entity {
 	}
 	return c.entities[0]
 }
-
-type EntityList interface {
-	Entities() []*Entity
-	First() *Entity
-}
