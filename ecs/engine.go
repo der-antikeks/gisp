@@ -11,8 +11,8 @@ type Engine struct {
 	systemPriorities []SystemPriority
 	updatePriority   bool
 
-	entities    map[*Entity][]*Collection
-	collections []*Collection
+	entities    map[*Entity][]*collection
+	collections []*collection
 }
 
 // Creates a new Engine
@@ -21,8 +21,8 @@ func NewEngine() *Engine {
 		systems:          []System{},
 		systemPriorities: []SystemPriority{},
 
-		entities:    map[*Entity][]*Collection{},
-		collections: []*Collection{},
+		entities:    map[*Entity][]*collection{},
+		collections: []*collection{},
 	}
 }
 
@@ -35,7 +35,7 @@ func (e *Engine) CreateEntity(name string) *Entity {
 	}
 
 	// add entity to entities map
-	e.entities[en] = []*Collection{}
+	e.entities[en] = []*collection{}
 
 	return en
 }
@@ -125,20 +125,20 @@ func (e *Engine) RemoveSystem(s System) {
 	}
 }
 
-// Get Collection of Components. Creates new Collection if necessary
-func (e *Engine) Collection(types ...ComponentType) *Collection {
-	// old Collection
+// Get collection of Components. Creates new collection if necessary
+func (e *Engine) Collection(types ...ComponentType) *collection {
+	// old collection
 	for _, c := range e.collections {
 		if c.equals(types) {
 			return c
 		}
 	}
 
-	// new Collection
-	c := NewCollection(types)
+	// new collection
+	c := newCollection(types)
 	e.collections = append(e.collections, c)
 
-	// add matching entities to Collection slice
+	// add matching entities to collection slice
 	for en := range e.entities {
 		if c.accepts(en) {
 			c.add(en)

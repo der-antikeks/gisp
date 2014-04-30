@@ -525,8 +525,8 @@ func NewAsteroidSpawnSystem(em *EntityManager) ecs.System {
 
 type BulletSystem struct {
 	engine  *ecs.Engine
-	cannon  *ecs.Collection
-	bullets *ecs.Collection
+	cannon  ecs.EntityList
+	bullets ecs.EntityList
 
 	im *InputManager
 	em *EntityManager
@@ -625,8 +625,7 @@ func NewMotionControlSystem(im *InputManager) ecs.System {
 }
 
 type MovementSystem struct {
-	engine   *ecs.Engine
-	moveable *ecs.Collection
+	engine *ecs.Engine
 
 	minx, maxx,
 	miny, maxy float64
@@ -667,7 +666,7 @@ func NewMovementSystem(minx, maxx, miny, maxy float64) ecs.System {
 
 type RenderSystem struct {
 	engine   *ecs.Engine
-	drawable *ecs.Collection
+	drawable ecs.EntityList
 }
 
 func NewRenderSystem() ecs.System {
@@ -713,7 +712,7 @@ func (s *RenderSystem) Update(delta time.Duration) error {
 
 type CollisionSystem struct {
 	engine                    *ecs.Engine
-	ships, bullets, asteroids *ecs.Collection
+	ships, bullets, asteroids ecs.EntityList
 }
 
 func NewCollisionSystem() *CollisionSystem {

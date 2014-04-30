@@ -33,7 +33,7 @@ func (s *TestSystem) Update(time.Duration) error      { return nil }
 func TestCollectionObserver(t *testing.T) {
 	engine := NewEngine()
 
-	obs := NewCollection([]ComponentType{TestAType})
+	obs := newCollection([]ComponentType{TestAType})
 	s := &TestSystem{}
 	var cnt int
 

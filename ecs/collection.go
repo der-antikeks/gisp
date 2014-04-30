@@ -3,7 +3,7 @@ package ecs
 import ()
 
 // Collection is a specific set of components
-type Collection struct {
+type collection struct {
 	types    []ComponentType
 	entities []*Entity
 
@@ -11,8 +11,8 @@ type Collection struct {
 	removed map[System]func(en *Entity)
 }
 
-func NewCollection(types []ComponentType) *Collection {
-	return &Collection{
+func newCollection(types []ComponentType) *collection {
+	return &collection{
 		types:    types,
 		entities: []*Entity{},
 
@@ -21,8 +21,8 @@ func NewCollection(types []ComponentType) *Collection {
 	}
 }
 
-// Entity has the same components as the Collection
-func (c *Collection) accepts(en *Entity) bool {
+// Entity has the same components as the collection
+func (c *collection) accepts(en *Entity) bool {
 	for _, t := range c.types {
 		if en.Get(t) == nil {
 			return false
@@ -32,7 +32,7 @@ func (c *Collection) accepts(en *Entity) bool {
 }
 
 // Collection equals slice of ComponentTypes
-func (c *Collection) equals(b []ComponentType) bool {
+func (c *collection) equals(b []ComponentType) bool {
 	if len(c.types) != len(b) {
 		return false
 	}
@@ -54,20 +54,20 @@ func (c *Collection) equals(b []ComponentType) bool {
 	return true
 }
 
-// added/removed functions are called upon the occurrence of the respective action by the Collection
-func (c *Collection) Subscribe(s System, added, removed func(en *Entity)) {
+// added/removed functions are called upon the occurrence of the respective action by the collection
+func (c *collection) Subscribe(s System, added, removed func(en *Entity)) {
 	c.added[s] = added
 	c.removed[s] = removed
 }
 
 // added/removed function  of the passed system are no longer called
-func (c *Collection) Unsubscribe(s System) {
+func (c *collection) Unsubscribe(s System) {
 	delete(c.added, s)
 	delete(c.removed, s)
 }
 
-// add Entity to Collection without any checking of Components
-func (c *Collection) add(en *Entity) {
+// add Entity to collection without any checking of Components
+func (c *collection) add(en *Entity) {
 	c.entities = append(c.entities, en)
 
 	for _, f := range c.added {
@@ -75,8 +75,8 @@ func (c *Collection) add(en *Entity) {
 	}
 }
 
-// remove Entity from Collection
-func (c *Collection) remove(en *Entity) {
+// remove Entity from collection
+func (c *collection) remove(en *Entity) {
 	for i, f := range c.entities {
 		if f == en {
 			copy(c.entities[i:], c.entities[i+1:])
@@ -92,8 +92,8 @@ func (c *Collection) remove(en *Entity) {
 	}
 }
 
-// Return all registered Entities of the Engine, that matches the Collection
-func (c *Collection) Entities() []*Entity {
+// Return all registered Entities of the Engine, that matches the collection
+func (c *collection) Entities() []*Entity {
 	//return c.entities // invalid nil pointer after removing entity
 
 	ret := make([]*Entity, len(c.entities))
@@ -102,19 +102,14 @@ func (c *Collection) Entities() []*Entity {
 }
 
 // Returns the first matched Entity
-func (c *Collection) First() *Entity {
+func (c *collection) First() *Entity {
 	if len(c.entities) < 1 {
 		return nil
 	}
 	return c.entities[0]
 }
 
-/*
-func (c *Collection) Last() *Entity {
-	l := len(c.entities)
-	if l < 1 {
-		return nil
-	}
-	return c.entities[l-1]
+type EntityList interface {
+	Entities() []*Entity
+	First() *Entity
 }
-*/
