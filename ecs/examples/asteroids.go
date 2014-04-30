@@ -274,14 +274,14 @@ func (em *EntityManager) createSpaceship(x, y float64) {
 
 	s := em.engine.CreateEntity("spaceship")
 	s.Set(
-		&ShipStatusComponent{
+		ShipStatusComponent{
 			Lifes: 5,
 		},
 
-		&PositionComponent{Point{x, y}, 0},
-		&VelocityComponent{},
+		PositionComponent{Point{x, y}, 0},
+		VelocityComponent{},
 
-		&MotionControlComponent{
+		MotionControlComponent{
 			AccelerationSpeed: MaxAccelerate,
 			MaxVelocity:       MaxShipSpeed,
 			RotationSpeed:     ShipRotationSpeed,
@@ -292,8 +292,8 @@ func (em *EntityManager) createSpaceship(x, y float64) {
 			DecelerationKey: glfw.KeyS,
 		},
 
-		&ColorComponent{1, 1, 1},
-		&MeshComponent{
+		ColorComponent{1, 1, 1},
+		MeshComponent{
 			Points: []Point{
 				Point{-10, -15},
 				Point{0, -10},
@@ -303,7 +303,7 @@ func (em *EntityManager) createSpaceship(x, y float64) {
 			Max: 15,
 		},
 
-		&CannonComponent{
+		CannonComponent{
 			LastBullet:  time.Now(),
 			BulletSpeed: BulletSpeed,
 			FireKey:     glfw.KeySpace,
@@ -318,24 +318,24 @@ func (em *EntityManager) createAsteroid(x, y float64, size int) {
 
 	a := em.engine.CreateEntity(fmt.Sprintf("asteroid%d", em.asteroidsNum))
 	a.Set(
-		&AsteroidStatusComponent{
+		AsteroidStatusComponent{
 			Size: size,
 		},
 
-		&PositionComponent{Point{x, y}, rot},
-		&VelocityComponent{
+		PositionComponent{Point{x, y}, rot},
+		VelocityComponent{
 			Point{
 				speed * math.Cos(rad),
 				speed * math.Sin(rad),
 			}, MaxAsteroidRotation * rand.Float64(),
 		},
 
-		&ColorComponent{1, 1, 0},
+		ColorComponent{1, 1, 0},
 	)
 
 	em.asteroidsNum++
 
-	mc := &MeshComponent{
+	mc := MeshComponent{
 		Points: make([]Point, 7),
 		Max:    0,
 	}
@@ -360,15 +360,15 @@ func (em *EntityManager) createAsteroid(x, y float64, size int) {
 func (em *EntityManager) createBullet(x, y, vx, vy float64) {
 	b := em.engine.CreateEntity(fmt.Sprintf("bullet%d", em.bulletsNum))
 	b.Set(
-		&BulletStatusComponent{
+		BulletStatusComponent{
 			LifeTime: time.Now().Add(2 * time.Second),
 		},
 
-		&PositionComponent{Point{x, y}, 0},
-		&VelocityComponent{Point{vx, vy}, 0},
+		PositionComponent{Point{x, y}, 0},
+		VelocityComponent{Point{vx, vy}, 0},
 
-		&ColorComponent{1, 0, 0},
-		&MeshComponent{
+		ColorComponent{1, 0, 0},
+		MeshComponent{
 			Points: []Point{
 				Point{2, 2},
 				Point{2, -2},
@@ -500,8 +500,8 @@ func (c BulletStatusComponent) Type() ecs.ComponentType {
 func NewAsteroidSpawnSystem(em *EntityManager) ecs.System {
 	return ecs.CollectionSystem(
 		func(delta time.Duration, en *ecs.Entity) error {
-			p := en.Get(PositionType).(*PositionComponent)
-			c := en.Get(AsteroidStatusType).(*AsteroidStatusComponent)
+			p := en.Get(PositionType).(PositionComponent)
+			c := en.Get(AsteroidStatusType).(AsteroidStatusComponent)
 
 			if c.Destroyed {
 				//fmt.Println("removing dead asteroid", e.Name)
@@ -554,8 +554,8 @@ func (s *BulletSystem) RemovedFromEngine(*ecs.Engine) error {
 func (s *BulletSystem) Update(delta time.Duration) error {
 	// fire new bullet
 	for _, e := range s.cannon.Entities() {
-		p := e.Get(PositionType).(*PositionComponent)
-		c := e.Get(CannonType).(*CannonComponent)
+		p := e.Get(PositionType).(PositionComponent)
+		c := e.Get(CannonType).(CannonComponent)
 
 		//fmt.Println("controlling", e.Name)
 
@@ -565,13 +565,14 @@ func (s *BulletSystem) Update(delta time.Duration) error {
 
 			s.em.createBullet(p.Position.X, p.Position.Y, vx, vy)
 			c.LastBullet = time.Now()
+			e.Set(c)
 		}
 
 	}
 
 	// remove dead bullets, should be in its own generic lifetime system
 	for _, e := range s.bullets.Entities() {
-		b := e.Get(BulletStatusType).(*BulletStatusComponent)
+		b := e.Get(BulletStatusType).(BulletStatusComponent)
 		if b.LifeTime.Before(time.Now()) {
 			s.engine.DeleteEntity(e)
 		}
@@ -584,9 +585,9 @@ func NewMotionControlSystem(im *InputManager) ecs.System {
 	return ecs.CollectionSystem(
 		func(delta time.Duration, en *ecs.Entity) error {
 
-			p := en.Get(PositionType).(*PositionComponent)
-			m := en.Get(MotionControlType).(*MotionControlComponent)
-			v := en.Get(VelocityType).(*VelocityComponent)
+			p := en.Get(PositionType).(PositionComponent)
+			m := en.Get(MotionControlType).(MotionControlComponent)
+			v := en.Get(VelocityType).(VelocityComponent)
 
 			//fmt.Println("controlling", e.Name)
 
@@ -615,6 +616,8 @@ func NewMotionControlSystem(im *InputManager) ecs.System {
 				v.Velocity.Y *= factor
 			}
 
+			en.Set(p, v)
+
 			return nil
 		},
 		[]ecs.ComponentType{PositionType, MotionControlType, VelocityType},
@@ -632,8 +635,8 @@ type MovementSystem struct {
 func NewMovementSystem(minx, maxx, miny, maxy float64) ecs.System {
 	return ecs.CollectionSystem(
 		func(delta time.Duration, en *ecs.Entity) error {
-			p := en.Get(PositionType).(*PositionComponent)
-			v := en.Get(VelocityType).(*VelocityComponent)
+			p := en.Get(PositionType).(PositionComponent)
+			v := en.Get(VelocityType).(VelocityComponent)
 
 			//fmt.Println("moving", e.Name)
 
@@ -653,6 +656,8 @@ func NewMovementSystem(minx, maxx, miny, maxy float64) ecs.System {
 			} else if p.Position.Y > maxy {
 				p.Position.Y -= maxy - miny
 			}
+
+			en.Set(p)
 
 			return nil
 		},
@@ -685,9 +690,9 @@ func (s *RenderSystem) Update(delta time.Duration) error {
 	gl.LoadIdentity()
 
 	for _, e := range s.drawable.Entities() {
-		p := e.Get(PositionType).(*PositionComponent)
-		m := e.Get(MeshType).(*MeshComponent)
-		c := e.Get(ColorType).(*ColorComponent)
+		p := e.Get(PositionType).(PositionComponent)
+		m := e.Get(MeshType).(MeshComponent)
+		c := e.Get(ColorType).(ColorComponent)
 
 		//fmt.Println("rendering", e.Name, "at", p)
 
@@ -734,29 +739,39 @@ func (s *CollisionSystem) Update(delta time.Duration) error {
 		return fmt.Errorf("no ship found for collision system")
 	}
 
-	sp := ship.Get(PositionType).(*PositionComponent).Position
-	sm := ship.Get(MeshType).(*MeshComponent).Max
+	sp := ship.Get(PositionType).(PositionComponent).Position
+	sm := ship.Get(MeshType).(MeshComponent).Max
 
 	for _, asteroid := range s.asteroids.Entities() {
-		ap := asteroid.Get(PositionType).(*PositionComponent).Position
-		am := asteroid.Get(MeshType).(*MeshComponent).Max
+		ap := asteroid.Get(PositionType).(PositionComponent).Position
+		am := asteroid.Get(MeshType).(MeshComponent).Max
 
 		if sp.Distance(ap) < sm+am {
 			//fmt.Println("collision between", ship.Name, "and", asteroid.Name)
 
-			ship.Get(ShipStatusType).(*ShipStatusComponent).Lifes -= 1
+			ss := ship.Get(ShipStatusType).(ShipStatusComponent)
+			ss.Lifes -= 1
+			ship.Set(ss)
 		}
 
 		for _, bullet := range s.bullets.Entities() {
-			bp := bullet.Get(PositionType).(*PositionComponent).Position
-			bm := bullet.Get(MeshType).(*MeshComponent).Max
+			bp := bullet.Get(PositionType).(PositionComponent).Position
+			bm := bullet.Get(MeshType).(MeshComponent).Max
 
 			if bp.Distance(ap) < bm+am {
 				//fmt.Println("collision between", bullet.Name, "and", asteroid.Name)
 
-				ship.Get(ShipStatusType).(*ShipStatusComponent).Score += 100
-				asteroid.Get(AsteroidStatusType).(*AsteroidStatusComponent).Destroyed = true
-				bullet.Get(BulletStatusType).(*BulletStatusComponent).LifeTime = time.Time{}
+				ss := ship.Get(ShipStatusType).(ShipStatusComponent)
+				ss.Score += 100
+				ship.Set(ss)
+
+				as := asteroid.Get(AsteroidStatusType).(AsteroidStatusComponent)
+				as.Destroyed = true
+				asteroid.Set(as)
+
+				bs := bullet.Get(BulletStatusType).(BulletStatusComponent)
+				bs.LifeTime = time.Time{}
+				bullet.Set(bs)
 			}
 		}
 	}
