@@ -140,11 +140,6 @@ type Geometry struct {
 	NormalBuffer      gl.Buffer
 	UvBuffer          gl.Buffer
 
-	faceArray     []uint16 // uint32 (4 byte) if points > 65535
-	positionArray []float32
-	normalArray   []float32
-	uvArray       []float32
-
 	Bounding math.Boundary
 }
 
@@ -219,63 +214,59 @@ func (g *Geometry) init() {
 	g.VertexArrayObject.Bind()
 
 	// init mesh buffers
-	g.faceArray = make([]uint16, len(g.Faces)*3)
+	faceArray := make([]uint16, len(g.Faces)*3) // uint32 (4 byte) if points > 65535
 
 	nvertices := len(g.Vertices)
-	g.positionArray = make([]float32, nvertices*3)
-	g.normalArray = make([]float32, nvertices*3)
-	g.uvArray = make([]float32, nvertices*2)
+	positionArray := make([]float32, nvertices*3)
+	normalArray := make([]float32, nvertices*3)
+	uvArray := make([]float32, nvertices*2)
 
 	// copy values to buffers
 	for i, v := range g.Vertices {
 		// position
-		g.positionArray[i*3] = float32(v.position[0])
-		g.positionArray[i*3+1] = float32(v.position[1])
-		g.positionArray[i*3+2] = float32(v.position[2])
+		positionArray[i*3] = float32(v.position[0])
+		positionArray[i*3+1] = float32(v.position[1])
+		positionArray[i*3+2] = float32(v.position[2])
 
 		// normal
-		g.normalArray[i*3] = float32(v.normal[0])
-		g.normalArray[i*3+1] = float32(v.normal[1])
-		g.normalArray[i*3+2] = float32(v.normal[2])
+		normalArray[i*3] = float32(v.normal[0])
+		normalArray[i*3+1] = float32(v.normal[1])
+		normalArray[i*3+2] = float32(v.normal[2])
 
 		// uv
-		g.uvArray[i*2] = float32(v.uv[0])
-		g.uvArray[i*2+1] = float32(v.uv[1])
+		uvArray[i*2] = float32(v.uv[0])
+		uvArray[i*2+1] = float32(v.uv[1])
 	}
 
 	for i, f := range g.Faces {
-		g.faceArray[i*3] = uint16(f.A)
-		g.faceArray[i*3+1] = uint16(f.B)
-		g.faceArray[i*3+2] = uint16(f.C)
+		faceArray[i*3] = uint16(f.A)
+		faceArray[i*3+1] = uint16(f.B)
+		faceArray[i*3+2] = uint16(f.C)
 	}
 
 	// set mesh buffers
 
 	// position
 	g.PositionBuffer.Bind(gl.ARRAY_BUFFER)
-	size := len(g.positionArray) * int(glh.Sizeof(gl.FLOAT))              // float32 - gl.FLOAT, float64 - gl.DOUBLE
-	gl.BufferData(gl.ARRAY_BUFFER, size, g.positionArray, gl.STATIC_DRAW) // gl.DYNAMIC_DRAW
+	size := len(positionArray) * int(glh.Sizeof(gl.FLOAT))              // float32 - gl.FLOAT, float64 - gl.DOUBLE
+	gl.BufferData(gl.ARRAY_BUFFER, size, positionArray, gl.STATIC_DRAW) // gl.DYNAMIC_DRAW
 
 	// normal
 	g.NormalBuffer.Bind(gl.ARRAY_BUFFER)
-	size = len(g.normalArray) * int(glh.Sizeof(gl.FLOAT))
-	gl.BufferData(gl.ARRAY_BUFFER, size, g.normalArray, gl.STATIC_DRAW)
+	size = len(normalArray) * int(glh.Sizeof(gl.FLOAT))
+	gl.BufferData(gl.ARRAY_BUFFER, size, normalArray, gl.STATIC_DRAW)
 
 	// uv
 	g.UvBuffer.Bind(gl.ARRAY_BUFFER)
-	size = len(g.uvArray) * int(glh.Sizeof(gl.FLOAT))
-	gl.BufferData(gl.ARRAY_BUFFER, size, g.uvArray, gl.STATIC_DRAW)
+	size = len(uvArray) * int(glh.Sizeof(gl.FLOAT))
+	gl.BufferData(gl.ARRAY_BUFFER, size, uvArray, gl.STATIC_DRAW)
 
 	// face
 	g.FaceBuffer.Bind(gl.ELEMENT_ARRAY_BUFFER)
-	size = len(g.faceArray) * int(glh.Sizeof(gl.UNSIGNED_SHORT)) // gl.UNSIGNED_SHORT 2, gl.UNSIGNED_INT 4
-	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, size, g.faceArray, gl.STATIC_DRAW)
+	size = len(faceArray) * int(glh.Sizeof(gl.UNSIGNED_SHORT)) // gl.UNSIGNED_SHORT 2, gl.UNSIGNED_INT 4
+	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, size, faceArray, gl.STATIC_DRAW)
 
 	g.initialized = true
-}
-
-func (g *Geometry) FaceCount() int {
-	return len(g.faceArray)
 }
 
 func (g *Geometry) cleanup() {

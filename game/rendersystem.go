@@ -180,5 +180,5 @@ func (s *RenderSystem) renderEntity(object, camera *ecs.Entity) {
 
 	// ### draw
 	geometry.FaceBuffer.Bind(gl.ELEMENT_ARRAY_BUFFER)
-	gl.DrawElements(gl.TRIANGLES, geometry.FaceCount(), gl.UNSIGNED_SHORT, nil /* uintptr(start) */) // gl.UNSIGNED_INT, UNSIGNED_SHORT
+	gl.DrawElements(gl.TRIANGLES, len(geometry.Faces)*3, gl.UNSIGNED_SHORT, nil /* uintptr(start) */) // gl.UNSIGNED_INT, UNSIGNED_SHORT
 }

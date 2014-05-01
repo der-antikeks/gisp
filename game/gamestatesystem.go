@@ -61,8 +61,6 @@ func (s *GameStateSystem) Update(delta time.Duration) error {
 	case "init":
 		log.Println("create splash screen")
 
-		s.em.CreateCube()
-
 		s.em.CreateSplashScreen()
 		se.State = "splash"
 		se.Since = time.Now()
