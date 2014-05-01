@@ -94,13 +94,23 @@ func (m *WindowManager) onResize(w *glfw.Window, width int, height int) {
 	//zfar := 1000.0
 	//xmax := znear * 0.5
 
-	gl.MatrixMode(gl.PROJECTION)
-	gl.LoadIdentity()
+	if height < 1 {
+		height = 1
+	}
+
+	if width < 1 {
+		width = 1
+	}
+
+	// TODO: set aspect (w / h) of perspective camera
+
+	//	gl.MatrixMode(gl.PROJECTION)
+	//	gl.LoadIdentity()
 	gl.Viewport(0, 0, width, height)
 	//gl.Frustum(-xmax, xmax, -xmax*h, xmax*h, znear, zfar)
-	gl.Ortho(-float64(width)/2, float64(width)/2, -float64(height)/2, float64(height)/2, 0, 128)
-	gl.MatrixMode(gl.MODELVIEW)
-	gl.LoadIdentity()
+	//	gl.Ortho(-float64(width)/2, float64(width)/2, -float64(height)/2, float64(height)/2, 0, 128)
+	//	gl.MatrixMode(gl.MODELVIEW)
+	//	gl.LoadIdentity()
 	//gl.Translated(0.0, 0.0, -20.0)
 
 	m.width = width
