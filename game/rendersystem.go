@@ -115,14 +115,13 @@ func (s *RenderSystem) renderEntity(object, camera *ecs.Entity) {
 	material := object.Get(MaterialType).(*Material)
 	// unbind old material if not equals
 	// enable shader program if not already by previous material (could have same program but different uniforms (texture))
-	if !material.Program.enabled {
-		material.Program.program.Use()
-		material.Program.enabled = true
+	if !material.Shader.enabled {
+		material.Shader.program.Use()
+		material.Shader.enabled = true
 	}
-	// update uniforms
+	// update projection uniform
 	projection := camera.Get(ProjectionType).(*Projection)
-	material.UpdateUniform("projectionMatrix", projection.ProjectionMatrix().Float32())
-	material.UpdateUniforms()
+	material.SetUniform("projectionMatrix", projection.ProjectionMatrix().Float32())
 
 	// ### bind geometry
 	geometry := object.Get(GeometryType).(*Geometry)
@@ -160,23 +159,26 @@ func (s *RenderSystem) renderEntity(object, camera *ecs.Entity) {
 
 	// Model matrix : an identity matrix (model will be at the origin)
 	//program.Uniform("modelMatrix").UniformMatrix4fv(false, m.MatrixWorld().Float32())
-	material.UpdateUniform("modelMatrix", transform.MatrixWorld().Float32())
+	material.SetUniform("modelMatrix", transform.MatrixWorld().Float32())
 
 	// viewMatrix
 	cameratransform := camera.Get(TransformationType).(*Transformation)
 	viewMatrix := cameratransform.MatrixWorld().Inverse()
 	//program.Uniform("viewMatrix").UniformMatrix4fv(false, viewMatrix.Float32())
-	material.UpdateUniform("viewMatrix", viewMatrix.Float32())
+	material.SetUniform("viewMatrix", viewMatrix.Float32())
 
 	// modelViewMatrix
 	modelViewMatrix := viewMatrix.Mul(transform.MatrixWorld())
 	//program.Uniform("modelViewMatrix").UniformMatrix4fv(false, modelViewMatrix.Float32())
-	material.UpdateUniform("modelViewMatrix", modelViewMatrix.Float32())
+	material.SetUniform("modelViewMatrix", modelViewMatrix.Float32())
 
 	// normalMatrix
 	normalMatrix := modelViewMatrix.Normal()
 	//program.Uniform("normalMatrix").UniformMatrix3fv(false, normalMatrix.Matrix3Float32())
-	material.UpdateUniform("normalMatrix", normalMatrix.Matrix3Float32())
+	material.SetUniform("normalMatrix", normalMatrix.Matrix3Float32())
+
+	// update uniforms
+	material.UpdateUniforms()
 
 	// ### draw
 	geometry.FaceBuffer.Bind(gl.ELEMENT_ARRAY_BUFFER)

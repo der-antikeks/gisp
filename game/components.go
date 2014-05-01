@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/der-antikeks/gisp/ecs"
@@ -292,13 +293,17 @@ func (g *Geometry) cleanup() {
 }
 
 // TODO: move shader to separate loader
-type program struct {
+type shader struct {
 	program gl.Program
 	enabled bool
 
-	uniforms   map[string]gl.UniformLocation
+	uniforms map[string]struct {
+		location gl.UniformLocation
+		standard interface{}
+	}
 	attributes map[string]struct {
 		location gl.AttribLocation
+		size     uint
 		enabled  bool
 	}
 }
@@ -311,10 +316,10 @@ type Texture interface {
 }
 
 type Material struct {
-	Program    *program
-	Opaque     bool
-	Uniforms   map[string]interface{} // value
-	Attributes map[string]uint        // size
+	Shader   *shader
+	Opaque   bool
+	Uniforms map[string]interface{} // value
+	//Attributes map[string]uint        // size
 }
 
 func (c Material) Type() ecs.ComponentType {
@@ -322,82 +327,80 @@ func (c Material) Type() ecs.ComponentType {
 }
 
 func (m *Material) DisableAttributes() {
-	for n, v := range m.Program.attributes {
-		if v.enabled {
-			v.location.DisableArray()
-			v.enabled = false
-			m.Program.attributes[n] = v
+	for n, a := range m.Shader.attributes {
+		if a.enabled {
+			a.location.DisableArray()
+			a.enabled = false
+			m.Shader.attributes[n] = a
 		}
 	}
 }
 
 func (m *Material) EnableAttribute(name string) {
-	if _, ok := m.Attributes[name]; !ok {
-		//return err
-		panic("unknown attribute: " + name)
+	a, ok := m.Shader.attributes[name]
+	if !ok {
+		log.Fatal("unknown attribute: ", name)
 	}
 
-	if v := m.Program.attributes[name]; !v.enabled {
-		v.location.EnableArray()
-		v.enabled = true
+	if !a.enabled {
+		a.location.EnableArray()
+		a.enabled = true
 
-		m.Program.attributes[name] = v
+		m.Shader.attributes[name] = a
 	}
 
-	m.Program.attributes[name].location.AttribPointer(m.Attributes[name], gl.FLOAT, false, 0, nil)
+	a.location.AttribPointer(a.size, gl.FLOAT, false, 0, nil)
+}
+
+func (m *Material) SetUniform(name string, value interface{}) {
+	if _, allowed := m.Shader.uniforms[name]; !allowed {
+		log.Fatalf("uniform %v not allowed for shader", name)
+		return
+	}
+	m.Uniforms[name] = value
 }
 
 func (m *Material) UpdateUniforms() {
 	var usedTextureUnits int
 
-	for n, v := range m.Uniforms {
+	for n, vu := range m.Shader.uniforms {
+		v, found := m.Uniforms[n]
+		if !found {
+			v = vu.standard
+		}
+
 		switch t := v.(type) {
+		case nil: // ignore nil
+		default:
+			log.Fatalf("%v has unknown type: %T", n, t)
+
 		case Texture:
 			t.Bind(usedTextureUnits)
-			//m.program.uniforms[n].Uniform1i(usedTextureUnits)
-			if err := m.UpdateUniform(n, usedTextureUnits); err != nil {
-				panic(err.Error())
-			}
+			m.Shader.uniforms[n].location.Uniform1i(usedTextureUnits)
+
 			usedTextureUnits++
 
-		case nil: // ignore nil
+		case int:
+			m.Shader.uniforms[n].location.Uniform1i(t)
+		case float64:
+			m.Shader.uniforms[n].location.Uniform1f(float32(t))
+		case float32:
+			m.Shader.uniforms[n].location.Uniform1f(t)
 
-		default:
-			if err := m.UpdateUniform(n, v); err != nil {
-				panic(err.Error())
+		case [16]float32:
+			m.Shader.uniforms[n].location.UniformMatrix4fv(false, t)
+		case [9]float32:
+			m.Shader.uniforms[n].location.UniformMatrix3fv(false, t)
+
+		case math.Color:
+			m.Shader.uniforms[n].location.Uniform3f(float32(t.R), float32(t.G), float32(t.B))
+
+		case bool:
+			if t {
+				m.Shader.uniforms[n].location.Uniform1i(1)
+			} else {
+				m.Shader.uniforms[n].location.Uniform1i(0)
 			}
 		}
 	}
-}
-
-func (m *Material) UpdateUniform(name string, value interface{}) error {
-	switch t := value.(type) {
-	case int:
-		m.Program.uniforms[name].Uniform1i(t)
-	case float64:
-		m.Program.uniforms[name].Uniform1f(float32(t))
-	case float32:
-		m.Program.uniforms[name].Uniform1f(t)
-
-	case [16]float32:
-		m.Program.uniforms[name].UniformMatrix4fv(false, t)
-	case [9]float32:
-		m.Program.uniforms[name].UniformMatrix3fv(false, t)
-
-	case math.Color:
-		m.Program.uniforms[name].Uniform3f(float32(t.R), float32(t.G), float32(t.B))
-
-	case bool:
-		if t {
-			m.Program.uniforms[name].Uniform1i(1)
-		} else {
-			m.Program.uniforms[name].Uniform1i(0)
-		}
-
-	default:
-		panic(fmt.Sprintf("%v has unknown type: %T", name, value))
-		return fmt.Errorf("%v has unknown type: %T", name, value)
-	}
-
-	return nil
 }

@@ -96,14 +96,18 @@ func (em *EntityManager) getMaterial(id string) *Material {
 	}
 
 	mat := &Material{
-		Uniforms:   make(map[string]interface{}),
-		Attributes: make(map[string]uint),
-		Program: &program{
-			uniforms: make(map[string]gl.UniformLocation),
-			attributes: make(map[string]struct {
+		Uniforms: map[string]interface{}{},
+		//Attributes: map[string]uint{},
+		Shader: &shader{
+			uniforms: map[string]struct {
+				location gl.UniformLocation
+				standard interface{}
+			}{},
+			attributes: map[string]struct {
 				location gl.AttribLocation
+				size     uint
 				enabled  bool
-			}),
+			}{},
 		},
 	}
 
@@ -158,49 +162,48 @@ func (em *EntityManager) getMaterial(id string) *Material {
 		defer fshader.Delete()
 
 		// program
-		mat.Program.program = gl.CreateProgram()
+		mat.Shader.program = gl.CreateProgram()
 
-		mat.Program.program.AttachShader(vshader)
-		mat.Program.program.AttachShader(fshader)
-		mat.Program.program.Link()
-		if mat.Program.program.Get(gl.LINK_STATUS) != gl.TRUE {
-			log.Fatalf("linker error: %v", mat.Program.program.GetInfoLog())
+		mat.Shader.program.AttachShader(vshader)
+		mat.Shader.program.AttachShader(fshader)
+		mat.Shader.program.Link()
+		if mat.Shader.program.Get(gl.LINK_STATUS) != gl.TRUE {
+			log.Fatalf("linker error: %v", mat.Shader.program.GetInfoLog())
 		}
 
 		// locations
-		uniforms := map[string]interface{}{
+		uniforms := map[string]interface{}{ // name, default value
 			"projectionMatrix": nil, //[16]float32{}, // matrix.Float32()
 			"viewMatrix":       nil, //[16]float32{},
 			"modelMatrix":      nil, //[16]float32{},
 			"modelViewMatrix":  nil, //[16]float32{},
 			"normalMatrix":     nil, //[9]float32{}, // matrix.Matrix3Float32()
 		}
-		for n, _ := range uniforms {
-			mat.Program.uniforms[n] = mat.Program.program.GetUniformLocation(n)
+		for n, v := range uniforms {
+			mat.Shader.uniforms[n] = struct {
+				location gl.UniformLocation
+				standard interface{}
+			}{
+				location: mat.Shader.program.GetUniformLocation(n),
+				standard: v,
+			}
 		}
 
-		attributes := map[string]uint{
+		attributes := map[string]uint{ // name, size
 			"vertexPosition": 3,
 			"vertexNormal":   3,
 			"vertexUV":       2,
 		}
-		for n, _ := range attributes {
-			mat.Program.attributes[n] = struct {
+		for n, v := range attributes {
+			mat.Shader.attributes[n] = struct {
 				location gl.AttribLocation
+				size     uint
 				enabled  bool
 			}{
-				location: mat.Program.program.GetAttribLocation(n),
+				location: mat.Shader.program.GetAttribLocation(n),
+				size:     v,
 				enabled:  false,
 			}
-		}
-
-		// default values
-		for n, v := range uniforms {
-			mat.Uniforms[n] = v
-		}
-
-		for n, v := range attributes {
-			mat.Attributes[n] = v
 		}
 	}
 
