@@ -131,27 +131,27 @@ func (s *RenderSystem) renderEntity(object, camera *ecs.Entity) {
 	geometry.init()
 
 	// disable old attributes
-	material.DisableAttributes()
+	material.Shader.DisableAttributes()
 	geometry.VertexArrayObject.Bind()
 
 	// vertices
 	geometry.PositionBuffer.Bind(gl.ARRAY_BUFFER)
 	//program.EnableAttribute("vertexPosition")
 	//program.Attribute("vertexPosition").AttribPointer(3, gl.FLOAT, false, 0, nil)
-	material.EnableAttribute("vertexPosition")
+	material.Shader.EnableAttribute("vertexPosition")
 	//geometry.positionBuffer.Unbind(gl.ARRAY_BUFFER)
 
 	// normal
 	geometry.NormalBuffer.Bind(gl.ARRAY_BUFFER)
 	//program.EnableAttribute("vertexNormal")
 	//program.Attribute("vertexNormal").AttribPointer(3, gl.FLOAT, false, 0, nil)
-	material.EnableAttribute("vertexNormal")
+	material.Shader.EnableAttribute("vertexNormal")
 
 	// uv
 	geometry.UvBuffer.Bind(gl.ARRAY_BUFFER)
 	//program.EnableAttribute("vertexUV")
 	//program.Attribute("vertexUV").AttribPointer(2, gl.FLOAT, false, 0, nil)
-	material.EnableAttribute("vertexUV")
+	material.Shader.EnableAttribute("vertexUV")
 
 	// ### set matrices
 	transform := object.Get(TransformationType).(*Transformation)

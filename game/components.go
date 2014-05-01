@@ -292,22 +292,6 @@ func (g *Geometry) cleanup() {
 	}
 }
 
-// TODO: move shader to separate loader
-type shader struct {
-	program gl.Program
-	enabled bool
-
-	uniforms map[string]struct {
-		location gl.UniformLocation
-		standard interface{}
-	}
-	attributes map[string]struct {
-		location gl.AttribLocation
-		size     uint
-		enabled  bool
-	}
-}
-
 // TODO: move material to separate loader
 type Texture interface {
 	Bind(slot int)
@@ -318,38 +302,11 @@ type Texture interface {
 type Material struct {
 	Shader   *shader
 	Opaque   bool
-	Uniforms map[string]interface{} // value
-	//Attributes map[string]uint        // size
+	Uniforms map[string]interface{}
 }
 
 func (c Material) Type() ecs.ComponentType {
 	return MaterialType
-}
-
-func (m *Material) DisableAttributes() {
-	for n, a := range m.Shader.attributes {
-		if a.enabled {
-			a.location.DisableArray()
-			a.enabled = false
-			m.Shader.attributes[n] = a
-		}
-	}
-}
-
-func (m *Material) EnableAttribute(name string) {
-	a, ok := m.Shader.attributes[name]
-	if !ok {
-		log.Fatal("unknown attribute: ", name)
-	}
-
-	if !a.enabled {
-		a.location.EnableArray()
-		a.enabled = true
-
-		m.Shader.attributes[name] = a
-	}
-
-	a.location.AttribPointer(a.size, gl.FLOAT, false, 0, nil)
 }
 
 func (m *Material) SetUniform(name string, value interface{}) {

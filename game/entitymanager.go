@@ -7,8 +7,6 @@ import (
 
 	"github.com/der-antikeks/gisp/ecs"
 	"github.com/der-antikeks/gisp/math"
-
-	"github.com/go-gl/gl"
 )
 
 type EntityManager struct {
@@ -97,114 +95,7 @@ func (em *EntityManager) getMaterial(id string) *Material {
 
 	mat := &Material{
 		Uniforms: map[string]interface{}{},
-		//Attributes: map[string]uint{},
-		Shader: &shader{
-			uniforms: map[string]struct {
-				location gl.UniformLocation
-				standard interface{}
-			}{},
-			attributes: map[string]struct {
-				location gl.AttribLocation
-				size     uint
-				enabled  bool
-			}{},
-		},
-	}
-
-	switch id {
-	default:
-		log.Fatal("unknown material id: ", id)
-	case "basic":
-		// vertex shader
-		vshader := gl.CreateShader(gl.VERTEX_SHADER)
-		vshader.Source(`
-				#version 330 core
-
-				// Input vertex data, different for all executions of this shader.
-				in vec3 vertexPosition;
-				in vec3 vertexNormal;
-				in vec2 vertexUV;
-
-				// Values that stay constant for the whole mesh.
-				uniform mat4 projectionMatrix;
-				uniform mat4 viewMatrix;
-				uniform mat4 modelMatrix;
-				uniform mat4 modelViewMatrix;
-				uniform mat3 normalMatrix;
-
-				void main(){
-					// Output position of the vertex
-					//gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(vertexPosition, 1.0);
-					gl_Position = projectionMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
-				}`)
-		vshader.Compile()
-		if vshader.Get(gl.COMPILE_STATUS) != gl.TRUE {
-			log.Fatalf("vertex shader error: %v", vshader.GetInfoLog())
-		}
-		defer vshader.Delete()
-
-		// fragment shader
-		fshader := gl.CreateShader(gl.FRAGMENT_SHADER)
-		fshader.Source(`
-				#version 330 core
-
-				// Output data
-				out vec4 fragmentColor;
-
-				void main()
-				{
-					fragmentColor = vec4(1, 1, 0, 1);
-				}`)
-		fshader.Compile()
-		if fshader.Get(gl.COMPILE_STATUS) != gl.TRUE {
-			log.Fatalf("fragment shader error: %v", fshader.GetInfoLog())
-		}
-		defer fshader.Delete()
-
-		// program
-		mat.Shader.program = gl.CreateProgram()
-
-		mat.Shader.program.AttachShader(vshader)
-		mat.Shader.program.AttachShader(fshader)
-		mat.Shader.program.Link()
-		if mat.Shader.program.Get(gl.LINK_STATUS) != gl.TRUE {
-			log.Fatalf("linker error: %v", mat.Shader.program.GetInfoLog())
-		}
-
-		// locations
-		uniforms := map[string]interface{}{ // name, default value
-			"projectionMatrix": nil, //[16]float32{}, // matrix.Float32()
-			"viewMatrix":       nil, //[16]float32{},
-			"modelMatrix":      nil, //[16]float32{},
-			"modelViewMatrix":  nil, //[16]float32{},
-			"normalMatrix":     nil, //[9]float32{}, // matrix.Matrix3Float32()
-		}
-		for n, v := range uniforms {
-			mat.Shader.uniforms[n] = struct {
-				location gl.UniformLocation
-				standard interface{}
-			}{
-				location: mat.Shader.program.GetUniformLocation(n),
-				standard: v,
-			}
-		}
-
-		attributes := map[string]uint{ // name, size
-			"vertexPosition": 3,
-			"vertexNormal":   3,
-			"vertexUV":       2,
-		}
-		for n, v := range attributes {
-			mat.Shader.attributes[n] = struct {
-				location gl.AttribLocation
-				size     uint
-				enabled  bool
-			}{
-				location: mat.Shader.program.GetAttribLocation(n),
-				size:     v,
-				enabled:  false,
-			}
-		}
+		Shader:   GetShader(id),
 	}
 
 	em.materialCache[id] = mat
