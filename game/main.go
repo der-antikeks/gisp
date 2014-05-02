@@ -60,8 +60,9 @@ func Run() error {
 
 	for running {
 		select {
-		case now = <-update:
+		case <-update:
 			// calc delay
+			now = time.Now()
 			delta = now.Sub(lastTime)
 			lastTime = now
 
