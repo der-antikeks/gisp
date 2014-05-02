@@ -2,31 +2,32 @@ package ecs
 
 import (
 	"sort"
-	"time"
+	"sync"
 )
 
 // Engine collects and connects Systems with matching Entities
 type Engine struct {
-	systems          []System
-	systemPriorities []SystemPriority
-	updatePriority   bool
+	eventLock     sync.RWMutex // TODO: replace mutex(es) with single goroutine? single monolithic event-scheduler...
+	eventObserver []chan<- Event
+	priorities    []int
 
-	entities    map[*Entity][]*collection
-	collections []*collection
+	entityLock      sync.RWMutex
+	entityObservers map[*aspect][]chan<- Event // TODO: move channel slice inside of aspect singleton?
+	entities        map[*Entity][]*aspect      // TODO: replace Entity-pointers with int-ids and move component set/get-logic to engine
 }
 
 // Creates a new Engine
 func NewEngine() *Engine {
 	return &Engine{
-		systems:          []System{},
-		systemPriorities: []SystemPriority{},
+		eventObserver: []chan<- Event{},
+		priorities:    []int{},
 
-		entities:    map[*Entity][]*collection{},
-		collections: []*collection{},
+		entityObservers: map[*aspect][]chan<- Event{},
+		entities:        map[*Entity][]*aspect{},
 	}
 }
 
-// Create a Entity and add to all registered Systems.
+// Create an Entity
 func (e *Engine) CreateEntity(name string) *Entity {
 	en := &Entity{
 		Name:       name,
@@ -35,169 +36,240 @@ func (e *Engine) CreateEntity(name string) *Entity {
 	}
 
 	// add entity to entities map
-	e.entities[en] = []*collection{}
+	e.entityLock.Lock()
+	defer e.entityLock.Unlock()
 
+	e.entities[en] = []*aspect{}
 	return en
 }
 
-// Delete Entity from Engine and all registered collections
+// Delete Entity from Engine and send RemoveEvents to all registered observers
 func (e *Engine) DeleteEntity(en *Entity) {
+	e.entityLock.Lock()
+	defer e.entityLock.Unlock()
+
 	if _, found := e.entities[en]; !found {
 		return
 	}
 	en.engine = nil
-	for _, c := range e.entities[en] {
-		c.remove(en)
+	for _, a := range e.entities[en] {
+		for _, o := range e.entityObservers[a] {
+			go func(c chan<- Event, en *Entity) {
+				c <- EntityRemoveEvent{Removed: en}
+			}(o, en)
+			// TODO: waitgroup?
+		}
 	}
 	delete(e.entities, en)
 }
 
 // Called by the Entity whose components are removed
 func (e *Engine) entityRemovedComponent(en *Entity) {
-	for i, c := range e.entities[en] {
-		if !c.accepts(en) {
-			// component does not accept entity anymore
-			// remove component from entites slice
+	e.entityLock.Lock()
+	defer e.entityLock.Unlock()
+
+	for i, a := range e.entities[en] {
+		if !a.accepts(en) {
+			// aspect does not accept entity anymore
+			// remove aspect from entities slice
 			copy(e.entities[en][i:], e.entities[en][i+1:])
 			e.entities[en][len(e.entities[en])-1] = nil
 			e.entities[en] = e.entities[en][:len(e.entities[en])-1]
 
-			c.remove(en)
+			for _, o := range e.entityObservers[a] {
+				go func(c chan<- Event, en *Entity) {
+					c <- EntityRemoveEvent{Removed: en}
+				}(o, en)
+				// TODO: waitgroup?
+			}
 		}
 	}
 }
 
 // Called by the Entity, if components are updated
 func (e *Engine) entityUpdatedComponent(en *Entity) {
-	for _, c := range e.entities[en] {
-		// TODO: notify observers
-		_ = c
+	e.entityLock.RLock()
+	defer e.entityLock.RUnlock()
+
+	for _, a := range e.entities[en] {
+		for _, o := range e.entityObservers[a] {
+			go func(c chan<- Event, en *Entity) {
+				c <- EntityUpdateEvent{Updated: en}
+			}(o, en)
+			// TODO: waitgroup?
+		}
 	}
 }
 
 // Called by the Entity, if components are added
 func (e *Engine) entityAddedComponent(en *Entity) {
+	e.entityLock.Lock()
+	defer e.entityLock.Unlock()
+
 	var already bool
-	for _, c := range e.collections {
+	for a := range e.entityObservers {
 		already = false
 		for _, h := range e.entities[en] {
-			if c == h {
+			if a == h {
 				already = true
 				break
 			}
 		}
 
 		// add entity to matching collections slice
-		if !already && c.accepts(en) {
-			c.add(en)
-			e.entities[en] = append(e.entities[en], c)
-		}
-	}
-}
-
-// Add System to Engine. Already registered Entites are added to the System
-func (e *Engine) AddSystem(s System, p SystemPriority) error {
-	if err := s.AddedToEngine(e); err != nil {
-		return err
-	}
-
-	e.systems = append(e.systems, s)
-	e.systemPriorities = append(e.systemPriorities, p)
-	e.updatePriority = true
-	return nil
-}
-
-// Remove System from Engine
-func (e *Engine) RemoveSystem(s System) {
-	if err := s.RemovedFromEngine(e); err == nil {
-		for i, f := range e.systems {
-			if f == s {
-				// found, remove system from slice
-				copy(e.systems[i:], e.systems[i+1:])
-				e.systems[len(e.systems)-1] = nil
-				e.systems = e.systems[:len(e.systems)-1]
-
-				// remove priority
-				e.systemPriorities = e.systemPriorities[:i+copy(e.systemPriorities[i:], e.systemPriorities[i+1:])]
-				return
+		if !already && a.accepts(en) {
+			for _, o := range e.entityObservers[a] {
+				go func(c chan<- Event, en *Entity) {
+					c <- EntityAddEvent{Added: en}
+				}(o, en)
+				// TODO: waitgroup?
 			}
+
+			e.entities[en] = append(e.entities[en], a)
 		}
 	}
 }
 
-// TODO: move old Collection observers to subscribe channels
-func (e *Engine) SubscribeEntityAdd(c chan<- *Entity, types ...ComponentType)    {}
-func (e *Engine) SubscribeEntityUpdate(c chan<- *Entity, types ...ComponentType) {}
-func (e *Engine) SubscribeEntityRemove(c chan<- *Entity, types ...ComponentType) {}
-func (e *Engine) SubscribeUpdate(c chan<- time.Duration)                         {}
+func (e *Engine) SubscribeEvent(c chan<- Event, prio int) {
+	e.eventLock.Lock()
+	defer e.eventLock.Unlock()
 
-func (e *Engine) UnsubscribeEntityAdd(c chan<- *Entity, types ...ComponentType)    {}
-func (e *Engine) UnsubscribeEntityUpdate(c chan<- *Entity, types ...ComponentType) {}
-func (e *Engine) UnsubscribeEntityRemove(c chan<- *Entity, types ...ComponentType) {}
-func (e *Engine) UnsubscribeUpdate(c chan<- time.Duration)                         {}
-
-func (e *Engine) EntitiesWithComponentTypes(types ...ComponentType) EntityList {
-	return SliceEntityList(e.Collection(types...).Entities())
+	e.eventObserver = append(e.eventObserver, c)
+	e.priorities = append(e.priorities, prio)
+	e.sortObservers()
 }
 
-// Get collection of Components. Creates new collection if necessary
-func (e *Engine) Collection(types ...ComponentType) *collection {
-	// old collection
-	for _, c := range e.collections {
-		if c.equals(types) {
-			return c
+func (e *Engine) UnsubscribeEvent(c chan<- Event) {
+	e.eventLock.Lock()
+	defer e.eventLock.Unlock()
+
+	for i, o := range e.eventObserver {
+		if o == c {
+			copy(e.eventObserver[i:], e.eventObserver[i+1:])
+			e.eventObserver[len(e.eventObserver)-1] = nil
+			e.eventObserver = e.eventObserver[:len(e.eventObserver)-1]
+
+			return
+		}
+	}
+}
+
+func (e *Engine) BroadcastEvent(ev Event) {
+	e.eventLock.RLock()
+	defer e.eventLock.RUnlock()
+
+	var wg sync.WaitGroup
+	cur := -1
+
+	for i, o := range e.eventObserver {
+		if p := e.priorities[i]; p != cur {
+			// wait until previous observers are finished
+			wg.Wait()
+			cur = p
+		}
+
+		wg.Add(1)
+		go func(c chan<- Event) {
+			defer wg.Done()
+			c <- ev
+		}(o)
+	}
+
+	wg.Wait()
+}
+
+/*
+	entityLock      sync.RWMutex
+	entityObservers map[*aspect][]chan<- Event
+	entities        map[*Entity][]*aspect
+*/
+
+func (e *Engine) SubscribeAspectEvent(c chan<- Event, types ...ComponentType) {
+	e.entityLock.Lock()
+	defer e.entityLock.Unlock()
+
+	// old aspect
+	for a := range e.entityObservers {
+		if a.equals(types) {
+
+			// new subscribers of existing aspects must get all previosly added entities
+			for en, as := range e.entities {
+				for _, f := range as {
+					if f == a {
+						go func(c chan<- Event, en *Entity) {
+							c <- EntityAddEvent{Added: en}
+						}(c, en)
+						// TODO: waitgroup?
+						break
+					}
+				}
+				// TODO: test post break
+			}
+
+			return
 		}
 	}
 
-	// new collection
-	c := newCollection(types)
-	e.collections = append(e.collections, c)
+	// new aspect
+	a := &aspect{
+		types: types,
+	}
 
-	// add matching entities to collection slice
+	// add observer
+	e.entityObservers[a] = append(e.entityObservers[a], c)
+
+	// broadcast entities
 	for en := range e.entities {
-		if c.accepts(en) {
-			c.add(en)
-			e.entities[en] = append(e.entities[en], c)
+		if a.accepts(en) {
+			e.entities[en] = append(e.entities[en], a)
+
+			go func(c chan<- Event, en *Entity) {
+				c <- EntityAddEvent{Added: en}
+			}(c, en)
 		}
 	}
-
-	return c
 }
 
-// byPriority attaches the methods of sort.Interface to []System, sorting in increasing order of the System.Priority() method.
+func (e *Engine) UnsubscribeAspectEvent(c chan<- Event, types ...ComponentType) {
+	e.entityLock.Lock()
+	defer e.entityLock.Unlock()
+
+	for a, os := range e.entityObservers {
+		if a.equals(types) {
+
+			for i, o := range os {
+				if o == c {
+					copy(e.entityObservers[a][i:], e.entityObservers[a][i+1:])
+					e.entityObservers[a][len(e.entityObservers[a])-1] = nil
+					e.entityObservers[a] = e.entityObservers[a][:len(e.entityObservers[a])-1]
+
+					return
+				}
+			}
+
+			return
+		}
+	}
+}
+
+// byPriority attaches the methods of sort.Interface to []eventObservers, sorting in increasing order of priority
 type byPriority struct {
-	systems    []System
-	priorities []SystemPriority
+	observer   []chan<- Event
+	priorities []int
 }
 
-func (a byPriority) Len() int { return len(a.systems) }
+func (a byPriority) Len() int { return len(a.observer) }
 func (a byPriority) Swap(i, j int) {
-	a.systems[i], a.systems[j] = a.systems[j], a.systems[i]
+	a.observer[i], a.observer[j] = a.observer[j], a.observer[i]
 	a.priorities[i], a.priorities[j] = a.priorities[j], a.priorities[i]
 }
 func (a byPriority) Less(i, j int) bool {
 	return a.priorities[i] < a.priorities[j]
 }
 
-func (e *Engine) sortSystems() {
+func (e *Engine) sortObservers() {
 	sort.Sort(byPriority{
-		systems:    e.systems,
-		priorities: e.systemPriorities,
+		observer:   e.eventObserver,
+		priorities: e.priorities,
 	})
-	e.updatePriority = false
-}
-
-// Update each Systems in order of priority
-func (e *Engine) Update(delta time.Duration) error {
-	if e.updatePriority {
-		e.sortSystems()
-	}
-
-	for _, s := range e.systems {
-		if err := s.Update(delta); err != nil {
-			return err
-		}
-	}
-
-	return nil
 }

@@ -4,70 +4,94 @@ import (
 	"time"
 )
 
-type SystemPriority int
+type singleAspectSystem struct {
+	engine *Engine
+	events chan Event
 
-type System interface {
-	AddedToEngine(*Engine) error
-	RemovedFromEngine(*Engine) error
-	Update(time.Duration) error
+	types    []ComponentType
+	entities []*Entity
 }
 
-type collectionSystem struct {
-	types  []ComponentType
-	update func(time.Duration, *Entity) error
-
-	engine   *Engine
-	entities EntityList
-}
-
-// Creates a System with a single Collection of Components
-func CollectionSystem(update func(time.Duration, *Entity) error, types []ComponentType) System {
-	return &collectionSystem{
+// Creates a System with a single Components-Aspect
+// the supplied update function is invoked for all entites of this aspect
+// after receiving an UpdateEvent from the Engine
+func SingleAspectSystem(e *Engine, prio int, update func(time.Duration, *Entity) error, types []ComponentType) *singleAspectSystem {
+	c := make(chan Event)
+	s := &singleAspectSystem{
+		engine: e,
+		events: c,
 		types:  types,
-		update: update,
-	}
-}
-
-func (s *collectionSystem) AddedToEngine(e *Engine) error {
-	s.engine = e
-	s.entities = e.Collection(s.types...)
-	return nil
-}
-
-func (s *collectionSystem) RemovedFromEngine(*Engine) error {
-	s.engine = nil
-	s.entities = nil
-	return nil
-}
-
-func (s *collectionSystem) Update(delta time.Duration) error {
-	if s.entities == nil {
-		return nil
 	}
 
-	for _, e := range s.entities.Entities() {
-		if err := s.update(delta, e); err != nil {
-			return err
+	go func() {
+		s.Restart(prio)
+
+		for event := range c {
+			switch e := event.(type) {
+			case EntityAddEvent:
+				s.entities = append(s.entities, e.Added)
+			case EntityRemoveEvent:
+				for i, f := range s.entities {
+					if f == e.Removed {
+						copy(s.entities[i:], s.entities[i+1:])
+						s.entities[len(s.entities)-1] = nil
+						s.entities = s.entities[:len(s.entities)-1]
+					}
+				}
+
+			case UpdateEvent:
+				for _, en := range s.entities {
+					update(e.Delta, en)
+				}
+			}
 		}
-	}
+	}()
 
-	return nil
+	return s
+}
+
+func (s *singleAspectSystem) Restart(prio int) {
+	s.engine.SubscribeEvent(s.events, prio)
+	s.engine.SubscribeAspectEvent(s.events, s.types...)
+}
+
+func (s *singleAspectSystem) Stop() {
+	s.engine.UnsubscribeEvent(s.events)
+	s.engine.UnsubscribeAspectEvent(s.events, s.types...)
+	s.entities = []*Entity{} // TODO: gc?
 }
 
 type updateSystem struct {
-	update func(time.Duration) error
+	engine *Engine
+	events chan Event
 }
 
-// Creates a simple update loop System without a collection
-func UpdateSystem(update func(time.Duration) error) System {
-	return &updateSystem{
-		update: update,
+// Creates a simple update loop System
+func UpdateSystem(e *Engine, prio int, update func(time.Duration) error) *updateSystem {
+	c := make(chan Event)
+	s := &updateSystem{
+		engine: e,
+		events: c,
 	}
+
+	go func() {
+		s.Restart(prio)
+
+		for event := range c {
+			switch e := event.(type) {
+			case UpdateEvent:
+				update(e.Delta)
+			}
+		}
+	}()
+
+	return s
 }
 
-func (s *updateSystem) AddedToEngine(*Engine) error     { return nil }
-func (s *updateSystem) RemovedFromEngine(*Engine) error { return nil }
+func (s *updateSystem) Restart(prio int) {
+	s.engine.SubscribeEvent(s.events, prio)
+}
 
-func (s *updateSystem) Update(delta time.Duration) error {
-	return s.update(delta)
+func (s *updateSystem) Stop() {
+	s.engine.UnsubscribeEvent(s.events)
 }
