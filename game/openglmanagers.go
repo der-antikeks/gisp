@@ -57,16 +57,28 @@ func NewWindowManager(w, h int, title string, im *InputManager) *WindowManager {
 	//m.window.SetInputMode(glfw.Cursor, glfw.CursorNormal /*glfw.CursorDisabled*/)
 
 	// init gl
-	gl.ShadeModel(gl.SMOOTH)
-	gl.Hint(gl.PERSPECTIVE_CORRECTION_HINT, gl.NICEST)
 
+	// clearing
 	gl.ClearColor(0.1, 0.1, 0.1, 0.0)
 	gl.ClearDepth(1)
+	gl.ClearStencil(0)
+
+	// depth
 	gl.DepthFunc(gl.LEQUAL)
 	gl.Enable(gl.DEPTH_TEST)
 
+	// cull face
+	gl.FrontFace(gl.CCW)
+	gl.CullFace(gl.BACK)
+	gl.Enable(gl.CULL_FACE)
+
+	// lines
 	gl.LineWidth(1)
 	gl.Enable(gl.LINE_SMOOTH)
+
+	// aa
+	gl.ShadeModel(gl.SMOOTH)
+	gl.Hint(gl.PERSPECTIVE_CORRECTION_HINT, gl.NICEST)
 
 	// set size
 	w, h = m.window.GetFramebufferSize()

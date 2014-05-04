@@ -4,6 +4,8 @@ import (
 	"log"
 	"sync"
 
+	"github.com/der-antikeks/gisp/math"
+
 	"github.com/go-gl/gl"
 )
 
@@ -43,12 +45,16 @@ var shaderLib = map[string]struct {
 		Fragment: `
 				#version 330 core
 
+				// Values that stay constant for the whole mesh.
+				uniform vec3  diffuse;
+				uniform float opacity;
+
 				// Output data
 				out vec4 fragmentColor;
 
 				void main()
 				{
-					fragmentColor = vec4(1, 1, 0, 1);
+					fragmentColor = vec4(diffuse, opacity);
 				}`,
 		Uniforms: map[string]interface{}{ // name, default value
 			"projectionMatrix": nil, //[16]float32{}, // matrix.Float32()
@@ -56,6 +62,9 @@ var shaderLib = map[string]struct {
 			"modelMatrix":      nil, //[16]float32{},
 			"modelViewMatrix":  nil, //[16]float32{},
 			"normalMatrix":     nil, //[9]float32{}, // matrix.Matrix3Float32()
+
+			"diffuse": math.Color{1, 1, 1},
+			"opacity": 1.0,
 		},
 		Attributes: map[string]uint{ // name, size
 			"vertexPosition": 3,

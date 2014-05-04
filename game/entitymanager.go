@@ -13,7 +13,6 @@ type EntityManager struct {
 	engine *ecs.Engine
 
 	// TODO: move to separate loader/manager
-	materialCache map[string]*Material
 	geometryCache map[string]*Geometry
 }
 
@@ -21,7 +20,6 @@ func NewEntityManager(e *ecs.Engine) *EntityManager {
 	return &EntityManager{
 		engine: e,
 
-		materialCache: map[string]*Material{},
 		geometryCache: map[string]*Geometry{},
 	}
 }
@@ -47,14 +45,16 @@ func (m *EntityManager) CreateMainMenu() {}
 func (em *EntityManager) createCube() {
 	// Transformation
 	trans := &Transformation{
-		Position: math.Vector{-2, 2, 0},
-		Rotation: math.Quaternion{},
+		Position: math.Vector{-1, 2, 0},
+		Rotation: math.QuaternionFromAxisAngle(math.Vector{1, 0.5, 0}, m.Pi/4.0),
 		Scale:    math.Vector{1, 1, 1},
 		Up:       math.Vector{0, 1, 0},
 	}
 
 	geo := em.getGeometry("cube")
 	mat := em.getMaterial("basic")
+	mat.SetUniform("diffuse", math.Color{1, 0, 0})
+	mat.SetUniform("opacity", 0.8)
 
 	// Entity
 	cube := ecs.NewEntity(
@@ -69,7 +69,7 @@ func (em *EntityManager) createCube() {
 func (em *EntityManager) createSphere() {
 	// Transformation
 	trans := &Transformation{
-		Position: math.Vector{2, -2, 5},
+		Position: math.Vector{0, 0, 1},
 		Rotation: math.Quaternion{},
 		Scale:    math.Vector{1, 1, 1},
 		Up:       math.Vector{0, 1, 0},
@@ -77,6 +77,7 @@ func (em *EntityManager) createSphere() {
 
 	geo := em.getGeometry("sphere")
 	mat := em.getMaterial("basic")
+	mat.SetUniform("diffuse", math.Color{0, 1, 0})
 
 	// Entity
 	sphere := ecs.NewEntity(
@@ -89,16 +90,11 @@ func (em *EntityManager) createSphere() {
 }
 
 func (em *EntityManager) getMaterial(id string) *Material {
-	if mat, found := em.materialCache[id]; found {
-		return mat
-	}
-
 	mat := &Material{
 		Uniforms: map[string]interface{}{},
 		Shader:   GetShader(id),
 	}
 
-	em.materialCache[id] = mat
 	return mat
 }
 

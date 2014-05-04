@@ -97,7 +97,7 @@ func (s *RenderSystem) visibleEntities(frustum math.Frustum) (opaque, transparen
 		c, r := g.Bounding.Sphere()
 
 		if frustum.IntersectsSphere(t.MatrixWorld().Transform(c), r*t.MatrixWorld().MaxScaleOnAxis()) {
-			if m.Opaque {
+			if m.Opaque() {
 				opaque[cntOp] = e
 				cntOp++
 			} else {
@@ -119,9 +119,6 @@ func (s *RenderSystem) renderEntity(object, camera *ecs.Entity) {
 		material.Shader.program.Use()
 		material.Shader.enabled = true
 	}
-	// update projection uniform
-	projection := camera.Get(ProjectionType).(*Projection)
-	material.SetUniform("projectionMatrix", projection.ProjectionMatrix().Float32())
 
 	// ### bind geometry
 	geometry := object.Get(GeometryType).(*Geometry)
@@ -154,18 +151,23 @@ func (s *RenderSystem) renderEntity(object, camera *ecs.Entity) {
 	material.Shader.EnableAttribute("vertexUV")
 
 	// ### set matrices
-	transform := object.Get(TransformationType).(*Transformation)
-	// material update uniforms model/view/normal/projection-matrix
 
-	// Model matrix : an identity matrix (model will be at the origin)
-	//program.Uniform("modelMatrix").UniformMatrix4fv(false, m.MatrixWorld().Float32())
-	material.SetUniform("modelMatrix", transform.MatrixWorld().Float32())
+	// update projection uniform
+	projection := camera.Get(ProjectionType).(*Projection)
+	material.SetUniform("projectionMatrix", projection.ProjectionMatrix().Float32())
 
 	// viewMatrix
 	cameratransform := camera.Get(TransformationType).(*Transformation)
 	viewMatrix := cameratransform.MatrixWorld().Inverse()
 	//program.Uniform("viewMatrix").UniformMatrix4fv(false, viewMatrix.Float32())
 	material.SetUniform("viewMatrix", viewMatrix.Float32())
+
+	transform := object.Get(TransformationType).(*Transformation)
+	// material update uniforms model/view/normal/projection-matrix
+
+	// Model matrix : an identity matrix (model will be at the origin)
+	//program.Uniform("modelMatrix").UniformMatrix4fv(false, m.MatrixWorld().Float32())
+	material.SetUniform("modelMatrix", transform.MatrixWorld().Float32())
 
 	// modelViewMatrix
 	modelViewMatrix := viewMatrix.Mul(transform.MatrixWorld())

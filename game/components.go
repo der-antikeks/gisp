@@ -301,12 +301,21 @@ type Texture interface {
 
 type Material struct {
 	Shader   *shader
-	Opaque   bool
 	Uniforms map[string]interface{}
 }
 
-func (c Material) Type() ecs.ComponentType {
+func (m Material) Type() ecs.ComponentType {
 	return MaterialType
+}
+
+func (m Material) Opaque() bool {
+	if o, f := m.Uniforms["opacity"]; f {
+		return o.(float64) >= 1.0
+	}
+	if o, f := m.Shader.uniforms["opacity"]; f {
+		return o.standard.(float64) >= 1.0
+	}
+	return true
 }
 
 func (m *Material) SetUniform(name string, value interface{}) {
@@ -327,7 +336,6 @@ func (m *Material) UpdateUniforms() {
 		}
 
 		switch t := v.(type) {
-		case nil: // ignore nil
 		default:
 			log.Fatalf("%v has unknown type: %T", n, t)
 
