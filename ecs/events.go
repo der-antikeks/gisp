@@ -4,28 +4,59 @@ import (
 	"time"
 )
 
-type Event interface{}
+type MessageType int
 
-type EntityAddEvent struct {
-	Event
+const (
+	_ MessageType = iota
+	UpdateMessageType
+	EntityAddMessageType
+	EntityRemoveMessageType
+	EntityUpdateMessageType
+
+	UserMessages
+)
+
+type Message interface {
+	Type() MessageType
+}
+
+type EntityMessage interface {
+	Message
+	Entity() *Entity
+}
+
+type MessageEntityAdd struct {
+	EntityMessage
 	Added *Entity
 }
 
-type EntityRemoveEvent struct {
-	Event
+func (e MessageEntityAdd) Type() MessageType { return EntityAddMessageType }
+func (e MessageEntityAdd) Entity() *Entity   { return e.Added }
+
+type MessageEntityRemove struct {
+	EntityMessage
 	Removed *Entity
 }
 
-type EntityUpdateEvent struct {
-	Event
+func (e MessageEntityRemove) Type() MessageType { return EntityRemoveMessageType }
+func (e MessageEntityRemove) Entity() *Entity   { return e.Removed }
+
+type MessageEntityUpdate struct {
+	EntityMessage
 	Updated *Entity
 }
 
-type UpdateEvent struct {
-	Event
+func (e MessageEntityUpdate) Type() MessageType { return EntityUpdateMessageType }
+func (e MessageEntityUpdate) Entity() *Entity   { return e.Updated }
+
+type MessageUpdate struct {
+	Message
 	Delta time.Duration
 }
 
-type ShutdownEvent struct {
-	Event
+func (e MessageUpdate) Type() MessageType { return UpdateMessageType }
+
+type Filter struct {
+	Types  []MessageType
+	Aspect []ComponentType
 }

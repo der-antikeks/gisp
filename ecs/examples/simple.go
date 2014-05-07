@@ -18,7 +18,7 @@ func main() {
 	newAsteroid(engine)
 
 	log.Println("update")
-	engine.BroadcastEvent(UpdateEvent{time.Duration(1) * time.Second})
+	engine.Publish(ecs.MessageUpdate{Delta: time.Duration(1) * time.Second})
 
 	log.Println("fin")
 }
@@ -87,12 +87,8 @@ func (c DisplayComponent) Type() ecs.ComponentType {
 
 // systems
 
-type UpdateEvent struct {
-	Delta time.Duration
-}
-
 const (
-	PriorityBeforeRender int = iota
+	PriorityBeforeRender ecs.SystemPriority = iota
 	PriorityRender
 )
 

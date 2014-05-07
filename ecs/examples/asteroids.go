@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	PriorityBeforeRender int = iota
+	PriorityBeforeRender ecs.SystemPriority = iota
 	PriorityRender
 	PriorityAfterRender
 )
@@ -104,7 +104,7 @@ func main() {
 			}
 
 			// update
-			engine.BroadcastEvent(ecs.UpdateEvent{Delta: delta})
+			engine.Publish(ecs.MessageUpdate{Delta: delta})
 		}
 	}
 }
@@ -544,10 +544,18 @@ func newAsteroidSpawnSystem(engine *ecs.Engine, em *EntityManager) {
 }
 
 func newBulletSystem(engine *ecs.Engine, im *InputManager, em *EntityManager) {
-	cannonChan, bulletChan, eventChan := make(chan ecs.Event), make(chan ecs.Event), make(chan ecs.Event)
-	engine.SubscribeAspectEvent(cannonChan, PositionType, CannonType)
-	engine.SubscribeAspectEvent(bulletChan, BulletStatusType)
-	engine.SubscribeEvent(eventChan, PriorityBeforeRender)
+	cannonChan, bulletChan, eventChan := make(chan ecs.Message), make(chan ecs.Message), make(chan ecs.Message)
+	engine.Subscribe(ecs.Filter{
+		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
+		Aspect: []ecs.ComponentType{PositionType, CannonType},
+	}, PriorityBeforeRender, cannonChan)
+	engine.Subscribe(ecs.Filter{
+		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
+		Aspect: []ecs.ComponentType{BulletStatusType},
+	}, PriorityBeforeRender, bulletChan)
+	engine.Subscribe(ecs.Filter{
+		Types: []ecs.MessageType{ecs.UpdateMessageType},
+	}, PriorityBeforeRender, eventChan)
 
 	cannons := []*ecs.Entity{}
 	bullets := []*ecs.Entity{}
@@ -557,9 +565,9 @@ func newBulletSystem(engine *ecs.Engine, im *InputManager, em *EntityManager) {
 			select {
 			case event := <-cannonChan:
 				switch e := event.(type) {
-				case ecs.EntityAddEvent:
+				case ecs.MessageEntityAdd:
 					cannons = append(cannons, e.Added)
-				case ecs.EntityRemoveEvent:
+				case ecs.MessageEntityRemove:
 					for i, f := range cannons {
 						if f == e.Removed {
 							copy(cannons[i:], cannons[i+1:])
@@ -571,9 +579,9 @@ func newBulletSystem(engine *ecs.Engine, im *InputManager, em *EntityManager) {
 
 			case event := <-bulletChan:
 				switch e := event.(type) {
-				case ecs.EntityAddEvent:
+				case ecs.MessageEntityAdd:
 					bullets = append(bullets, e.Added)
-				case ecs.EntityRemoveEvent:
+				case ecs.MessageEntityRemove:
 					for i, f := range bullets {
 						if f == e.Removed {
 							copy(bullets[i:], bullets[i+1:])
@@ -585,7 +593,7 @@ func newBulletSystem(engine *ecs.Engine, im *InputManager, em *EntityManager) {
 
 			case event := <-eventChan:
 				switch event.(type) {
-				case ecs.UpdateEvent:
+				case ecs.MessageUpdate:
 
 					// fire new bullet
 					for _, e := range cannons {
@@ -694,18 +702,23 @@ func newMovementSystem(engine *ecs.Engine, minx, maxx, miny, maxy float64) {
 }
 
 func newRenderSystem(engine *ecs.Engine, wm *WindowManager) {
-	c := make(chan ecs.Event)
-	engine.SubscribeAspectEvent(c, PositionType, MeshType, ColorType)
-	engine.SubscribeEvent(c, PriorityRender)
+	c := make(chan ecs.Message)
+	engine.Subscribe(ecs.Filter{
+		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
+		Aspect: []ecs.ComponentType{PositionType, MeshType, ColorType},
+	}, PriorityRender, c)
+	engine.Subscribe(ecs.Filter{
+		Types: []ecs.MessageType{ecs.UpdateMessageType},
+	}, PriorityRender, c)
 
 	drawable := []*ecs.Entity{}
 
 	go func() {
 		for event := range c {
 			switch e := event.(type) {
-			case ecs.EntityAddEvent:
+			case ecs.MessageEntityAdd:
 				drawable = append(drawable, e.Added)
-			case ecs.EntityRemoveEvent:
+			case ecs.MessageEntityRemove:
 				for i, f := range drawable {
 					if f == e.Removed {
 						copy(drawable[i:], drawable[i+1:])
@@ -714,7 +727,7 @@ func newRenderSystem(engine *ecs.Engine, wm *WindowManager) {
 					}
 				}
 
-			case ecs.UpdateEvent:
+			case ecs.MessageUpdate:
 				// init
 				MainThread(func() {
 					gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
@@ -750,13 +763,24 @@ func newRenderSystem(engine *ecs.Engine, wm *WindowManager) {
 }
 
 func newCollisionSystem(engine *ecs.Engine) {
-	shipChan, bulletChan, asteroidChan := make(chan ecs.Event), make(chan ecs.Event), make(chan ecs.Event)
-	engine.SubscribeAspectEvent(shipChan, PositionType, MeshType, ShipStatusType)
-	engine.SubscribeAspectEvent(bulletChan, PositionType, MeshType, BulletStatusType)
-	engine.SubscribeAspectEvent(asteroidChan, PositionType, MeshType, AsteroidStatusType)
+	shipChan, bulletChan, asteroidChan := make(chan ecs.Message), make(chan ecs.Message), make(chan ecs.Message)
+	engine.Subscribe(ecs.Filter{
+		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
+		Aspect: []ecs.ComponentType{PositionType, MeshType, ShipStatusType},
+	}, PriorityAfterRender, shipChan)
+	engine.Subscribe(ecs.Filter{
+		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
+		Aspect: []ecs.ComponentType{PositionType, MeshType, BulletStatusType},
+	}, PriorityAfterRender, bulletChan)
+	engine.Subscribe(ecs.Filter{
+		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
+		Aspect: []ecs.ComponentType{PositionType, MeshType, AsteroidStatusType},
+	}, PriorityAfterRender, asteroidChan)
 
-	eventChan := make(chan ecs.Event)
-	engine.SubscribeEvent(eventChan, PriorityAfterRender)
+	eventChan := make(chan ecs.Message)
+	engine.Subscribe(ecs.Filter{
+		Types: []ecs.MessageType{ecs.UpdateMessageType},
+	}, PriorityAfterRender, eventChan)
 
 	var ship *ecs.Entity
 	var bullets, asteroids ecs.SliceEntityList
@@ -766,31 +790,31 @@ func newCollisionSystem(engine *ecs.Engine) {
 			select {
 			case event := <-shipChan:
 				switch e := event.(type) {
-				case ecs.EntityAddEvent:
+				case ecs.MessageEntityAdd:
 					ship = e.Added
-				case ecs.EntityRemoveEvent:
+				case ecs.MessageEntityRemove:
 					ship = nil
 				}
 
 			case event := <-bulletChan:
 				switch e := event.(type) {
-				case ecs.EntityAddEvent:
+				case ecs.MessageEntityAdd:
 					bullets.Add(e.Added)
-				case ecs.EntityRemoveEvent:
+				case ecs.MessageEntityRemove:
 					bullets.Remove(e.Removed)
 				}
 
 			case event := <-asteroidChan:
 				switch e := event.(type) {
-				case ecs.EntityAddEvent:
+				case ecs.MessageEntityAdd:
 					asteroids.Add(e.Added)
-				case ecs.EntityRemoveEvent:
+				case ecs.MessageEntityRemove:
 					asteroids.Remove(e.Removed)
 				}
 
 			case event := <-eventChan:
 				switch event.(type) {
-				case ecs.UpdateEvent:
+				case ecs.MessageUpdate:
 
 					if ship == nil {
 						log.Fatalf("no ship found for collision system")

@@ -4,9 +4,11 @@ import (
 	"time"
 )
 
+type SystemPriority int
+
 type singleAspectSystem struct {
-	engine *Engine
-	events chan Event
+	engine   *Engine
+	messages chan Message
 
 	types    []ComponentType
 	entities []*Entity
@@ -15,12 +17,12 @@ type singleAspectSystem struct {
 // Creates a System with a single Components-Aspect
 // the supplied update function is invoked for all entites of this aspect
 // after receiving an UpdateEvent from the Engine
-func SingleAspectSystem(e *Engine, prio int, update func(time.Duration, *Entity), types []ComponentType) *singleAspectSystem {
-	c := make(chan Event)
+func SingleAspectSystem(e *Engine, prio SystemPriority, update func(time.Duration, *Entity), types []ComponentType) *singleAspectSystem {
+	c := make(chan Message)
 	s := &singleAspectSystem{
-		engine: e,
-		events: c,
-		types:  types,
+		engine:   e,
+		messages: c,
+		types:    types,
 	}
 
 	go func() {
@@ -28,9 +30,9 @@ func SingleAspectSystem(e *Engine, prio int, update func(time.Duration, *Entity)
 
 		for event := range c {
 			switch e := event.(type) {
-			case EntityAddEvent:
+			case MessageEntityAdd:
 				s.entities = append(s.entities, e.Added)
-			case EntityRemoveEvent:
+			case MessageEntityRemove:
 				for i, f := range s.entities {
 					if f == e.Removed {
 						copy(s.entities[i:], s.entities[i+1:])
@@ -39,7 +41,7 @@ func SingleAspectSystem(e *Engine, prio int, update func(time.Duration, *Entity)
 					}
 				}
 
-			case UpdateEvent:
+			case MessageUpdate:
 				for _, en := range s.entities {
 					update(e.Delta, en)
 				}
@@ -50,28 +52,29 @@ func SingleAspectSystem(e *Engine, prio int, update func(time.Duration, *Entity)
 	return s
 }
 
-func (s *singleAspectSystem) Restart(prio int) {
-	s.engine.SubscribeEvent(s.events, prio)
-	s.engine.SubscribeAspectEvent(s.events, s.types...)
+func (s *singleAspectSystem) Restart(prio SystemPriority) {
+	s.engine.Subscribe(Filter{Types: []MessageType{UpdateMessageType}}, prio, s.messages)
+	s.engine.Subscribe(Filter{Aspect: s.types}, prio, s.messages)
 }
 
 func (s *singleAspectSystem) Stop() {
-	s.engine.UnsubscribeEvent(s.events)
-	s.engine.UnsubscribeAspectEvent(s.events, s.types...)
+	s.engine.Unsubscribe(Filter{Types: []MessageType{UpdateMessageType}}, s.messages)
+	s.engine.Unsubscribe(Filter{Aspect: s.types}, s.messages)
+
 	s.entities = []*Entity{} // TODO: gc?
 }
 
 type updateSystem struct {
-	engine *Engine
-	events chan Event
+	engine   *Engine
+	messages chan Message
 }
 
 // Creates a simple update loop System
-func UpdateSystem(e *Engine, prio int, update func(time.Duration)) *updateSystem {
-	c := make(chan Event)
+func UpdateSystem(e *Engine, prio SystemPriority, update func(time.Duration)) *updateSystem {
+	c := make(chan Message)
 	s := &updateSystem{
-		engine: e,
-		events: c,
+		engine:   e,
+		messages: c,
 	}
 
 	go func() {
@@ -79,7 +82,7 @@ func UpdateSystem(e *Engine, prio int, update func(time.Duration)) *updateSystem
 
 		for event := range c {
 			switch e := event.(type) {
-			case UpdateEvent:
+			case MessageUpdate:
 				update(e.Delta)
 			}
 		}
@@ -88,10 +91,10 @@ func UpdateSystem(e *Engine, prio int, update func(time.Duration)) *updateSystem
 	return s
 }
 
-func (s *updateSystem) Restart(prio int) {
-	s.engine.SubscribeEvent(s.events, prio)
+func (s *updateSystem) Restart(prio SystemPriority) {
+	s.engine.Subscribe(Filter{Types: []MessageType{UpdateMessageType}}, prio, s.messages)
 }
 
 func (s *updateSystem) Stop() {
-	s.engine.UnsubscribeEvent(s.events)
+	s.engine.Unsubscribe(Filter{Types: []MessageType{UpdateMessageType}}, s.messages)
 }

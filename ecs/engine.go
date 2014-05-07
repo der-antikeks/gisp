@@ -8,21 +8,21 @@ import (
 // Engine collects and connects Systems with matching Entities
 type Engine struct {
 	eventLock     sync.RWMutex // TODO: replace mutex(es) with single goroutine? single monolithic event-scheduler...
-	eventObserver []chan<- Event
-	priorities    []int
+	eventObserver []chan<- Message
+	priorities    []SystemPriority
 
 	entityLock      sync.RWMutex
-	entityObservers map[*aspect][]chan<- Event // TODO: move channel slice inside of aspect singleton?
-	entities        map[*Entity][]*aspect      // TODO: replace Entity-pointers with int-ids and move component set/get-logic to engine
+	entityObservers map[*aspect][]chan<- Message // TODO: move channel slice inside of aspect singleton?
+	entities        map[*Entity][]*aspect        // TODO: replace Entity-pointers with int-ids and move component set/get-logic to engine
 }
 
 // Creates a new Engine
 func NewEngine() *Engine {
 	return &Engine{
-		eventObserver: []chan<- Event{},
-		priorities:    []int{},
+		eventObserver: []chan<- Message{},
+		priorities:    []SystemPriority{},
 
-		entityObservers: map[*aspect][]chan<- Event{},
+		entityObservers: map[*aspect][]chan<- Message{},
 		entities:        map[*Entity][]*aspect{},
 	}
 }
@@ -54,8 +54,8 @@ func (e *Engine) DeleteEntity(en *Entity) {
 	en.engine = nil
 	for _, a := range e.entities[en] {
 		for _, o := range e.entityObservers[a] {
-			go func(c chan<- Event, en *Entity) {
-				c <- EntityRemoveEvent{Removed: en}
+			go func(c chan<- Message, en *Entity) {
+				c <- MessageEntityRemove{Removed: en}
 			}(o, en)
 			// TODO: waitgroup?
 		}
@@ -77,8 +77,8 @@ func (e *Engine) entityRemovedComponent(en *Entity) {
 			e.entities[en] = e.entities[en][:len(e.entities[en])-1]
 
 			for _, o := range e.entityObservers[a] {
-				go func(c chan<- Event, en *Entity) {
-					c <- EntityRemoveEvent{Removed: en}
+				go func(c chan<- Message, en *Entity) {
+					c <- MessageEntityRemove{Removed: en}
 				}(o, en)
 				// TODO: waitgroup?
 			}
@@ -93,8 +93,8 @@ func (e *Engine) entityUpdatedComponent(en *Entity) {
 
 	for _, a := range e.entities[en] {
 		for _, o := range e.entityObservers[a] {
-			go func(c chan<- Event, en *Entity) {
-				c <- EntityUpdateEvent{Updated: en}
+			go func(c chan<- Message, en *Entity) {
+				c <- MessageEntityUpdate{Updated: en}
 			}(o, en)
 			// TODO: waitgroup?
 		}
@@ -119,8 +119,8 @@ func (e *Engine) entityAddedComponent(en *Entity) {
 		// add entity to matching collections slice
 		if !already && a.accepts(en) {
 			for _, o := range e.entityObservers[a] {
-				go func(c chan<- Event, en *Entity) {
-					c <- EntityAddEvent{Added: en}
+				go func(c chan<- Message, en *Entity) {
+					c <- MessageEntityAdd{Added: en}
 				}(o, en)
 				// TODO: waitgroup?
 			}
@@ -130,7 +130,23 @@ func (e *Engine) entityAddedComponent(en *Entity) {
 	}
 }
 
-func (e *Engine) SubscribeEvent(c chan<- Event, prio int) {
+func (e *Engine) Subscribe(f Filter, p SystemPriority, c chan<- Message) {
+	if len(f.Aspect) > 0 {
+		e.subscribeAspectEvent(c, f.Aspect...)
+		return
+	}
+	e.subscribeEvent(c, p)
+}
+
+func (e *Engine) Unsubscribe(f Filter, c chan<- Message) {
+	if len(f.Aspect) > 0 {
+		e.unsubscribeAspectEvent(c, f.Aspect...)
+		return
+	}
+	e.unsubscribeEvent(c)
+}
+
+func (e *Engine) subscribeEvent(c chan<- Message, prio SystemPriority) {
 	e.eventLock.Lock()
 	defer e.eventLock.Unlock()
 
@@ -139,7 +155,7 @@ func (e *Engine) SubscribeEvent(c chan<- Event, prio int) {
 	e.sortObservers()
 }
 
-func (e *Engine) UnsubscribeEvent(c chan<- Event) {
+func (e *Engine) unsubscribeEvent(c chan<- Message) {
 	e.eventLock.Lock()
 	defer e.eventLock.Unlock()
 
@@ -154,12 +170,12 @@ func (e *Engine) UnsubscribeEvent(c chan<- Event) {
 	}
 }
 
-func (e *Engine) BroadcastEvent(ev Event) {
+func (e *Engine) Publish(ev Message) {
 	e.eventLock.RLock()
 	defer e.eventLock.RUnlock()
 
 	var wg sync.WaitGroup
-	cur := -1
+	var cur SystemPriority = -1
 
 	for i, o := range e.eventObserver {
 		if p := e.priorities[i]; p != cur {
@@ -169,7 +185,7 @@ func (e *Engine) BroadcastEvent(ev Event) {
 		}
 
 		wg.Add(1)
-		go func(c chan<- Event) {
+		go func(c chan<- Message) {
 			defer wg.Done()
 			c <- ev
 		}(o)
@@ -178,13 +194,7 @@ func (e *Engine) BroadcastEvent(ev Event) {
 	wg.Wait()
 }
 
-/*
-	entityLock      sync.RWMutex
-	entityObservers map[*aspect][]chan<- Event
-	entities        map[*Entity][]*aspect
-*/
-
-func (e *Engine) SubscribeAspectEvent(c chan<- Event, types ...ComponentType) {
+func (e *Engine) subscribeAspectEvent(c chan<- Message, types ...ComponentType) {
 	e.entityLock.Lock()
 	defer e.entityLock.Unlock()
 
@@ -196,8 +206,8 @@ func (e *Engine) SubscribeAspectEvent(c chan<- Event, types ...ComponentType) {
 			for en, as := range e.entities {
 				for _, f := range as {
 					if f == a {
-						go func(c chan<- Event, en *Entity) {
-							c <- EntityAddEvent{Added: en}
+						go func(c chan<- Message, en *Entity) {
+							c <- MessageEntityAdd{Added: en}
 						}(c, en)
 						// TODO: waitgroup?
 						break
@@ -223,14 +233,14 @@ func (e *Engine) SubscribeAspectEvent(c chan<- Event, types ...ComponentType) {
 		if a.accepts(en) {
 			e.entities[en] = append(e.entities[en], a)
 
-			go func(c chan<- Event, en *Entity) {
-				c <- EntityAddEvent{Added: en}
+			go func(c chan<- Message, en *Entity) {
+				c <- MessageEntityAdd{Added: en}
 			}(c, en)
 		}
 	}
 }
 
-func (e *Engine) UnsubscribeAspectEvent(c chan<- Event, types ...ComponentType) {
+func (e *Engine) unsubscribeAspectEvent(c chan<- Message, types ...ComponentType) {
 	e.entityLock.Lock()
 	defer e.entityLock.Unlock()
 
@@ -254,8 +264,8 @@ func (e *Engine) UnsubscribeAspectEvent(c chan<- Event, types ...ComponentType) 
 
 // byPriority attaches the methods of sort.Interface to []eventObservers, sorting in increasing order of priority
 type byPriority struct {
-	observer   []chan<- Event
-	priorities []int
+	observer   []chan<- Message
+	priorities []SystemPriority
 }
 
 func (a byPriority) Len() int { return len(a.observer) }
