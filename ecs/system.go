@@ -15,7 +15,7 @@ type singleAspectSystem struct {
 // Creates a System with a single Components-Aspect
 // the supplied update function is invoked for all entites of this aspect
 // after receiving an UpdateEvent from the Engine
-func SingleAspectSystem(e *Engine, prio int, update func(time.Duration, *Entity) error, types []ComponentType) *singleAspectSystem {
+func SingleAspectSystem(e *Engine, prio int, update func(time.Duration, *Entity), types []ComponentType) *singleAspectSystem {
 	c := make(chan Event)
 	s := &singleAspectSystem{
 		engine: e,
@@ -67,7 +67,7 @@ type updateSystem struct {
 }
 
 // Creates a simple update loop System
-func UpdateSystem(e *Engine, prio int, update func(time.Duration) error) *updateSystem {
+func UpdateSystem(e *Engine, prio int, update func(time.Duration)) *updateSystem {
 	c := make(chan Event)
 	s := &updateSystem{
 		engine: e,

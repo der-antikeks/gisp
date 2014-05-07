@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/rand"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/go-gl/gl"
@@ -15,8 +16,7 @@ import (
 )
 
 const (
-	_ ecs.SystemPriority = iota
-	PriorityBeforeRender
+	PriorityBeforeRender int = iota
 	PriorityRender
 	PriorityAfterRender
 )
@@ -38,7 +38,6 @@ var (
 
 func main() {
 	rand.Seed(time.Now().Unix())
-	runtime.LockOSThread()
 
 	engine := ecs.NewEngine()
 
@@ -51,12 +50,12 @@ func main() {
 
 	// systems
 	maxx, maxy := float64(w)*0.5, float64(h)*0.5
-	engine.AddSystem(NewMovementSystem(-maxx, maxx, -maxy, maxy), PriorityBeforeRender)
-	engine.AddSystem(NewRenderSystem(), PriorityRender)
-	engine.AddSystem(NewCollisionSystem(), PriorityAfterRender)
-	engine.AddSystem(NewAsteroidSpawnSystem(em), PriorityBeforeRender)
-	engine.AddSystem(NewMotionControlSystem(im), PriorityBeforeRender)
-	engine.AddSystem(NewBulletSystem(im, em), PriorityBeforeRender)
+	newMovementSystem(engine, -maxx, maxx, -maxy, maxy)
+	newRenderSystem(engine, wm)
+	newCollisionSystem(engine)
+	newAsteroidSpawnSystem(engine, em)
+	newMotionControlSystem(engine, im)
+	newBulletSystem(engine, im, em)
 
 	// entities
 	em.createSpaceship(0, 0)
@@ -105,14 +104,30 @@ func main() {
 			}
 
 			// update
-			if err := engine.Update(delta); err != nil {
-				log.Fatal(err)
-			}
-
-			// Swap buffers
-			wm.update()
+			engine.BroadcastEvent(ecs.UpdateEvent{Delta: delta})
 		}
 	}
+}
+
+var (
+	mOnce sync.Once
+	mChan = make(chan func())
+	mDone = make(chan struct{})
+)
+
+func MainThread(f func()) {
+	mOnce.Do(func() {
+		go func() {
+			runtime.LockOSThread()
+			for mf := range mChan {
+				mf()
+				mDone <- struct{}{}
+			}
+		}()
+	})
+
+	mChan <- f
+	<-mDone
 }
 
 type WindowManager struct {
@@ -126,47 +141,49 @@ func NewWindowManager(w, h int, title string, im *InputManager) *WindowManager {
 		height: h,
 	}
 
-	// init glfw
-	glfw.SetErrorCallback(func(err glfw.ErrorCode, desc string) {
-		log.Fatalln("error callback:", err, desc)
+	MainThread(func() {
+		// init glfw
+		glfw.SetErrorCallback(func(err glfw.ErrorCode, desc string) {
+			log.Fatalln("error callback:", err, desc)
+		})
+
+		if !glfw.Init() {
+			log.Fatalf("failed to initialize glfw")
+		}
+
+		glfw.WindowHint(glfw.Resizable, 1)
+		glfw.WindowHint(glfw.Samples, 4)
+
+		var err error
+		m.window, err = glfw.CreateWindow(w, h, title, nil, nil)
+		if err != nil {
+			log.Fatalf("create window: %v", err)
+		}
+
+		m.window.MakeContextCurrent()
+		glfw.SwapInterval(1)
+		gl.Init()
+
+		// callbacks
+		m.window.SetKeyCallback(im.onKey)
+		m.window.SetFramebufferSizeCallback(m.onResize)
+
+		// init gl
+		gl.ShadeModel(gl.SMOOTH)
+		gl.Hint(gl.PERSPECTIVE_CORRECTION_HINT, gl.NICEST)
+
+		gl.ClearColor(0.1, 0.1, 0.1, 0.0)
+		gl.ClearDepth(1)
+		gl.DepthFunc(gl.LEQUAL)
+		gl.Enable(gl.DEPTH_TEST)
+
+		gl.LineWidth(1)
+		gl.Enable(gl.LINE_SMOOTH)
+
+		// set size
+		w, h = m.window.GetFramebufferSize()
+		m.onResize(m.window, w, h)
 	})
-
-	if !glfw.Init() {
-		log.Fatalf("failed to initialize glfw")
-	}
-
-	glfw.WindowHint(glfw.Resizable, 1)
-	glfw.WindowHint(glfw.Samples, 4)
-
-	var err error
-	m.window, err = glfw.CreateWindow(w, h, title, nil, nil)
-	if err != nil {
-		log.Fatalf("create window: %v", err)
-	}
-
-	m.window.MakeContextCurrent()
-	glfw.SwapInterval(1)
-	gl.Init()
-
-	// callbacks
-	m.window.SetKeyCallback(im.onKey)
-	m.window.SetFramebufferSizeCallback(m.onResize)
-
-	// init gl
-	gl.ShadeModel(gl.SMOOTH)
-	gl.Hint(gl.PERSPECTIVE_CORRECTION_HINT, gl.NICEST)
-
-	gl.ClearColor(0.1, 0.1, 0.1, 0.0)
-	gl.ClearDepth(1)
-	gl.DepthFunc(gl.LEQUAL)
-	gl.Enable(gl.DEPTH_TEST)
-
-	gl.LineWidth(1)
-	gl.Enable(gl.LINE_SMOOTH)
-
-	// set size
-	w, h = m.window.GetFramebufferSize()
-	m.onResize(m.window, w, h)
 
 	return m
 }
@@ -176,12 +193,16 @@ func (m *WindowManager) isRunning() bool {
 }
 
 func (m *WindowManager) update() {
-	m.window.SwapBuffers()
-	glfw.PollEvents()
+	MainThread(func() {
+		m.window.SwapBuffers()
+		glfw.PollEvents()
+	})
 }
 
 func (m *WindowManager) cleanup() {
-	glfw.Terminate()
+	MainThread(func() {
+		glfw.Terminate()
+	})
 }
 
 func (m *WindowManager) onResize(w *glfw.Window, width int, height int) {
@@ -497,9 +518,10 @@ func (c BulletStatusComponent) Type() ecs.ComponentType {
 
 // SYSTEMS
 
-func NewAsteroidSpawnSystem(em *EntityManager) ecs.System {
-	return ecs.CollectionSystem(
-		func(delta time.Duration, en *ecs.Entity) error {
+func newAsteroidSpawnSystem(engine *ecs.Engine, em *EntityManager) {
+	ecs.SingleAspectSystem(
+		engine, PriorityBeforeRender,
+		func(delta time.Duration, en *ecs.Entity) {
 			p := en.Get(PositionType).(PositionComponent)
 			c := en.Get(AsteroidStatusType).(AsteroidStatusComponent)
 
@@ -514,76 +536,93 @@ func NewAsteroidSpawnSystem(em *EntityManager) ecs.System {
 				}
 
 				// remove dead asteroid
-				em.engine.DeleteEntity(en)
+				engine.DeleteEntity(en)
 			}
-
-			return nil
 		},
 		[]ecs.ComponentType{AsteroidStatusType, PositionType},
 	)
 }
 
-type BulletSystem struct {
-	engine  *ecs.Engine
-	cannon  ecs.EntityList
-	bullets ecs.EntityList
+func newBulletSystem(engine *ecs.Engine, im *InputManager, em *EntityManager) {
+	cannonChan, bulletChan, eventChan := make(chan ecs.Event), make(chan ecs.Event), make(chan ecs.Event)
+	engine.SubscribeAspectEvent(cannonChan, PositionType, CannonType)
+	engine.SubscribeAspectEvent(bulletChan, BulletStatusType)
+	engine.SubscribeEvent(eventChan, PriorityBeforeRender)
 
-	im *InputManager
-	em *EntityManager
-}
+	cannons := []*ecs.Entity{}
+	bullets := []*ecs.Entity{}
 
-func NewBulletSystem(im *InputManager, em *EntityManager) *BulletSystem {
-	return &BulletSystem{
-		im: im,
-		em: em,
-	}
-}
+	go func() {
+		for {
+			select {
+			case event := <-cannonChan:
+				switch e := event.(type) {
+				case ecs.EntityAddEvent:
+					cannons = append(cannons, e.Added)
+				case ecs.EntityRemoveEvent:
+					for i, f := range cannons {
+						if f == e.Removed {
+							copy(cannons[i:], cannons[i+1:])
+							cannons[len(cannons)-1] = nil
+							cannons = cannons[:len(cannons)-1]
+						}
+					}
+				}
 
-func (s *BulletSystem) AddedToEngine(e *ecs.Engine) error {
-	s.engine = e
-	s.cannon = e.Collection(PositionType, CannonType)
-	s.bullets = e.Collection(BulletStatusType)
+			case event := <-bulletChan:
+				switch e := event.(type) {
+				case ecs.EntityAddEvent:
+					bullets = append(bullets, e.Added)
+				case ecs.EntityRemoveEvent:
+					for i, f := range bullets {
+						if f == e.Removed {
+							copy(bullets[i:], bullets[i+1:])
+							bullets[len(bullets)-1] = nil
+							bullets = bullets[:len(bullets)-1]
+						}
+					}
+				}
 
-	return nil
-}
+			case event := <-eventChan:
+				switch event.(type) {
+				case ecs.UpdateEvent:
 
-func (s *BulletSystem) RemovedFromEngine(*ecs.Engine) error {
-	return nil
-}
+					// fire new bullet
+					for _, e := range cannons {
+						p := e.Get(PositionType).(PositionComponent)
+						c := e.Get(CannonType).(CannonComponent)
 
-func (s *BulletSystem) Update(delta time.Duration) error {
-	// fire new bullet
-	for _, e := range s.cannon.Entities() {
-		p := e.Get(PositionType).(PositionComponent)
-		c := e.Get(CannonType).(CannonComponent)
+						//fmt.Println("controlling", e.Name)
 
-		//fmt.Println("controlling", e.Name)
+						if im.IsDown(c.FireKey) && time.Now().After(c.LastBullet.Add(time.Second/4)) {
+							vx := math.Cos(p.Rotation*deg2rad) * c.BulletSpeed
+							vy := math.Sin(p.Rotation*deg2rad) * c.BulletSpeed
 
-		if s.im.IsDown(c.FireKey) && time.Now().After(c.LastBullet.Add(time.Second/4)) {
-			vx := math.Cos(p.Rotation*deg2rad) * c.BulletSpeed
-			vy := math.Sin(p.Rotation*deg2rad) * c.BulletSpeed
+							em.createBullet(p.Position.X, p.Position.Y, vx, vy)
+							c.LastBullet = time.Now()
+							e.Set(c)
+						}
 
-			s.em.createBullet(p.Position.X, p.Position.Y, vx, vy)
-			c.LastBullet = time.Now()
-			e.Set(c)
+					}
+
+					// remove dead bullets, should be in its own generic lifetime system
+					for _, e := range bullets {
+						b := e.Get(BulletStatusType).(BulletStatusComponent)
+						if b.LifeTime.Before(time.Now()) {
+							engine.DeleteEntity(e)
+						}
+					}
+
+				}
+			}
 		}
-
-	}
-
-	// remove dead bullets, should be in its own generic lifetime system
-	for _, e := range s.bullets.Entities() {
-		b := e.Get(BulletStatusType).(BulletStatusComponent)
-		if b.LifeTime.Before(time.Now()) {
-			s.engine.DeleteEntity(e)
-		}
-	}
-
-	return nil
+	}()
 }
 
-func NewMotionControlSystem(im *InputManager) ecs.System {
-	return ecs.CollectionSystem(
-		func(delta time.Duration, en *ecs.Entity) error {
+func newMotionControlSystem(engine *ecs.Engine, im *InputManager) {
+	ecs.SingleAspectSystem(
+		engine, PriorityBeforeRender,
+		func(delta time.Duration, en *ecs.Entity) {
 
 			p := en.Get(PositionType).(PositionComponent)
 			m := en.Get(MotionControlType).(MotionControlComponent)
@@ -617,23 +656,15 @@ func NewMotionControlSystem(im *InputManager) ecs.System {
 			}
 
 			en.Set(p, v)
-
-			return nil
 		},
 		[]ecs.ComponentType{PositionType, MotionControlType, VelocityType},
 	)
 }
 
-type MovementSystem struct {
-	engine *ecs.Engine
-
-	minx, maxx,
-	miny, maxy float64
-}
-
-func NewMovementSystem(minx, maxx, miny, maxy float64) ecs.System {
-	return ecs.CollectionSystem(
-		func(delta time.Duration, en *ecs.Entity) error {
+func newMovementSystem(engine *ecs.Engine, minx, maxx, miny, maxy float64) {
+	ecs.SingleAspectSystem(
+		engine, PriorityBeforeRender,
+		func(delta time.Duration, en *ecs.Entity) {
 			p := en.Get(PositionType).(PositionComponent)
 			v := en.Get(VelocityType).(VelocityComponent)
 
@@ -657,123 +688,153 @@ func NewMovementSystem(minx, maxx, miny, maxy float64) ecs.System {
 			}
 
 			en.Set(p)
-
-			return nil
 		},
 		[]ecs.ComponentType{PositionType, VelocityType},
 	)
 }
 
-type RenderSystem struct {
-	engine   *ecs.Engine
-	drawable ecs.EntityList
-}
+func newRenderSystem(engine *ecs.Engine, wm *WindowManager) {
+	c := make(chan ecs.Event)
+	engine.SubscribeAspectEvent(c, PositionType, MeshType, ColorType)
+	engine.SubscribeEvent(c, PriorityRender)
 
-func NewRenderSystem() ecs.System {
-	return &RenderSystem{}
-}
+	drawable := []*ecs.Entity{}
 
-func (s *RenderSystem) AddedToEngine(e *ecs.Engine) error {
-	s.engine = e
-	s.drawable = e.Collection(PositionType, MeshType, ColorType)
-	return nil
-}
+	go func() {
+		for event := range c {
+			switch e := event.(type) {
+			case ecs.EntityAddEvent:
+				drawable = append(drawable, e.Added)
+			case ecs.EntityRemoveEvent:
+				for i, f := range drawable {
+					if f == e.Removed {
+						copy(drawable[i:], drawable[i+1:])
+						drawable[len(drawable)-1] = nil
+						drawable = drawable[:len(drawable)-1]
+					}
+				}
 
-func (s *RenderSystem) RemovedFromEngine(*ecs.Engine) error {
-	return nil
-}
+			case ecs.UpdateEvent:
+				// init
+				MainThread(func() {
+					gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+					gl.LoadIdentity()
+				})
 
-func (s *RenderSystem) Update(delta time.Duration) error {
-	// init
-	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
-	gl.LoadIdentity()
+				for _, e := range drawable {
+					p := e.Get(PositionType).(PositionComponent)
+					m := e.Get(MeshType).(MeshComponent)
+					c := e.Get(ColorType).(ColorComponent)
 
-	for _, e := range s.drawable.Entities() {
-		p := e.Get(PositionType).(PositionComponent)
-		m := e.Get(MeshType).(MeshComponent)
-		c := e.Get(ColorType).(ColorComponent)
+					//fmt.Println("rendering", e.Name, "at", p)
 
-		//fmt.Println("rendering", e.Name, "at", p)
+					MainThread(func() {
+						gl.LoadIdentity()
+						gl.Translated(p.Position.X, p.Position.Y, 0)
+						gl.Rotated(p.Rotation-90, 0, 0, 1)
+						gl.Color3d(c.R, c.G, c.B)
 
-		gl.LoadIdentity()
-		gl.Translated(p.Position.X, p.Position.Y, 0)
-		gl.Rotated(p.Rotation-90, 0, 0, 1)
-		gl.Color3d(c.R, c.G, c.B)
+						gl.Begin(gl.LINE_LOOP)
+						for _, point := range m.Points {
+							gl.Vertex3d(point.X, point.Y, 0)
+						}
+						gl.End()
+					})
+				}
 
-		gl.Begin(gl.LINE_LOOP)
-		for _, point := range m.Points {
-			gl.Vertex3d(point.X, point.Y, 0)
-		}
-		gl.End()
-	}
-
-	return nil
-}
-
-type CollisionSystem struct {
-	engine                    *ecs.Engine
-	ships, bullets, asteroids ecs.EntityList
-}
-
-func NewCollisionSystem() *CollisionSystem {
-	return &CollisionSystem{}
-}
-
-func (s *CollisionSystem) AddedToEngine(e *ecs.Engine) error {
-	s.engine = e
-	s.ships = e.Collection(PositionType, MeshType, ShipStatusType)
-	s.bullets = e.Collection(PositionType, MeshType, BulletStatusType)
-	s.asteroids = e.Collection(PositionType, MeshType, AsteroidStatusType)
-
-	return nil
-}
-
-func (s *CollisionSystem) RemovedFromEngine(*ecs.Engine) error {
-	return nil
-}
-
-func (s *CollisionSystem) Update(delta time.Duration) error {
-	ship := s.ships.First()
-	if ship == nil {
-		return fmt.Errorf("no ship found for collision system")
-	}
-
-	sp := ship.Get(PositionType).(PositionComponent).Position
-	sm := ship.Get(MeshType).(MeshComponent).Max
-
-	for _, asteroid := range s.asteroids.Entities() {
-		ap := asteroid.Get(PositionType).(PositionComponent).Position
-		am := asteroid.Get(MeshType).(MeshComponent).Max
-
-		if sp.Distance(ap) < sm+am {
-			//fmt.Println("collision between", ship.Name, "and", asteroid.Name)
-
-			ss := ship.Get(ShipStatusType).(ShipStatusComponent)
-			ss.Lifes -= 1
-			ship.Set(ss)
-		}
-
-		for _, bullet := range s.bullets.Entities() {
-			bp := bullet.Get(PositionType).(PositionComponent).Position
-			bm := bullet.Get(MeshType).(MeshComponent).Max
-
-			if bp.Distance(ap) < bm+am {
-				//fmt.Println("collision between", bullet.Name, "and", asteroid.Name)
-
-				ss := ship.Get(ShipStatusType).(ShipStatusComponent)
-				ss.Score += 100
-				ship.Set(ss)
-
-				as := asteroid.Get(AsteroidStatusType).(AsteroidStatusComponent)
-				as.Destroyed = true
-				asteroid.Set(as)
-
-				bs := bullet.Get(BulletStatusType).(BulletStatusComponent)
-				bs.LifeTime = time.Time{}
-				bullet.Set(bs)
+				// Swap buffers
+				wm.update()
 			}
 		}
-	}
+	}()
+}
 
-	return nil
+func newCollisionSystem(engine *ecs.Engine) {
+	shipChan, bulletChan, asteroidChan := make(chan ecs.Event), make(chan ecs.Event), make(chan ecs.Event)
+	engine.SubscribeAspectEvent(shipChan, PositionType, MeshType, ShipStatusType)
+	engine.SubscribeAspectEvent(bulletChan, PositionType, MeshType, BulletStatusType)
+	engine.SubscribeAspectEvent(asteroidChan, PositionType, MeshType, AsteroidStatusType)
+
+	eventChan := make(chan ecs.Event)
+	engine.SubscribeEvent(eventChan, PriorityAfterRender)
+
+	var ship *ecs.Entity
+	var bullets, asteroids ecs.SliceEntityList
+
+	go func() {
+		for {
+			select {
+			case event := <-shipChan:
+				switch e := event.(type) {
+				case ecs.EntityAddEvent:
+					ship = e.Added
+				case ecs.EntityRemoveEvent:
+					ship = nil
+				}
+
+			case event := <-bulletChan:
+				switch e := event.(type) {
+				case ecs.EntityAddEvent:
+					bullets.Add(e.Added)
+				case ecs.EntityRemoveEvent:
+					bullets.Remove(e.Removed)
+				}
+
+			case event := <-asteroidChan:
+				switch e := event.(type) {
+				case ecs.EntityAddEvent:
+					asteroids.Add(e.Added)
+				case ecs.EntityRemoveEvent:
+					asteroids.Remove(e.Removed)
+				}
+
+			case event := <-eventChan:
+				switch event.(type) {
+				case ecs.UpdateEvent:
+
+					if ship == nil {
+						log.Fatalf("no ship found for collision system")
+					}
+
+					sp := ship.Get(PositionType).(PositionComponent).Position
+					sm := ship.Get(MeshType).(MeshComponent).Max
+
+					for _, asteroid := range asteroids.Entities() {
+						ap := asteroid.Get(PositionType).(PositionComponent).Position
+						am := asteroid.Get(MeshType).(MeshComponent).Max
+
+						if sp.Distance(ap) < sm+am {
+							//fmt.Println("collision between", ship.Name, "and", asteroid.Name)
+
+							ss := ship.Get(ShipStatusType).(ShipStatusComponent)
+							ss.Lifes -= 1
+							ship.Set(ss)
+						}
+
+						for _, bullet := range bullets.Entities() {
+							bp := bullet.Get(PositionType).(PositionComponent).Position
+							bm := bullet.Get(MeshType).(MeshComponent).Max
+
+							if bp.Distance(ap) < bm+am {
+								//fmt.Println("collision between", bullet.Name, "and", asteroid.Name)
+
+								ss := ship.Get(ShipStatusType).(ShipStatusComponent)
+								ss.Score += 100
+								ship.Set(ss)
+
+								as := asteroid.Get(AsteroidStatusType).(AsteroidStatusComponent)
+								as.Destroyed = true
+								asteroid.Set(as)
+
+								bs := bullet.Get(BulletStatusType).(BulletStatusComponent)
+								bs.LifeTime = time.Time{}
+								bullet.Set(bs)
+							}
+						}
+					}
+
+				}
+			}
+		}
+	}()
 }

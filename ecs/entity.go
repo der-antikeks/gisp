@@ -30,10 +30,12 @@ func (en *Entity) Set(components ...Component) {
 	}
 	en.Unlock()
 
-	if updated {
-		en.engine.entityUpdatedComponent(en)
-	} else {
-		en.engine.entityAddedComponent(en)
+	if en.engine != nil {
+		if updated {
+			en.engine.entityUpdatedComponent(en)
+		} else {
+			en.engine.entityAddedComponent(en)
+		}
 	}
 }
 
@@ -49,7 +51,9 @@ func (en *Entity) Remove(types ...ComponentType) {
 	}
 	en.Unlock()
 
-	en.engine.entityRemovedComponent(en)
+	if en.engine != nil {
+		en.engine.entityRemovedComponent(en)
+	}
 }
 
 // Get specific Component of Entity
