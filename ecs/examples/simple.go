@@ -35,12 +35,13 @@ func newSpaceship(engine *ecs.Engine) {
 
 	display := DisplayComponent{}
 	display.View = DisplayObject{} // NewImage(w, h);
-	s.Set(position, display)
+	engine.SetComponents(s, position, display)
 }
 
 func newAsteroid(engine *ecs.Engine) {
 	a := engine.CreateEntity("Asteroid01")
-	a.Set(
+	engine.SetComponents(
+		a,
 		PositionComponent{X: 10, Y: 10, Rotation: 12},
 		VelocityComponent{VelocityX: -1, VelocityY: -5, AngularVelocity: 1},
 		DisplayComponent{View: DisplayObject{}},
@@ -92,17 +93,24 @@ const (
 	PriorityRender
 )
 
+func MustGetComponent(c ecs.Component, err error) ecs.Component {
+	if err != nil {
+		panic(err)
+	}
+	return c
+}
+
 func renderSystem(engine *ecs.Engine) {
 	ecs.SingleAspectSystem(
 		engine, PriorityRender,
-		func(delta time.Duration, en *ecs.Entity) {
-			position := en.Get(PositionType).(PositionComponent)
-			display := en.Get(DisplayType).(DisplayComponent)
+		func(delta time.Duration, en ecs.Entity) {
+			position := MustGetComponent(engine.GetComponent(en, PositionType)).(PositionComponent)
+			display := MustGetComponent(engine.GetComponent(en, DisplayType)).(DisplayComponent)
 
 			display.View.X = position.X
 			display.View.Y = position.Y
 			display.View.Rotation = position.Rotation
-			en.Set(display)
+			engine.SetComponents(en, display)
 		},
 		[]ecs.ComponentType{PositionType, DisplayType},
 	)
@@ -111,14 +119,14 @@ func renderSystem(engine *ecs.Engine) {
 func movementSystem(engine *ecs.Engine) {
 	ecs.SingleAspectSystem(
 		engine, PriorityBeforeRender,
-		func(t time.Duration, en *ecs.Entity) {
-			position := en.Get(PositionType).(PositionComponent)
-			velocity := en.Get(VelocityType).(VelocityComponent)
+		func(t time.Duration, en ecs.Entity) {
+			position := MustGetComponent(engine.GetComponent(en, PositionType)).(PositionComponent)
+			velocity := MustGetComponent(engine.GetComponent(en, VelocityType)).(VelocityComponent)
 
 			position.X += velocity.VelocityX * t.Seconds()
 			position.Y += velocity.VelocityY * t.Seconds()
 			position.Rotation += velocity.AngularVelocity * t.Seconds()
-			en.Set(position)
+			engine.SetComponents(en, position)
 		},
 		[]ecs.ComponentType{PositionType, VelocityType},
 	)

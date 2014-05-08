@@ -8,7 +8,7 @@ type aspect struct {
 }
 
 // Entity has the same components as the aspect
-func (a *aspect) accepts(en *Entity) bool {
+func (a *aspect) accepts(en *entity) bool {
 	for _, t := range a.types {
 		if en.Get(t) == nil {
 			return false

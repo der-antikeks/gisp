@@ -268,7 +268,7 @@ func NewEntityManager(e *ecs.Engine) *EntityManager {
 type GameState struct{}
 type Hud struct{}
 
-func (em *EntityManager) CreateGame() *ecs.Entity {
+func (em *EntityManager) CreateGame() ecs.Entity {
 	s := ecs.NewEntity(
 		"game",
 		&GameState{},
@@ -294,7 +294,8 @@ func (em *EntityManager) createSpaceship(x, y float64) {
 	*/
 
 	s := em.engine.CreateEntity("spaceship")
-	s.Set(
+	em.engine.SetComponents(
+		s,
 		ShipStatusComponent{
 			Lifes: 5,
 		},
@@ -338,7 +339,8 @@ func (em *EntityManager) createAsteroid(x, y float64, size int) {
 	speed := rand.Float64() * MaxAsteroidSpeed
 
 	a := em.engine.CreateEntity(fmt.Sprintf("asteroid%d", em.asteroidsNum))
-	a.Set(
+	em.engine.SetComponents(
+		a,
 		AsteroidStatusComponent{
 			Size: size,
 		},
@@ -375,12 +377,13 @@ func (em *EntityManager) createAsteroid(x, y float64, size int) {
 		mc.Max = math.Max(mc.Max, length)
 	}
 
-	a.Set(mc)
+	em.engine.SetComponents(a, mc)
 }
 
 func (em *EntityManager) createBullet(x, y, vx, vy float64) {
 	b := em.engine.CreateEntity(fmt.Sprintf("bullet%d", em.bulletsNum))
-	b.Set(
+	em.engine.SetComponents(
+		b,
 		BulletStatusComponent{
 			LifeTime: time.Now().Add(2 * time.Second),
 		},
@@ -521,9 +524,17 @@ func (c BulletStatusComponent) Type() ecs.ComponentType {
 func newAsteroidSpawnSystem(engine *ecs.Engine, em *EntityManager) {
 	ecs.SingleAspectSystem(
 		engine, PriorityBeforeRender,
-		func(delta time.Duration, en *ecs.Entity) {
-			p := en.Get(PositionType).(PositionComponent)
-			c := en.Get(AsteroidStatusType).(AsteroidStatusComponent)
+		func(delta time.Duration, en ecs.Entity) {
+			ec, err := engine.GetComponent(en, PositionType)
+			if err != nil {
+				return
+			}
+			p := ec.(PositionComponent)
+			ec, err = engine.GetComponent(en, AsteroidStatusType)
+			if err != nil {
+				return
+			}
+			c := ec.(AsteroidStatusComponent)
 
 			if c.Destroyed {
 				//fmt.Println("removing dead asteroid", e.Name)
@@ -557,8 +568,8 @@ func newBulletSystem(engine *ecs.Engine, im *InputManager, em *EntityManager) {
 		Types: []ecs.MessageType{ecs.UpdateMessageType},
 	}, PriorityBeforeRender, eventChan)
 
-	cannons := []*ecs.Entity{}
-	bullets := []*ecs.Entity{}
+	cannons := []ecs.Entity{}
+	bullets := []ecs.Entity{}
 
 	go func() {
 		for {
@@ -570,9 +581,7 @@ func newBulletSystem(engine *ecs.Engine, im *InputManager, em *EntityManager) {
 				case ecs.MessageEntityRemove:
 					for i, f := range cannons {
 						if f == e.Removed {
-							copy(cannons[i:], cannons[i+1:])
-							cannons[len(cannons)-1] = nil
-							cannons = cannons[:len(cannons)-1]
+							cannons = append(cannons[:i], cannons[i+1:]...)
 						}
 					}
 				}
@@ -584,9 +593,7 @@ func newBulletSystem(engine *ecs.Engine, im *InputManager, em *EntityManager) {
 				case ecs.MessageEntityRemove:
 					for i, f := range bullets {
 						if f == e.Removed {
-							copy(bullets[i:], bullets[i+1:])
-							bullets[len(bullets)-1] = nil
-							bullets = bullets[:len(bullets)-1]
+							bullets = append(bullets[:i], bullets[i+1:]...)
 						}
 					}
 				}
@@ -597,8 +604,16 @@ func newBulletSystem(engine *ecs.Engine, im *InputManager, em *EntityManager) {
 
 					// fire new bullet
 					for _, e := range cannons {
-						p := e.Get(PositionType).(PositionComponent)
-						c := e.Get(CannonType).(CannonComponent)
+						ec, err := engine.GetComponent(e, PositionType)
+						if err != nil {
+							continue
+						}
+						p := ec.(PositionComponent)
+						ec, err = engine.GetComponent(e, CannonType)
+						if err != nil {
+							continue
+						}
+						c := ec.(CannonComponent)
 
 						//fmt.Println("controlling", e.Name)
 
@@ -608,14 +623,18 @@ func newBulletSystem(engine *ecs.Engine, im *InputManager, em *EntityManager) {
 
 							em.createBullet(p.Position.X, p.Position.Y, vx, vy)
 							c.LastBullet = time.Now()
-							e.Set(c)
+							engine.SetComponents(e, c)
 						}
 
 					}
 
 					// remove dead bullets, should be in its own generic lifetime system
 					for _, e := range bullets {
-						b := e.Get(BulletStatusType).(BulletStatusComponent)
+						ec, err := engine.GetComponent(e, BulletStatusType)
+						if err != nil {
+							continue
+						}
+						b := ec.(BulletStatusComponent)
 						if b.LifeTime.Before(time.Now()) {
 							engine.DeleteEntity(e)
 						}
@@ -630,11 +649,23 @@ func newBulletSystem(engine *ecs.Engine, im *InputManager, em *EntityManager) {
 func newMotionControlSystem(engine *ecs.Engine, im *InputManager) {
 	ecs.SingleAspectSystem(
 		engine, PriorityBeforeRender,
-		func(delta time.Duration, en *ecs.Entity) {
+		func(delta time.Duration, en ecs.Entity) {
 
-			p := en.Get(PositionType).(PositionComponent)
-			m := en.Get(MotionControlType).(MotionControlComponent)
-			v := en.Get(VelocityType).(VelocityComponent)
+			ec, err := engine.GetComponent(en, PositionType)
+			if err != nil {
+				return
+			}
+			p := ec.(PositionComponent)
+			ec, err = engine.GetComponent(en, MotionControlType)
+			if err != nil {
+				return
+			}
+			m := ec.(MotionControlComponent)
+			ec, err = engine.GetComponent(en, VelocityType)
+			if err != nil {
+				return
+			}
+			v := ec.(VelocityComponent)
 
 			//fmt.Println("controlling", e.Name)
 
@@ -663,7 +694,7 @@ func newMotionControlSystem(engine *ecs.Engine, im *InputManager) {
 				v.Velocity.Y *= factor
 			}
 
-			en.Set(p, v)
+			engine.SetComponents(en, p, v)
 		},
 		[]ecs.ComponentType{PositionType, MotionControlType, VelocityType},
 	)
@@ -672,9 +703,17 @@ func newMotionControlSystem(engine *ecs.Engine, im *InputManager) {
 func newMovementSystem(engine *ecs.Engine, minx, maxx, miny, maxy float64) {
 	ecs.SingleAspectSystem(
 		engine, PriorityBeforeRender,
-		func(delta time.Duration, en *ecs.Entity) {
-			p := en.Get(PositionType).(PositionComponent)
-			v := en.Get(VelocityType).(VelocityComponent)
+		func(delta time.Duration, en ecs.Entity) {
+			ec, err := engine.GetComponent(en, PositionType)
+			if err != nil {
+				return
+			}
+			p := ec.(PositionComponent)
+			ec, err = engine.GetComponent(en, VelocityType)
+			if err != nil {
+				return
+			}
+			v := ec.(VelocityComponent)
 
 			//fmt.Println("moving", e.Name)
 
@@ -695,7 +734,7 @@ func newMovementSystem(engine *ecs.Engine, minx, maxx, miny, maxy float64) {
 				p.Position.Y -= maxy - miny
 			}
 
-			en.Set(p)
+			engine.SetComponents(en, p)
 		},
 		[]ecs.ComponentType{PositionType, VelocityType},
 	)
@@ -711,7 +750,7 @@ func newRenderSystem(engine *ecs.Engine, wm *WindowManager) {
 		Types: []ecs.MessageType{ecs.UpdateMessageType},
 	}, PriorityRender, c)
 
-	drawable := []*ecs.Entity{}
+	drawable := []ecs.Entity{}
 
 	go func() {
 		for event := range c {
@@ -721,9 +760,7 @@ func newRenderSystem(engine *ecs.Engine, wm *WindowManager) {
 			case ecs.MessageEntityRemove:
 				for i, f := range drawable {
 					if f == e.Removed {
-						copy(drawable[i:], drawable[i+1:])
-						drawable[len(drawable)-1] = nil
-						drawable = drawable[:len(drawable)-1]
+						drawable = append(drawable[:i], drawable[i+1:]...)
 					}
 				}
 
@@ -735,9 +772,18 @@ func newRenderSystem(engine *ecs.Engine, wm *WindowManager) {
 				})
 
 				for _, e := range drawable {
-					p := e.Get(PositionType).(PositionComponent)
-					m := e.Get(MeshType).(MeshComponent)
-					c := e.Get(ColorType).(ColorComponent)
+					ec, err := engine.GetComponent(e, PositionType)
+					if err != nil {
+						continue
+					}
+					p := ec.(PositionComponent)
+					ec, err = engine.GetComponent(e, MeshType)
+					if err != nil {
+						continue
+					}
+					m := ec.(MeshComponent)
+					ec, err = engine.GetComponent(e, ColorType)
+					c := ec.(ColorComponent)
 
 					//fmt.Println("rendering", e.Name, "at", p)
 
@@ -782,7 +828,7 @@ func newCollisionSystem(engine *ecs.Engine) {
 		Types: []ecs.MessageType{ecs.UpdateMessageType},
 	}, PriorityAfterRender, eventChan)
 
-	var ship *ecs.Entity
+	var ship ecs.Entity = -1
 	var bullets, asteroids ecs.SliceEntityList
 
 	go func() {
@@ -793,7 +839,7 @@ func newCollisionSystem(engine *ecs.Engine) {
 				case ecs.MessageEntityAdd:
 					ship = e.Added
 				case ecs.MessageEntityRemove:
-					ship = nil
+					ship = -1
 				}
 
 			case event := <-bulletChan:
@@ -816,43 +862,83 @@ func newCollisionSystem(engine *ecs.Engine) {
 				switch event.(type) {
 				case ecs.MessageUpdate:
 
-					if ship == nil {
+					if ship == -1 {
 						log.Fatalf("no ship found for collision system")
 					}
 
-					sp := ship.Get(PositionType).(PositionComponent).Position
-					sm := ship.Get(MeshType).(MeshComponent).Max
+					ec, err := engine.GetComponent(ship, PositionType)
+					if err != nil {
+						continue
+					}
+					sp := ec.(PositionComponent).Position
+					ec, err = engine.GetComponent(ship, MeshType)
+					if err != nil {
+						continue
+					}
+					sm := ec.(MeshComponent).Max
 
 					for _, asteroid := range asteroids.Entities() {
-						ap := asteroid.Get(PositionType).(PositionComponent).Position
-						am := asteroid.Get(MeshType).(MeshComponent).Max
+						ec, err := engine.GetComponent(asteroid, PositionType)
+						if err != nil {
+							continue
+						}
+						ap := ec.(PositionComponent).Position
+						ec, err = engine.GetComponent(asteroid, MeshType)
+						if err != nil {
+							continue
+						}
+						am := ec.(MeshComponent).Max
 
 						if sp.Distance(ap) < sm+am {
 							//fmt.Println("collision between", ship.Name, "and", asteroid.Name)
 
-							ss := ship.Get(ShipStatusType).(ShipStatusComponent)
+							ec, err := engine.GetComponent(ship, ShipStatusType)
+							if err != nil {
+								continue
+							}
+							ss := ec.(ShipStatusComponent)
 							ss.Lifes -= 1
-							ship.Set(ss)
+							engine.SetComponents(ship, ss)
 						}
 
 						for _, bullet := range bullets.Entities() {
-							bp := bullet.Get(PositionType).(PositionComponent).Position
-							bm := bullet.Get(MeshType).(MeshComponent).Max
+							ec, err := engine.GetComponent(bullet, PositionType)
+							if err != nil {
+								continue
+							}
+							bp := ec.(PositionComponent).Position
+							ec, err = engine.GetComponent(bullet, MeshType)
+							if err != nil {
+								continue
+							}
+							bm := ec.(MeshComponent).Max
 
 							if bp.Distance(ap) < bm+am {
 								//fmt.Println("collision between", bullet.Name, "and", asteroid.Name)
 
-								ss := ship.Get(ShipStatusType).(ShipStatusComponent)
+								ec, err := engine.GetComponent(ship, ShipStatusType)
+								if err != nil {
+									continue
+								}
+								ss := ec.(ShipStatusComponent)
 								ss.Score += 100
-								ship.Set(ss)
+								engine.SetComponents(ship, ss)
 
-								as := asteroid.Get(AsteroidStatusType).(AsteroidStatusComponent)
+								ec, err = engine.GetComponent(asteroid, AsteroidStatusType)
+								if err != nil {
+									continue
+								}
+								as := ec.(AsteroidStatusComponent)
 								as.Destroyed = true
-								asteroid.Set(as)
+								engine.SetComponents(asteroid, as)
 
-								bs := bullet.Get(BulletStatusType).(BulletStatusComponent)
+								ec, err = engine.GetComponent(bullet, BulletStatusType)
+								if err != nil {
+									continue
+								}
+								bs := ec.(BulletStatusComponent)
 								bs.LifeTime = time.Time{}
-								bullet.Set(bs)
+								engine.SetComponents(bullet, bs)
 							}
 						}
 					}

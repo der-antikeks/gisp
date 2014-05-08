@@ -11,13 +11,13 @@ type singleAspectSystem struct {
 	messages chan Message
 
 	types    []ComponentType
-	entities []*Entity
+	entities []Entity
 }
 
 // Creates a System with a single Components-Aspect
 // the supplied update function is invoked for all entites of this aspect
 // after receiving an UpdateEvent from the Engine
-func SingleAspectSystem(e *Engine, prio SystemPriority, update func(time.Duration, *Entity), types []ComponentType) *singleAspectSystem {
+func SingleAspectSystem(e *Engine, prio SystemPriority, update func(time.Duration, Entity), types []ComponentType) *singleAspectSystem {
 	c := make(chan Message)
 	s := &singleAspectSystem{
 		engine:   e,
@@ -35,9 +35,8 @@ func SingleAspectSystem(e *Engine, prio SystemPriority, update func(time.Duratio
 			case MessageEntityRemove:
 				for i, f := range s.entities {
 					if f == e.Removed {
-						copy(s.entities[i:], s.entities[i+1:])
-						s.entities[len(s.entities)-1] = nil
-						s.entities = s.entities[:len(s.entities)-1]
+						s.entities = append(s.entities[:i], s.entities[i+1:]...)
+						// TODO: break?
 					}
 				}
 
@@ -61,7 +60,7 @@ func (s *singleAspectSystem) Stop() {
 	s.engine.Unsubscribe(Filter{Types: []MessageType{UpdateMessageType}}, s.messages)
 	s.engine.Unsubscribe(Filter{Aspect: s.types}, s.messages)
 
-	s.entities = []*Entity{} // TODO: gc?
+	s.entities = []Entity{} // TODO: gc?
 }
 
 type updateSystem struct {

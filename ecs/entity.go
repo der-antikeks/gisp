@@ -4,8 +4,10 @@ import (
 	"sync"
 )
 
+type Entity int
+
 // General purpose object that consists of a name and a set of components.
-type Entity struct {
+type entity struct {
 	sync.RWMutex
 
 	Name   string // TODO: only for debugging
@@ -16,10 +18,15 @@ type Entity struct {
 }
 
 // Add new Components to the Entity or update existing
-func (en *Entity) Set(components ...Component) {
+func (en *entity) Set(components ...Component) (updated bool) {
 	en.Lock()
-	var updated bool
+	defer en.Unlock()
+
 	for _, c := range components {
+		if c == nil { // TODO: should not happen but does...
+			continue
+		}
+
 		if !updated {
 			if _, found := en.components[c.Type()]; found {
 				updated = true
@@ -28,20 +35,13 @@ func (en *Entity) Set(components ...Component) {
 
 		en.components[c.Type()] = c
 	}
-	en.Unlock()
-
-	if en.engine != nil {
-		if updated {
-			en.engine.entityUpdatedComponent(en)
-		} else {
-			en.engine.entityAddedComponent(en)
-		}
-	}
+	return
 }
 
 // Detach Components from Entity
-func (en *Entity) Remove(types ...ComponentType) {
+func (en *entity) Remove(types ...ComponentType) {
 	en.Lock()
+	defer en.Unlock()
 	for _, t := range types {
 		if _, found := en.components[t]; !found {
 			return
@@ -49,19 +49,14 @@ func (en *Entity) Remove(types ...ComponentType) {
 
 		delete(en.components, t)
 	}
-	en.Unlock()
-
-	if en.engine != nil {
-		en.engine.entityRemovedComponent(en)
-	}
 }
 
 // Get specific Component of Entity
-func (en *Entity) Get(t ComponentType) Component {
+func (en *entity) Get(t ComponentType) Component {
 	en.RLock()
 	defer en.RUnlock()
 
-	if c, found := en.components[t]; found {
+	if c, found := en.components[t]; found && c != nil {
 		return c
 	}
 	return nil
@@ -70,32 +65,30 @@ func (en *Entity) Get(t ComponentType) Component {
 type EntityList interface {
 	//Add(*Entity)
 	//Remove(*Entity)
-	Entities() []*Entity
-	First() *Entity
+	Entities() []Entity
+	First() Entity
 }
 
-type SliceEntityList []*Entity
+type SliceEntityList []Entity
 
-func (l *SliceEntityList) Add(e *Entity) {
+func (l *SliceEntityList) Add(e Entity) {
 	*l = append(*l, e)
 }
-func (l *SliceEntityList) Remove(e *Entity) {
+func (l *SliceEntityList) Remove(e Entity) {
 	a := *l
 	for i, f := range a {
 		if f == e {
-			copy(a[i:], a[i+1:])
-			a[len(a)-1] = nil
-			*l = a[:len(a)-1]
+			*l = append(a[:i], a[i+1:]...)
 			return
 		}
 	}
 }
-func (l SliceEntityList) Entities() []*Entity {
+func (l SliceEntityList) Entities() []Entity {
 	return l
 }
-func (l SliceEntityList) First() *Entity {
+func (l SliceEntityList) First() (Entity, bool) {
 	if len(l) < 1 {
-		return nil
+		return 0, false
 	}
-	return l[0]
+	return l[0], true
 }
