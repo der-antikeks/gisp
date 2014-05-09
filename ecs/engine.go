@@ -7,8 +7,8 @@ import (
 )
 
 var (
-	ErrNoSuchEntity         = errors.New("no such entity")
-	ErrInvalidComponentType = errors.New("invalid component type")
+	ErrNoSuchEntity    = errors.New("ecs: no such entity")
+	ErrNoSuchComponent = errors.New("ecs: no such component")
 )
 
 // Engine collects and connects Systems with matching Entities
@@ -17,11 +17,11 @@ type Engine struct {
 	eventObserver []chan<- Message
 	priorities    []SystemPriority
 
-	entityLock      sync.RWMutex
-	entityObservers map[*aspect][]chan<- Message // TODO: move channel slice inside of aspect singleton?
-	entities        map[*entity][]*aspect        // TODO: replace Entity-pointers with int-ids and move component set/get-logic to engine
-
-	entityToId []*entity
+	entityLock       sync.RWMutex
+	nextEntity       int
+	entityComponents map[int]map[ComponentType]Component
+	entityAspects    map[int][]*aspect
+	entityObservers  map[*aspect][]chan<- Message // TODO: move channel slice inside of aspect singleton?
 }
 
 // Creates a new Engine
@@ -30,154 +30,193 @@ func NewEngine() *Engine {
 		eventObserver: []chan<- Message{},
 		priorities:    []SystemPriority{},
 
-		entityObservers: map[*aspect][]chan<- Message{},
-		entities:        map[*entity][]*aspect{},
-
-		entityToId: []*entity{},
+		nextEntity:       1,
+		entityComponents: map[int]map[ComponentType]Component{},
+		entityAspects:    map[int][]*aspect{},
+		entityObservers:  map[*aspect][]chan<- Message{},
 	}
 }
 
-// Create an Entity
-func (e *Engine) CreateEntity(name string) Entity {
+// Create a new Entity
+func (e *Engine) Entity() Entity {
 	e.entityLock.Lock()
 	defer e.entityLock.Unlock()
 
-	en := &entity{
-		Name:       name,
-		engine:     e,
-		components: map[ComponentType]Component{},
-	}
+	id := e.nextEntity
+	e.nextEntity++
 
-	// add entity to entities map
-	e.entities[en] = []*aspect{}
-	e.entityToId = append(e.entityToId, en)
+	e.entityComponents[id] = map[ComponentType]Component{}
+	e.entityAspects[id] = []*aspect{}
 
-	return Entity(len(e.entityToId) - 1)
+	return Entity(id)
 }
 
 // Delete Entity from Engine and send RemoveEvents to all registered observers
-func (e *Engine) DeleteEntity(id Entity) error {
+func (e *Engine) Delete(en Entity) error {
 	e.entityLock.Lock()
 	defer e.entityLock.Unlock()
 
-	if len(e.entityToId) <= int(id) {
+	id := int(en)
+	if _, ok := e.entityComponents[id]; !ok {
 		return ErrNoSuchEntity
 	}
-	en := e.entityToId[id]
-	if _, found := e.entities[en]; !found {
-		return ErrNoSuchEntity
-	}
-	en.engine = nil
-	for _, a := range e.entities[en] {
+
+	for _, a := range e.entityAspects[id] {
 		for _, o := range e.entityObservers[a] {
-			go func(c chan<- Message, id Entity) {
-				c <- MessageEntityRemove{Removed: id}
-			}(o, id)
-			// TODO: waitgroup?
+			go func(c chan<- Message, en Entity) {
+				c <- MessageEntityRemove{Removed: en}
+			}(o, en)
 		}
 	}
-	delete(e.entities, en)
-	e.entityToId = append(e.entityToId[:id], e.entityToId[id+1:]...)
+
+	delete(e.entityComponents, id)
+	delete(e.entityAspects, id)
 	return nil
 }
 
-func (e *Engine) SetComponents(id Entity, components ...Component) error {
-	e.entityLock.Lock()
-	defer e.entityLock.Unlock()
-
-	if len(e.entityToId) <= int(id) {
-		return ErrNoSuchEntity
-	}
-	en := e.entityToId[id]
-	if en.Set(components...) {
-		for _, a := range e.entities[en] {
-			for _, o := range e.entityObservers[a] {
-				go func(c chan<- Message, id Entity) {
-					c <- MessageEntityUpdate{Updated: id}
-				}(o, id)
-				// TODO: waitgroup?
-			}
-		}
-	} else {
-		var already bool
-		for a := range e.entityObservers {
-			already = false
-			for _, h := range e.entities[en] {
-				if a == h {
-					already = true
-					break
-				}
-			}
-
-			// add entity to matching collections slice
-			if !already && a.accepts(en) {
-				for _, o := range e.entityObservers[a] {
-					go func(c chan<- Message, id Entity) {
-						c <- MessageEntityAdd{Added: id}
-					}(o, id)
-					// TODO: waitgroup?
-				}
-
-				e.entities[en] = append(e.entities[en], a)
-			}
-		}
-	}
-	return nil
-}
-
-func (e *Engine) RemoveComponents(id Entity, types ...ComponentType) error {
-	e.entityLock.Lock()
-	defer e.entityLock.Unlock()
-
-	if len(e.entityToId) <= int(id) {
-		return ErrNoSuchEntity
-	}
-	en := e.entityToId[id]
-	en.Remove(types...)
-
-	for i, a := range e.entities[en] {
-		if !a.accepts(en) {
-			// aspect does not accept entity anymore
-			// remove aspect from entities slice
-			copy(e.entities[en][i:], e.entities[en][i+1:])
-			e.entities[en][len(e.entities[en])-1] = nil
-			e.entities[en] = e.entities[en][:len(e.entities[en])-1]
-
-			for _, o := range e.entityObservers[a] {
-				go func(c chan<- Message, id Entity) {
-					c <- MessageEntityRemove{Removed: id}
-				}(o, id)
-				// TODO: waitgroup?
-			}
-		}
-	}
-	return nil
-}
-
-/*
-var c Component
-var id Entity
-if err := engine.GetComponent(id, &c);err != nil {
-	log.Fatal(err)
-}
-
-func (e *Engine) GetComponent(id Entity, c Component) error {
-	*c = en.Get(c.Type())
-}
-*/
-
-func (e *Engine) GetComponent(id Entity, t ComponentType) (Component, error) {
+func (e *Engine) Query(types ...ComponentType) []Entity {
 	e.entityLock.RLock()
 	defer e.entityLock.RUnlock()
 
-	if len(e.entityToId) <= int(id) {
+	ret := []Entity{}
+	for id, ecs := range e.entityComponents {
+		found := true
+		for _, t := range types {
+			if _, ok := ecs[t]; !ok {
+				found = false
+				break
+			}
+		}
+		if found {
+			ret = append(ret, Entity(id))
+		}
+	}
+	return ret
+}
+
+func (e *Engine) componentTypes(en Entity) []ComponentType {
+	//e.entityLock.RLock()
+	//defer e.entityLock.RUnlock()
+
+	id := int(en)
+	if _, ok := e.entityComponents[id]; !ok {
+		return nil
+	}
+
+	ret := make([]ComponentType, 0, len(e.entityComponents[id]))
+	for t := range e.entityComponents[id] {
+		ret = append(ret, t)
+	}
+	return ret
+}
+
+func (e *Engine) Set(en Entity, components ...Component) error {
+	e.entityLock.Lock()
+	defer e.entityLock.Unlock()
+
+	id := int(en)
+	if _, ok := e.entityComponents[id]; !ok {
+		return ErrNoSuchEntity
+	}
+
+	var updated bool
+	for _, c := range components {
+		if !updated {
+			if _, ok := e.entityComponents[id][c.Type()]; ok {
+				updated = true
+			}
+		}
+
+		e.entityComponents[id][c.Type()] = c
+	}
+
+	// update old aspect observers
+	if updated {
+		for _, a := range e.entityAspects[id] {
+			for _, o := range e.entityObservers[a] {
+				go func(c chan<- Message, en Entity) {
+					c <- MessageEntityUpdate{Updated: en}
+				}(o, en)
+			}
+		}
+	}
+
+	// add new aspect observers
+	var already bool
+	for a := range e.entityObservers {
+		already = false
+		for _, h := range e.entityAspects[id] {
+			if a == h {
+				already = true
+				break
+			}
+		}
+
+		// add aspect to entity
+		if !already && a.accepts(e.componentTypes(en)) {
+			for _, o := range e.entityObservers[a] {
+				go func(c chan<- Message, en Entity) {
+					c <- MessageEntityAdd{Added: en}
+				}(o, en)
+			}
+
+			e.entityAspects[id] = append(e.entityAspects[id], a)
+		}
+	}
+
+	return nil
+}
+
+func (e *Engine) Remove(en Entity, types ...ComponentType) error {
+	e.entityLock.Lock()
+	defer e.entityLock.Unlock()
+
+	id := int(en)
+	if _, ok := e.entityComponents[id]; !ok {
+		return ErrNoSuchEntity
+	}
+
+	for _, t := range types {
+		/*
+			if _, ok := e.entityComponents[id]; !ok {
+				return ErrNoSuchComponent
+			}
+		*/
+		delete(e.entityComponents[id], t)
+	}
+
+	for i, a := range e.entityAspects[id] {
+		if !a.accepts(e.componentTypes(en)) {
+			// aspect does not accept entity anymore
+			// remove aspect from entities slice
+			copy(e.entityAspects[id][i:], e.entityAspects[id][i+1:])
+			e.entityAspects[id][len(e.entityAspects[id])-1] = nil
+			e.entityAspects[id] = e.entityAspects[id][:len(e.entityAspects[id])-1]
+
+			for _, o := range e.entityObservers[a] {
+				go func(c chan<- Message, en Entity) {
+					c <- MessageEntityRemove{Removed: en}
+				}(o, en)
+			}
+		}
+	}
+	return nil
+}
+
+func (e *Engine) Get(en Entity, t ComponentType) (Component, error) {
+	e.entityLock.RLock()
+	defer e.entityLock.RUnlock()
+
+	id := int(en)
+	if _, ok := e.entityComponents[id]; !ok {
 		return nil, ErrNoSuchEntity
 	}
-	en := e.entityToId[id]
-	c := en.Get(t)
-	if c == nil {
-		return nil, ErrInvalidComponentType
+
+	c, ok := e.entityComponents[id][t]
+	if !ok {
+		return nil, ErrNoSuchComponent
 	}
+
 	return c, nil
 }
 
@@ -254,19 +293,19 @@ func (e *Engine) subscribeAspectEvent(c chan<- Message, types ...ComponentType) 
 		if a.equals(types) {
 
 			// new subscribers of existing aspects must get all previosly added entities
-			for id, en := range e.entityToId {
-				for _, f := range e.entities[en] {
+			for id, as := range e.entityAspects {
+				for _, f := range as {
 					if f == a {
-						go func(c chan<- Message, id Entity) {
-							c <- MessageEntityAdd{Added: id}
+						go func(c chan<- Message, en Entity) {
+							c <- MessageEntityAdd{Added: en}
 						}(c, Entity(id))
-						// TODO: waitgroup?
 						break
 					}
 				}
 				// TODO: test post break
 			}
 
+			e.entityObservers[a] = append(e.entityObservers[a], c)
 			return
 		}
 	}
@@ -279,14 +318,16 @@ func (e *Engine) subscribeAspectEvent(c chan<- Message, types ...ComponentType) 
 	// add observer
 	e.entityObservers[a] = append(e.entityObservers[a], c)
 
-	// broadcast entities
-	for id, en := range e.entityToId {
-		if a.accepts(en) {
-			e.entities[en] = append(e.entities[en], a)
+	// add aspect to entity
+	for id := range e.entityAspects {
+		en := Entity(id)
+		if a.accepts(e.componentTypes(en)) {
+			e.entityAspects[id] = append(e.entityAspects[id], a)
 
-			go func(c chan<- Message, id Entity) {
-				c <- MessageEntityAdd{Added: id}
-			}(c, Entity(id))
+			// send entity to observer
+			go func(c chan<- Message, en Entity) {
+				c <- MessageEntityAdd{Added: en}
+			}(c, en)
 		}
 	}
 }

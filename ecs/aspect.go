@@ -7,10 +7,22 @@ type aspect struct {
 	types []ComponentType
 }
 
-// Entity has the same components as the aspect
-func (a *aspect) accepts(en *entity) bool {
+// Slice of ComponentTypes has all components of the aspect
+func (a *aspect) accepts(types []ComponentType) bool {
+	if len(a.types) > len(types) {
+		return false
+	}
+
+	var found bool
 	for _, t := range a.types {
-		if en.Get(t) == nil {
+		found = false
+		for _, t2 := range types {
+			if t == t2 {
+				found = true
+				break
+			}
+		}
+		if !found {
 			return false
 		}
 	}
@@ -18,15 +30,15 @@ func (a *aspect) accepts(en *entity) bool {
 }
 
 // Aspect equals a slice of ComponentTypes
-func (a *aspect) equals(b []ComponentType) bool {
-	if len(a.types) != len(b) {
+func (a *aspect) equals(types []ComponentType) bool {
+	if len(a.types) != len(types) {
 		return false
 	}
 
 	var found bool
 	for _, t := range a.types {
 		found = false
-		for _, t2 := range b {
+		for _, t2 := range types {
 			if t == t2 {
 				found = true
 				break
