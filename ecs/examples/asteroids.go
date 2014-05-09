@@ -239,7 +239,7 @@ func (m *InputManager) onKey(w *glfw.Window, key glfw.Key, scancode int, action 
 	case glfw.Press:
 		m.keyPressed[key] = true
 
-		if key == glfw.KeyEscape { // TODO: move to game-status-system
+		if key == glfw.KeyEscape {
 			w.SetShouldClose(true)
 		}
 
@@ -808,6 +808,30 @@ func newRenderSystem(engine *ecs.Engine, wm *WindowManager) {
 	}()
 }
 
+type SliceEntityList []ecs.Entity
+
+func (l *SliceEntityList) Add(e ecs.Entity) {
+	*l = append(*l, e)
+}
+func (l *SliceEntityList) Remove(e ecs.Entity) {
+	a := *l
+	for i, f := range a {
+		if f == e {
+			*l = append(a[:i], a[i+1:]...)
+			return
+		}
+	}
+}
+func (l SliceEntityList) Entities() []ecs.Entity {
+	return l
+}
+func (l SliceEntityList) First() (ecs.Entity, bool) {
+	if len(l) < 1 {
+		return 0, false
+	}
+	return l[0], true
+}
+
 func newCollisionSystem(engine *ecs.Engine) {
 	shipChan, bulletChan, asteroidChan := make(chan ecs.Message), make(chan ecs.Message), make(chan ecs.Message)
 	engine.Subscribe(ecs.Filter{
@@ -829,7 +853,7 @@ func newCollisionSystem(engine *ecs.Engine) {
 	}, PriorityAfterRender, eventChan)
 
 	var ship ecs.Entity = -1
-	var bullets, asteroids ecs.SliceEntityList
+	var bullets, asteroids SliceEntityList
 
 	go func() {
 		for {

@@ -21,7 +21,7 @@ type Engine struct {
 	nextEntity       int
 	entityComponents map[int]map[ComponentType]Component
 	entityAspects    map[int][]*aspect
-	entityObservers  map[*aspect][]chan<- Message // TODO: move channel slice inside of aspect singleton?
+	entityObservers  map[*aspect][]chan<- Message
 }
 
 // Creates a new Engine
@@ -220,23 +220,12 @@ func (e *Engine) Get(en Entity, t ComponentType) (Component, error) {
 	return c, nil
 }
 
-func (e *Engine) Subscribe(f Filter, p SystemPriority, c chan<- Message) {
+func (e *Engine) Subscribe(f Filter, prio SystemPriority, c chan<- Message) {
 	if len(f.Aspect) > 0 {
 		e.subscribeAspectEvent(c, f.Aspect...)
 		return
 	}
-	e.subscribeEvent(c, p)
-}
 
-func (e *Engine) Unsubscribe(f Filter, c chan<- Message) {
-	if len(f.Aspect) > 0 {
-		e.unsubscribeAspectEvent(c, f.Aspect...)
-		return
-	}
-	e.unsubscribeEvent(c)
-}
-
-func (e *Engine) subscribeEvent(c chan<- Message, prio SystemPriority) {
 	e.eventLock.Lock()
 	defer e.eventLock.Unlock()
 
@@ -245,7 +234,12 @@ func (e *Engine) subscribeEvent(c chan<- Message, prio SystemPriority) {
 	e.sortObservers()
 }
 
-func (e *Engine) unsubscribeEvent(c chan<- Message) {
+func (e *Engine) Unsubscribe(f Filter, c chan<- Message) {
+	if len(f.Aspect) > 0 {
+		e.unsubscribeAspectEvent(c, f.Aspect...)
+		return
+	}
+
 	e.eventLock.Lock()
 	defer e.eventLock.Unlock()
 
@@ -302,7 +296,6 @@ func (e *Engine) subscribeAspectEvent(c chan<- Message, types ...ComponentType) 
 						break
 					}
 				}
-				// TODO: test post break
 			}
 
 			e.entityObservers[a] = append(e.entityObservers[a], c)
@@ -311,9 +304,7 @@ func (e *Engine) subscribeAspectEvent(c chan<- Message, types ...ComponentType) 
 	}
 
 	// new aspect
-	a := &aspect{
-		types: types,
-	}
+	a := &aspect{types}
 
 	// add observer
 	e.entityObservers[a] = append(e.entityObservers[a], c)

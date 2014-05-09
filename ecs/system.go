@@ -36,7 +36,7 @@ func SingleAspectSystem(e *Engine, prio SystemPriority, update func(time.Duratio
 				for i, f := range s.entities {
 					if f == e.Removed {
 						s.entities = append(s.entities[:i], s.entities[i+1:]...)
-						// TODO: break?
+						break
 					}
 				}
 
