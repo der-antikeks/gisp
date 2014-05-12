@@ -13,34 +13,33 @@ var (
 
 // Engine collects and connects Systems with matching Entities
 type Engine struct {
-	eventLock     sync.RWMutex // TODO: replace mutex(es) with single goroutine? single monolithic event-scheduler...
-	eventObserver []chan<- Message
-	priorities    []SystemPriority
+	lock sync.RWMutex // TODO: replace mutex with single goroutine? single monolithic event-scheduler...
 
-	entityLock       sync.RWMutex
+	observers      map[*aspect]map[MessageType][]chan<- Message
+	priorities     map[chan<- Message]SystemPriority
+	updatePriority bool
+
 	nextEntity       int
 	entityComponents map[int]map[ComponentType]Component
 	entityAspects    map[int][]*aspect
-	entityObservers  map[*aspect][]chan<- Message
 }
 
 // Creates a new Engine
 func NewEngine() *Engine {
 	return &Engine{
-		eventObserver: []chan<- Message{},
-		priorities:    []SystemPriority{},
+		observers:  map[*aspect]map[MessageType][]chan<- Message{nil: map[MessageType][]chan<- Message{}},
+		priorities: map[chan<- Message]SystemPriority{},
 
 		nextEntity:       1,
 		entityComponents: map[int]map[ComponentType]Component{},
 		entityAspects:    map[int][]*aspect{},
-		entityObservers:  map[*aspect][]chan<- Message{},
 	}
 }
 
 // Create a new Entity
 func (e *Engine) Entity() Entity {
-	e.entityLock.Lock()
-	defer e.entityLock.Unlock()
+	e.lock.Lock()
+	defer e.lock.Unlock()
 
 	id := e.nextEntity
 	e.nextEntity++
@@ -53,8 +52,8 @@ func (e *Engine) Entity() Entity {
 
 // Delete Entity from Engine and send RemoveEvents to all registered observers
 func (e *Engine) Delete(en Entity) error {
-	e.entityLock.Lock()
-	defer e.entityLock.Unlock()
+	e.lock.Lock()
+	defer e.lock.Unlock()
 
 	id := int(en)
 	if _, ok := e.entityComponents[id]; !ok {
@@ -62,11 +61,8 @@ func (e *Engine) Delete(en Entity) error {
 	}
 
 	for _, a := range e.entityAspects[id] {
-		for _, o := range e.entityObservers[a] {
-			go func(c chan<- Message, en Entity) {
-				c <- MessageEntityRemove{Removed: en}
-			}(o, en)
-		}
+		e.publish(MessageEntityRemove{Removed: en}, a)
+		e.publish(MessageEntityRemove{Removed: en}, nil)
 	}
 
 	delete(e.entityComponents, id)
@@ -75,8 +71,8 @@ func (e *Engine) Delete(en Entity) error {
 }
 
 func (e *Engine) Query(types ...ComponentType) []Entity {
-	e.entityLock.RLock()
-	defer e.entityLock.RUnlock()
+	e.lock.RLock()
+	defer e.lock.RUnlock()
 
 	ret := []Entity{}
 	for id, ecs := range e.entityComponents {
@@ -95,8 +91,7 @@ func (e *Engine) Query(types ...ComponentType) []Entity {
 }
 
 func (e *Engine) componentTypes(en Entity) []ComponentType {
-	//e.entityLock.RLock()
-	//defer e.entityLock.RUnlock()
+	// TODO: no lock
 
 	id := int(en)
 	if _, ok := e.entityComponents[id]; !ok {
@@ -111,56 +106,59 @@ func (e *Engine) componentTypes(en Entity) []ComponentType {
 }
 
 func (e *Engine) Set(en Entity, components ...Component) error {
-	e.entityLock.Lock()
-	defer e.entityLock.Unlock()
+	e.lock.Lock()
+	defer e.lock.Unlock()
 
 	id := int(en)
 	if _, ok := e.entityComponents[id]; !ok {
 		return ErrNoSuchEntity
 	}
 
-	var updated bool
+	// add/update component of entity
+	var updated, added bool
 	for _, c := range components {
-		if !updated {
+		if !updated || !added {
 			if _, ok := e.entityComponents[id][c.Type()]; ok {
 				updated = true
+			} else {
+				added = true
 			}
 		}
 
 		e.entityComponents[id][c.Type()] = c
 	}
 
-	// update old aspect observers
+	// send update to old aspect observers
 	if updated {
 		for _, a := range e.entityAspects[id] {
-			for _, o := range e.entityObservers[a] {
-				go func(c chan<- Message, en Entity) {
-					c <- MessageEntityUpdate{Updated: en}
-				}(o, en)
-			}
+			e.publish(MessageEntityUpdate{Updated: en}, a)
+			e.publish(MessageEntityUpdate{Updated: en}, nil)
 		}
 	}
 
 	// add new aspect observers
-	var already bool
-	for a := range e.entityObservers {
-		already = false
-		for _, h := range e.entityAspects[id] {
-			if a == h {
-				already = true
-				break
-			}
-		}
-
-		// add aspect to entity
-		if !already && a.accepts(e.componentTypes(en)) {
-			for _, o := range e.entityObservers[a] {
-				go func(c chan<- Message, en Entity) {
-					c <- MessageEntityAdd{Added: en}
-				}(o, en)
+	if added {
+		var already bool
+		for a := range e.observers {
+			if a == nil {
+				continue
 			}
 
-			e.entityAspects[id] = append(e.entityAspects[id], a)
+			already = false
+			for _, h := range e.entityAspects[id] {
+				if a == h {
+					already = true
+					break
+				}
+			}
+
+			// add aspect to entity
+			if !already && a.accepts(e.componentTypes(en)) {
+				e.publish(MessageEntityAdd{Added: en}, a)
+				e.publish(MessageEntityAdd{Added: en}, nil)
+
+				e.entityAspects[id] = append(e.entityAspects[id], a)
+			}
 		}
 	}
 
@@ -168,8 +166,8 @@ func (e *Engine) Set(en Entity, components ...Component) error {
 }
 
 func (e *Engine) Remove(en Entity, types ...ComponentType) error {
-	e.entityLock.Lock()
-	defer e.entityLock.Unlock()
+	e.lock.Lock()
+	defer e.lock.Unlock()
 
 	id := int(en)
 	if _, ok := e.entityComponents[id]; !ok {
@@ -177,11 +175,6 @@ func (e *Engine) Remove(en Entity, types ...ComponentType) error {
 	}
 
 	for _, t := range types {
-		/*
-			if _, ok := e.entityComponents[id]; !ok {
-				return ErrNoSuchComponent
-			}
-		*/
 		delete(e.entityComponents[id], t)
 	}
 
@@ -193,19 +186,16 @@ func (e *Engine) Remove(en Entity, types ...ComponentType) error {
 			e.entityAspects[id][len(e.entityAspects[id])-1] = nil
 			e.entityAspects[id] = e.entityAspects[id][:len(e.entityAspects[id])-1]
 
-			for _, o := range e.entityObservers[a] {
-				go func(c chan<- Message, en Entity) {
-					c <- MessageEntityRemove{Removed: en}
-				}(o, en)
-			}
+			e.publish(MessageEntityRemove{Removed: en}, a)
+			e.publish(MessageEntityRemove{Removed: en}, nil)
 		}
 	}
 	return nil
 }
 
 func (e *Engine) Get(en Entity, t ComponentType) (Component, error) {
-	e.entityLock.RLock()
-	defer e.entityLock.RUnlock()
+	e.lock.RLock()
+	defer e.lock.RUnlock()
 
 	id := int(en)
 	if _, ok := e.entityComponents[id]; !ok {
@@ -221,93 +211,61 @@ func (e *Engine) Get(en Entity, t ComponentType) (Component, error) {
 }
 
 func (e *Engine) Subscribe(f Filter, prio SystemPriority, c chan<- Message) {
-	if len(f.Aspect) > 0 {
-		e.subscribeAspectEvent(c, f.Aspect...)
+	e.lock.Lock()
+	defer e.lock.Unlock()
+
+	e.priorities[c] = prio
+	e.updatePriority = true
+
+	// no aspect message observer or entity message for all aspects
+	if len(f.Aspect) == 0 {
+		for _, t := range f.Types {
+			e.observers[nil][t] = append(e.observers[nil][t], c)
+		}
 		return
 	}
 
-	e.eventLock.Lock()
-	defer e.eventLock.Unlock()
-
-	e.eventObserver = append(e.eventObserver, c)
-	e.priorities = append(e.priorities, prio)
-	e.sortObservers()
-}
-
-func (e *Engine) Unsubscribe(f Filter, c chan<- Message) {
-	if len(f.Aspect) > 0 {
-		e.unsubscribeAspectEvent(c, f.Aspect...)
-		return
-	}
-
-	e.eventLock.Lock()
-	defer e.eventLock.Unlock()
-
-	for i, o := range e.eventObserver {
-		if o == c {
-			copy(e.eventObserver[i:], e.eventObserver[i+1:])
-			e.eventObserver[len(e.eventObserver)-1] = nil
-			e.eventObserver = e.eventObserver[:len(e.eventObserver)-1]
-
-			return
+	var hasAddMessage bool
+	for _, t := range f.Types {
+		if t == EntityAddMessageType {
+			hasAddMessage = true
+			break
 		}
 	}
-}
-
-func (e *Engine) Publish(ev Message) {
-	e.eventLock.RLock()
-	defer e.eventLock.RUnlock()
-
-	var wg sync.WaitGroup
-	var cur SystemPriority = -1
-
-	for i, o := range e.eventObserver {
-		if p := e.priorities[i]; p != cur {
-			// wait until previous observers are finished
-			wg.Wait()
-			cur = p
-		}
-
-		wg.Add(1)
-		go func(c chan<- Message) {
-			defer wg.Done()
-			c <- ev
-		}(o)
-	}
-
-	wg.Wait()
-}
-
-func (e *Engine) subscribeAspectEvent(c chan<- Message, types ...ComponentType) {
-	e.entityLock.Lock()
-	defer e.entityLock.Unlock()
 
 	// old aspect
-	for a := range e.entityObservers {
-		if a.equals(types) {
-
-			// new subscribers of existing aspects must get all previosly added entities
-			for id, as := range e.entityAspects {
-				for _, f := range as {
-					if f == a {
-						go func(c chan<- Message, en Entity) {
-							c <- MessageEntityAdd{Added: en}
-						}(c, Entity(id))
-						break
+	for a := range e.observers {
+		if a != nil && a.equals(f.Aspect) {
+			// new subscribers of existing aspects must get all previously added entities
+			if hasAddMessage {
+				for id, as := range e.entityAspects {
+					en := Entity(id)
+					for _, f := range as {
+						if f == a {
+							go func(c chan<- Message, en Entity) {
+								c <- MessageEntityAdd{Added: en}
+							}(c, en)
+							break
+						}
 					}
 				}
 			}
 
-			e.entityObservers[a] = append(e.entityObservers[a], c)
+			for _, t := range f.Types {
+				e.observers[a][t] = append(e.observers[a][t], c)
+			}
 			return
 		}
 	}
 
 	// new aspect
-	a := &aspect{types}
+	a := &aspect{f.Aspect}
 
 	// add observer
-	e.entityObservers[a] = append(e.entityObservers[a], c)
+	e.observers[a] = map[MessageType][]chan<- Message{}
+	for _, t := range f.Types {
+		e.observers[a][t] = append(e.observers[a][t], c)
+	}
 
 	// add aspect to entity
 	for id := range e.entityAspects {
@@ -316,53 +274,131 @@ func (e *Engine) subscribeAspectEvent(c chan<- Message, types ...ComponentType) 
 			e.entityAspects[id] = append(e.entityAspects[id], a)
 
 			// send entity to observer
-			go func(c chan<- Message, en Entity) {
-				c <- MessageEntityAdd{Added: en}
-			}(c, en)
+			if hasAddMessage {
+				go func(c chan<- Message, en Entity) {
+					c <- MessageEntityAdd{Added: en}
+				}(c, en)
+			}
 		}
 	}
 }
 
-func (e *Engine) unsubscribeAspectEvent(c chan<- Message, types ...ComponentType) {
-	e.entityLock.Lock()
-	defer e.entityLock.Unlock()
+func (e *Engine) Unsubscribe(f Filter, c chan<- Message) {
+	e.lock.Lock()
+	defer e.lock.Unlock()
 
-	for a, os := range e.entityObservers {
-		if a.equals(types) {
-
-			for i, o := range os {
+	// no aspect message observer or entity message for all aspects
+	if len(f.Aspect) == 0 {
+		for _, t := range f.Types {
+			for i, o := range e.observers[nil][t] {
 				if o == c {
-					copy(e.entityObservers[a][i:], e.entityObservers[a][i+1:])
-					e.entityObservers[a][len(e.entityObservers[a])-1] = nil
-					e.entityObservers[a] = e.entityObservers[a][:len(e.entityObservers[a])-1]
+					copy(e.observers[nil][t][i:], e.observers[nil][t][i+1:])
+					e.observers[nil][t][len(e.observers[nil][t])-1] = nil
+					e.observers[nil][t] = e.observers[nil][t][:len(e.observers[nil][t])-1]
 
-					return
+					break
 				}
 			}
+		}
+		return
+	}
 
+	for a := range e.observers {
+		if a != nil && a.equals(f.Aspect) {
+			for _, t := range f.Types {
+				for i, o := range e.observers[a][t] {
+					if o == c {
+						copy(e.observers[a][t][i:], e.observers[a][t][i+1:])
+						e.observers[a][t][len(e.observers[a][t])-1] = nil
+						e.observers[a][t] = e.observers[a][t][:len(e.observers[a][t])-1]
+
+						break
+					}
+				}
+			}
 			return
 		}
 	}
 }
 
-// byPriority attaches the methods of sort.Interface to []eventObservers, sorting in increasing order of priority
-type byPriority struct {
-	observer   []chan<- Message
-	priorities []SystemPriority
+func (e *Engine) Publish(msg Message) {
+	e.lock.RLock()
+	defer e.lock.RUnlock()
+
+	// aspect-less observers or message-types
+	e.publish(msg, nil)
+
+	// external entity messages
+	if emsg, ok := msg.(EntityMessage); ok {
+		id := int(emsg.Entity())
+		for _, a := range e.entityAspects[id] {
+			e.publish(msg, a)
+		}
+	}
 }
 
-func (a byPriority) Len() int { return len(a.observer) }
+// aspect observers, mostly entity-messages
+func (e *Engine) publish(msg Message, a *aspect) {
+	// TODO: no lock, sorting needs RWMutex.Lock
+	if e.updatePriority {
+		e.sortObservers()
+		e.updatePriority = false
+	}
+
+	for _, o := range e.observers[a][msg.Type()] {
+		go func(c chan<- Message) {
+			c <- msg
+		}(o)
+	}
+
+	/*
+		TODO:	systems may respond to an update message with a component set,
+				locking while publish-rlock not yet revoked
+
+		var wg sync.WaitGroup
+		var cur SystemPriority = -1
+
+		for _, o := range e.observers[a][msg.Type()] {
+			if p := e.priorities[o]; p != cur {
+				// wait until previous observers are finished
+				wg.Wait()
+				cur = p
+			}
+
+			wg.Add(1)
+			go func(c chan<- Message) {
+				defer wg.Done()
+				c <- msg
+			}(o)
+		}
+
+		wg.Wait()
+	*/
+}
+
+// byPriority attaches the methods of sort.Interface to []eventObservers, sorting in increasing order of priority
+type byPriority struct {
+	observers  []chan<- Message
+	priorities map[chan<- Message]SystemPriority
+}
+
+func (a byPriority) Len() int {
+	return len(a.observers)
+}
 func (a byPriority) Swap(i, j int) {
-	a.observer[i], a.observer[j] = a.observer[j], a.observer[i]
-	a.priorities[i], a.priorities[j] = a.priorities[j], a.priorities[i]
+	a.observers[i], a.observers[j] = a.observers[j], a.observers[i]
 }
 func (a byPriority) Less(i, j int) bool {
-	return a.priorities[i] < a.priorities[j]
+	return a.priorities[a.observers[i]] < a.priorities[a.observers[j]]
 }
 
 func (e *Engine) sortObservers() {
-	sort.Sort(byPriority{
-		observer:   e.eventObserver,
-		priorities: e.priorities,
-	})
+	for a, as := range e.observers {
+		for t := range as {
+			sort.Sort(byPriority{
+				observers:  e.observers[a][t],
+				priorities: e.priorities,
+			})
+		}
+	}
 }

@@ -53,12 +53,18 @@ func SingleAspectSystem(e *Engine, prio SystemPriority, update func(time.Duratio
 
 func (s *singleAspectSystem) Restart(prio SystemPriority) {
 	s.engine.Subscribe(Filter{Types: []MessageType{UpdateMessageType}}, prio, s.messages)
-	s.engine.Subscribe(Filter{Aspect: s.types}, prio, s.messages)
+	s.engine.Subscribe(Filter{
+		Types:  []MessageType{EntityAddMessageType, EntityRemoveMessageType},
+		Aspect: s.types,
+	}, prio, s.messages)
 }
 
 func (s *singleAspectSystem) Stop() {
 	s.engine.Unsubscribe(Filter{Types: []MessageType{UpdateMessageType}}, s.messages)
-	s.engine.Unsubscribe(Filter{Aspect: s.types}, s.messages)
+	s.engine.Unsubscribe(Filter{
+		Types:  []MessageType{EntityAddMessageType, EntityRemoveMessageType},
+		Aspect: s.types,
+	}, s.messages)
 
 	s.entities = []Entity{} // TODO: gc?
 }

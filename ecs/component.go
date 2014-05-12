@@ -27,6 +27,10 @@ type aspect struct {
 
 // Slice of ComponentTypes has all components of the aspect
 func (a *aspect) accepts(types []ComponentType) bool {
+	if a == nil && types != nil {
+		return false
+	}
+
 	if len(a.types) > len(types) {
 		return false
 	}
@@ -49,6 +53,10 @@ func (a *aspect) accepts(types []ComponentType) bool {
 
 // Aspect equals a slice of ComponentTypes
 func (a *aspect) equals(types []ComponentType) bool {
+	if a == nil && types != nil {
+		return false
+	}
+
 	if len(a.types) != len(types) {
 		return false
 	}
