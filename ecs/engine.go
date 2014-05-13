@@ -20,6 +20,7 @@ type Engine struct {
 	updatePriority bool
 
 	nextEntity       int
+	deletedEntities  []int
 	entityComponents map[int]map[ComponentType]Component
 	entityAspects    map[int][]*aspect
 }
@@ -31,6 +32,7 @@ func NewEngine() *Engine {
 		priorities: map[chan<- Message]SystemPriority{},
 
 		nextEntity:       1,
+		deletedEntities:  []int{},
 		entityComponents: map[int]map[ComponentType]Component{},
 		entityAspects:    map[int][]*aspect{},
 	}
@@ -41,8 +43,13 @@ func (e *Engine) Entity() Entity {
 	e.lock.Lock()
 	defer e.lock.Unlock()
 
-	id := e.nextEntity
-	e.nextEntity++
+	var id int
+	if l := len(e.deletedEntities); l > 0 {
+		id, e.deletedEntities = e.deletedEntities[l-1], e.deletedEntities[:l-1]
+	} else {
+		id = e.nextEntity
+		e.nextEntity++
+	}
 
 	e.entityComponents[id] = map[ComponentType]Component{}
 	e.entityAspects[id] = []*aspect{}
@@ -67,6 +74,7 @@ func (e *Engine) Delete(en Entity) error {
 
 	delete(e.entityComponents, id)
 	delete(e.entityAspects, id)
+	e.deletedEntities = append(e.deletedEntities, id)
 	return nil
 }
 
