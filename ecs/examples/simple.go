@@ -11,45 +11,40 @@ func main() {
 	log.Println("init")
 
 	engine := ecs.NewEngine()
-	engine.AddSystem(RenderSystem(), 1)
-	engine.AddSystem(MovementSystem(), 0)
+	renderSystem(engine)
+	movementSystem(engine)
 
-	ship := newSpaceship()
-	engine.AddEntity(ship)
-
-	as1 := newAsteroid()
-	engine.AddEntity(as1)
+	newSpaceship(engine)
+	newAsteroid(engine)
 
 	log.Println("update")
-	log.Println("error:", engine.Update(time.Duration(1)*time.Second))
+	engine.Publish(ecs.MessageUpdate{Delta: time.Duration(1) * time.Second})
 
 	log.Println("fin")
 }
 
 // entitites
 
-func newSpaceship() *ecs.Entity {
-	s := ecs.NewEntity("spaceship")
+func newSpaceship(engine *ecs.Engine) {
+	s := engine.Entity()
 
-	position := &PositionComponent{}
+	position := PositionComponent{}
 	position.X = 100 / 2
 	position.Y = 100 / 2
 	position.Rotation = 0
-	s.Add(position)
 
-	display := &DisplayComponent{}
+	display := DisplayComponent{}
 	display.View = DisplayObject{} // NewImage(w, h);
-	s.Add(display)
-
-	return s
+	engine.Set(s, position, display)
 }
 
-func newAsteroid() *ecs.Entity {
-	return ecs.NewEntity(
-		"Asteroid01",
-		&PositionComponent{X: 10, Y: 10, Rotation: 12},
-		&VelocityComponent{VelocityX: -1, VelocityY: -5, AngularVelocity: 1},
-		&DisplayComponent{View: DisplayObject{}},
+func newAsteroid(engine *ecs.Engine) {
+	a := engine.Entity()
+	engine.Set(
+		a,
+		PositionComponent{X: 10, Y: 10, Rotation: 12},
+		VelocityComponent{VelocityX: -1, VelocityY: -5, AngularVelocity: 1},
+		DisplayComponent{View: DisplayObject{}},
 	)
 }
 
@@ -93,62 +88,46 @@ func (c DisplayComponent) Type() ecs.ComponentType {
 
 // systems
 
-func RenderSystem() ecs.System {
-	s := ecs.CollectionSystem(
-		func(delta time.Duration, en *ecs.Entity) {
-			position := en.Get(PositionType).(*PositionComponent)
-			display := en.Get(DisplayType).(*DisplayComponent)
+const (
+	PriorityBeforeRender ecs.SystemPriority = iota
+	PriorityRender
+)
+
+func MustGetComponent(c ecs.Component, err error) ecs.Component {
+	if err != nil {
+		panic(err)
+	}
+	return c
+}
+
+func renderSystem(engine *ecs.Engine) {
+	ecs.SingleAspectSystem(
+		engine, PriorityRender,
+		func(delta time.Duration, en ecs.Entity) {
+			position := MustGetComponent(engine.Get(en, PositionType)).(PositionComponent)
+			display := MustGetComponent(engine.Get(en, DisplayType)).(DisplayComponent)
 
 			display.View.X = position.X
 			display.View.Y = position.Y
 			display.View.Rotation = position.Rotation
+			engine.Set(en, display)
 		},
 		[]ecs.ComponentType{PositionType, DisplayType},
 	)
-
-	/*
-		s.SetPreUpdateFunc(func() {
-			log.Println("initialize render system update loop")
-		})
-
-		s.SetInitFunc(func() error {
-			log.Println("initializing RenderSystem")
-			return nil
-		})
-
-		s.SetCleanupFunc(func() error {
-			log.Println("cleaning RenderSystem")
-			return nil
-		})
-	*/
-
-	return s
 }
 
-func MovementSystem() ecs.System {
-	s := ecs.CollectionSystem(
-		func(t time.Duration, en *ecs.Entity) {
-			position := en.Get(PositionType).(*PositionComponent)
-			velocity := en.Get(VelocityType).(*VelocityComponent)
+func movementSystem(engine *ecs.Engine) {
+	ecs.SingleAspectSystem(
+		engine, PriorityBeforeRender,
+		func(t time.Duration, en ecs.Entity) {
+			position := MustGetComponent(engine.Get(en, PositionType)).(PositionComponent)
+			velocity := MustGetComponent(engine.Get(en, VelocityType)).(VelocityComponent)
 
 			position.X += velocity.VelocityX * t.Seconds()
 			position.Y += velocity.VelocityY * t.Seconds()
 			position.Rotation += velocity.AngularVelocity * t.Seconds()
+			engine.Set(en, position)
 		},
 		[]ecs.ComponentType{PositionType, VelocityType},
 	)
-
-	/*
-		s.SetInitFunc(func() error {
-			log.Println("initializing MovementSystem")
-			return nil
-		})
-
-		s.SetCleanupFunc(func() error {
-			log.Println("cleaning MovementSystem")
-			return nil
-		})
-	*/
-
-	return s
 }

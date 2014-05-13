@@ -20,6 +20,11 @@ const (
 	VelocityType
 	GeometryType
 	MaterialType
+
+	// old
+	MenuType
+	MeshType
+	PositionType
 )
 
 type GameStateComponent struct {
@@ -72,7 +77,7 @@ type Transformation struct {
 	matrix        math.Matrix
 	updatedMatrix bool
 
-	Parent   *Transformation
+	Parent   *Transformation // TODO: replace with ecs.Entity/engine.Get(parent, TransformationType)
 	Children []*Transformation
 }
 

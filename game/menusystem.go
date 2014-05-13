@@ -1,38 +1,82 @@
 package game
 
 import (
+	"log"
 	"time"
 
 	"github.com/der-antikeks/gisp/ecs"
 )
 
 type MenuSystem struct {
-	im *InputManager
+	engine *ecs.Engine
+	prio   ecs.SystemPriority
+	im     *InputManager
 
-	buttons   *ecs.Collection
-	gamestate *ecs.Collection
+	messages chan ecs.Message
+
+	buttons   []ecs.Entity
+	gamestate ecs.Entity
 }
 
-func NewMenuSystem(im *InputManager) ecs.System {
-	return &MenuSystem{
-		im: im,
+func NewMenuSystem(engine *ecs.Engine, im *InputManager) *MenuSystem {
+	s := &MenuSystem{
+		engine:    engine,
+		prio:      PriorityBeforeRender,
+		im:        im,
+		messages:  make(chan ecs.Message),
+		gamestate: -1,
 	}
+
+	go func() {
+		s.Restart()
+
+		for event := range s.messages {
+			switch e := event.(type) {
+			default:
+			case ecs.MessageUpdate:
+				if err := s.Update(e.Delta); err != nil {
+					log.Fatal("could not update menu:", err)
+				}
+			}
+		}
+	}()
+
+	return s
 }
 
-func (s *MenuSystem) AddedToEngine(e *ecs.Engine) error {
-	/*
-		s.buttons = e.Collection(MenuType, PositionType, MeshType)
-		s.gamestate = e.Collection(GameStateType)
-	*/
-	return nil
+func (s *MenuSystem) Restart() {
+	s.engine.Subscribe(ecs.Filter{
+		Types: []ecs.MessageType{ecs.UpdateMessageType},
+	}, s.prio, s.messages)
+
+	s.engine.Subscribe(ecs.Filter{
+		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
+		Aspect: []ecs.ComponentType{MenuType, PositionType, MeshType},
+	}, s.prio, s.messages)
+
+	s.engine.Subscribe(ecs.Filter{
+		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
+		Aspect: []ecs.ComponentType{GameStateType},
+	}, s.prio, s.messages)
 }
 
-func (s *MenuSystem) RemovedFromEngine(*ecs.Engine) error {
-	/*
-		s.buttons = nil
-		s.gamestate = nil
-	*/
-	return nil
+func (s *MenuSystem) Stop() {
+	s.engine.Unsubscribe(ecs.Filter{
+		Types: []ecs.MessageType{ecs.UpdateMessageType},
+	}, s.messages)
+
+	s.engine.Unsubscribe(ecs.Filter{
+		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
+		Aspect: []ecs.ComponentType{MenuType, PositionType, MeshType},
+	}, s.messages)
+
+	s.engine.Unsubscribe(ecs.Filter{
+		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
+		Aspect: []ecs.ComponentType{GameStateType},
+	}, s.messages)
+
+	s.buttons = []ecs.Entity{}
+	s.gamestate = -1
 }
 
 func (s *MenuSystem) Update(delta time.Duration) error {

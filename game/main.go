@@ -3,7 +3,6 @@ package game
 import (
 	"log"
 	"math/rand"
-	"runtime"
 	"time"
 
 	"github.com/der-antikeks/gisp/ecs"
@@ -12,9 +11,8 @@ import (
 var (
 	fps   = 70
 	w, h  = 800, 400
-	title = "gisp ecs rewrite"
+	title = "gisp concurrent-ecs rewrite"
 
-	engine      *ecs.Engine
 	initialized bool
 	running     bool
 )
@@ -30,9 +28,8 @@ func Stop() {
 func Run() error {
 	// init
 	rand.Seed(time.Now().Unix())
-	runtime.LockOSThread()
 	running = true
-	engine = ecs.NewEngine()
+	engine := ecs.NewEngine()
 
 	// managers
 	em := NewEntityManager(engine)
@@ -40,16 +37,16 @@ func Run() error {
 	defer wm.Cleanup()
 
 	// systems
-	engine.AddSystem(NewGameStateSystem(em, im, wm), 0)
-	engine.AddSystem(NewMenuSystem(im), 5)
-	engine.AddSystem(NewRenderSystem(wm), 10)
+	NewGameStateSystem(engine, em, im, wm)
+	NewMenuSystem(engine, im)
+	NewRenderSystem(engine, wm)
 
 	// main loop
 	var (
-		lastTime = time.Now()
-		now      time.Time
-		delta    time.Duration
-		ds       float64
+		lastTime    = time.Now()
+		currentTime time.Time
+		delta       time.Duration
+		ds          float64
 
 		ratio  = 0.01
 		curfps = float64(fps)
@@ -62,9 +59,9 @@ func Run() error {
 		select {
 		case <-update:
 			// calc delay
-			now = time.Now()
-			delta = now.Sub(lastTime)
-			lastTime = now
+			currentTime = time.Now()
+			delta = currentTime.Sub(lastTime)
+			lastTime = currentTime
 
 			// calc fps
 			if ds = delta.Seconds(); ds > 0 {
@@ -72,9 +69,8 @@ func Run() error {
 			}
 
 			// update
-			if err := engine.Update(delta); err != nil {
-				return err
-			}
+			engine.Publish(ecs.MessageUpdate{Delta: delta})
+
 		case <-console:
 			// print fps
 			log.Println(curfps)
@@ -83,3 +79,9 @@ func Run() error {
 
 	return nil
 }
+
+const (
+	PriorityBeforeRender ecs.SystemPriority = iota
+	PriorityRender
+	PriorityAfterRender
+)

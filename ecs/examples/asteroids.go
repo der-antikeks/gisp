@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/rand"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/go-gl/gl"
@@ -15,8 +16,7 @@ import (
 )
 
 const (
-	_ ecs.SystemPriority = iota
-	PriorityBeforeRender
+	PriorityBeforeRender ecs.SystemPriority = iota
 	PriorityRender
 	PriorityAfterRender
 )
@@ -38,7 +38,6 @@ var (
 
 func main() {
 	rand.Seed(time.Now().Unix())
-	runtime.LockOSThread()
 
 	engine := ecs.NewEngine()
 
@@ -51,12 +50,12 @@ func main() {
 
 	// systems
 	maxx, maxy := float64(w)*0.5, float64(h)*0.5
-	engine.AddSystem(NewMovementSystem(-maxx, maxx, -maxy, maxy), PriorityBeforeRender)
-	engine.AddSystem(NewRenderSystem(), PriorityRender)
-	engine.AddSystem(NewCollisionSystem(), PriorityAfterRender)
-	engine.AddSystem(NewAsteroidSpawnSystem(em), PriorityBeforeRender)
-	engine.AddSystem(NewMotionControlSystem(im), PriorityBeforeRender)
-	engine.AddSystem(NewBulletSystem(im, em), PriorityBeforeRender)
+	newMovementSystem(engine, -maxx, maxx, -maxy, maxy)
+	newRenderSystem(engine, wm)
+	newCollisionSystem(engine)
+	newAsteroidSpawnSystem(engine, em)
+	newMotionControlSystem(engine, im)
+	newBulletSystem(engine, im, em)
 
 	// entities
 	em.createSpaceship(0, 0)
@@ -105,14 +104,30 @@ func main() {
 			}
 
 			// update
-			if err := engine.Update(delta); err != nil {
-				log.Fatal(err)
-			}
-
-			// Swap buffers
-			wm.update()
+			engine.Publish(ecs.MessageUpdate{Delta: delta})
 		}
 	}
+}
+
+var (
+	mOnce sync.Once
+	mChan = make(chan func())
+	mDone = make(chan struct{})
+)
+
+func MainThread(f func()) {
+	mOnce.Do(func() {
+		go func() {
+			runtime.LockOSThread()
+			for mf := range mChan {
+				mf()
+				mDone <- struct{}{}
+			}
+		}()
+	})
+
+	mChan <- f
+	<-mDone
 }
 
 type WindowManager struct {
@@ -126,47 +141,49 @@ func NewWindowManager(w, h int, title string, im *InputManager) *WindowManager {
 		height: h,
 	}
 
-	// init glfw
-	glfw.SetErrorCallback(func(err glfw.ErrorCode, desc string) {
-		log.Fatalln("error callback:", err, desc)
+	MainThread(func() {
+		// init glfw
+		glfw.SetErrorCallback(func(err glfw.ErrorCode, desc string) {
+			log.Fatalln("error callback:", err, desc)
+		})
+
+		if !glfw.Init() {
+			log.Fatalf("failed to initialize glfw")
+		}
+
+		glfw.WindowHint(glfw.Resizable, 1)
+		glfw.WindowHint(glfw.Samples, 4)
+
+		var err error
+		m.window, err = glfw.CreateWindow(w, h, title, nil, nil)
+		if err != nil {
+			log.Fatalf("create window: %v", err)
+		}
+
+		m.window.MakeContextCurrent()
+		glfw.SwapInterval(1)
+		gl.Init()
+
+		// callbacks
+		m.window.SetKeyCallback(im.onKey)
+		m.window.SetFramebufferSizeCallback(m.onResize)
+
+		// init gl
+		gl.ShadeModel(gl.SMOOTH)
+		gl.Hint(gl.PERSPECTIVE_CORRECTION_HINT, gl.NICEST)
+
+		gl.ClearColor(0.1, 0.1, 0.1, 0.0)
+		gl.ClearDepth(1)
+		gl.DepthFunc(gl.LEQUAL)
+		gl.Enable(gl.DEPTH_TEST)
+
+		gl.LineWidth(1)
+		gl.Enable(gl.LINE_SMOOTH)
+
+		// set size
+		w, h = m.window.GetFramebufferSize()
+		m.onResize(m.window, w, h)
 	})
-
-	if !glfw.Init() {
-		log.Fatalf("failed to initialize glfw")
-	}
-
-	glfw.WindowHint(glfw.Resizable, 1)
-	glfw.WindowHint(glfw.Samples, 4)
-
-	var err error
-	m.window, err = glfw.CreateWindow(w, h, title, nil, nil)
-	if err != nil {
-		log.Fatalf("create window: %v", err)
-	}
-
-	m.window.MakeContextCurrent()
-	glfw.SwapInterval(1)
-	gl.Init()
-
-	// callbacks
-	m.window.SetKeyCallback(im.onKey)
-	m.window.SetFramebufferSizeCallback(m.onResize)
-
-	// init gl
-	gl.ShadeModel(gl.SMOOTH)
-	gl.Hint(gl.PERSPECTIVE_CORRECTION_HINT, gl.NICEST)
-
-	gl.ClearColor(0.1, 0.1, 0.1, 0.0)
-	gl.ClearDepth(1)
-	gl.DepthFunc(gl.LEQUAL)
-	gl.Enable(gl.DEPTH_TEST)
-
-	gl.LineWidth(1)
-	gl.Enable(gl.LINE_SMOOTH)
-
-	// set size
-	w, h = m.window.GetFramebufferSize()
-	m.onResize(m.window, w, h)
 
 	return m
 }
@@ -176,12 +193,16 @@ func (m *WindowManager) isRunning() bool {
 }
 
 func (m *WindowManager) update() {
-	m.window.SwapBuffers()
-	glfw.PollEvents()
+	MainThread(func() {
+		m.window.SwapBuffers()
+		glfw.PollEvents()
+	})
 }
 
 func (m *WindowManager) cleanup() {
-	glfw.Terminate()
+	MainThread(func() {
+		glfw.Terminate()
+	})
 }
 
 func (m *WindowManager) onResize(w *glfw.Window, width int, height int) {
@@ -218,7 +239,7 @@ func (m *InputManager) onKey(w *glfw.Window, key glfw.Key, scancode int, action 
 	case glfw.Press:
 		m.keyPressed[key] = true
 
-		if key == glfw.KeyEscape { // TODO: move to game-status-system
+		if key == glfw.KeyEscape {
 			w.SetShouldClose(true)
 		}
 
@@ -247,7 +268,7 @@ func NewEntityManager(e *ecs.Engine) *EntityManager {
 type GameState struct{}
 type Hud struct{}
 
-func (em *EntityManager) CreateGame() *ecs.Entity {
+func (em *EntityManager) CreateGame() ecs.Entity {
 	s := ecs.NewEntity(
 		"game",
 		&GameState{},
@@ -272,16 +293,17 @@ func (em *EntityManager) createSpaceship(x, y float64) {
 		velocity = delta position / delta time
 	*/
 
-	s := ecs.NewEntity(
-		"spaceship",
-		&ShipStatusComponent{
+	s := em.engine.Entity()
+	if err := em.engine.Set(
+		s,
+		ShipStatusComponent{
 			Lifes: 5,
 		},
 
-		&PositionComponent{Point{x, y}, 0},
-		&VelocityComponent{},
+		PositionComponent{Point{x, y}, 0},
+		VelocityComponent{},
 
-		&MotionControlComponent{
+		MotionControlComponent{
 			AccelerationSpeed: MaxAccelerate,
 			MaxVelocity:       MaxShipSpeed,
 			RotationSpeed:     ShipRotationSpeed,
@@ -292,8 +314,8 @@ func (em *EntityManager) createSpaceship(x, y float64) {
 			DecelerationKey: glfw.KeyS,
 		},
 
-		&ColorComponent{1, 1, 1},
-		&MeshComponent{
+		ColorComponent{1, 1, 1},
+		MeshComponent{
 			Points: []Point{
 				Point{-10, -15},
 				Point{0, -10},
@@ -303,15 +325,13 @@ func (em *EntityManager) createSpaceship(x, y float64) {
 			Max: 15,
 		},
 
-		&CannonComponent{
+		CannonComponent{
 			LastBullet:  time.Now(),
 			BulletSpeed: BulletSpeed,
 			FireKey:     glfw.KeySpace,
 		},
-	)
-
-	if err := em.engine.AddEntity(s); err != nil {
-		log.Fatal(err)
+	); err != nil {
+		log.Println("could not create spaceship:", err)
 	}
 }
 
@@ -320,26 +340,29 @@ func (em *EntityManager) createAsteroid(x, y float64, size int) {
 	rad := (rot + 90) * deg2rad
 	speed := rand.Float64() * MaxAsteroidSpeed
 
-	a := ecs.NewEntity(
-		fmt.Sprintf("asteroid%d", em.asteroidsNum),
-		&AsteroidStatusComponent{
+	a := em.engine.Entity()
+	if err := em.engine.Set(
+		a,
+		AsteroidStatusComponent{
 			Size: size,
 		},
 
-		&PositionComponent{Point{x, y}, rot},
-		&VelocityComponent{
+		PositionComponent{Point{x, y}, rot},
+		VelocityComponent{
 			Point{
 				speed * math.Cos(rad),
 				speed * math.Sin(rad),
 			}, MaxAsteroidRotation * rand.Float64(),
 		},
 
-		&ColorComponent{1, 1, 0},
-	)
+		ColorComponent{1, 1, 0},
+	); err != nil {
+		log.Println("could not create asteroid:", err)
+	}
 
 	em.asteroidsNum++
 
-	mc := &MeshComponent{
+	mc := MeshComponent{
 		Points: make([]Point, 7),
 		Max:    0,
 	}
@@ -358,25 +381,24 @@ func (em *EntityManager) createAsteroid(x, y float64, size int) {
 		mc.Max = math.Max(mc.Max, length)
 	}
 
-	a.Add(mc)
-
-	if err := em.engine.AddEntity(a); err != nil {
-		log.Fatal(err)
+	if err := em.engine.Set(a, mc); err != nil {
+		log.Println("could not create asteroid:", err)
 	}
 }
 
 func (em *EntityManager) createBullet(x, y, vx, vy float64) {
-	b := ecs.NewEntity(
-		fmt.Sprintf("bullet%d", em.bulletsNum),
-		&BulletStatusComponent{
+	b := em.engine.Entity()
+	if err := em.engine.Set(
+		b,
+		BulletStatusComponent{
 			LifeTime: time.Now().Add(2 * time.Second),
 		},
 
-		&PositionComponent{Point{x, y}, 0},
-		&VelocityComponent{Point{vx, vy}, 0},
+		PositionComponent{Point{x, y}, 0},
+		VelocityComponent{Point{vx, vy}, 0},
 
-		&ColorComponent{1, 0, 0},
-		&MeshComponent{
+		ColorComponent{1, 0, 0},
+		MeshComponent{
 			Points: []Point{
 				Point{2, 2},
 				Point{2, -2},
@@ -385,13 +407,11 @@ func (em *EntityManager) createBullet(x, y, vx, vy float64) {
 			},
 			Max: 2,
 		},
-	)
+	); err != nil {
+		log.Println("could not create bullet:", err)
+	}
 
 	em.bulletsNum++
-
-	if err := em.engine.AddEntity(b); err != nil {
-		log.Fatal(err)
-	}
 }
 
 // COMPONENTS
@@ -509,11 +529,20 @@ func (c BulletStatusComponent) Type() ecs.ComponentType {
 
 // SYSTEMS
 
-func NewAsteroidSpawnSystem(em *EntityManager) ecs.System {
-	return ecs.CollectionSystem(
-		func(delta time.Duration, en *ecs.Entity) {
-			p := en.Get(PositionType).(*PositionComponent)
-			c := en.Get(AsteroidStatusType).(*AsteroidStatusComponent)
+func newAsteroidSpawnSystem(engine *ecs.Engine, em *EntityManager) {
+	ecs.SingleAspectSystem(
+		engine, PriorityBeforeRender,
+		func(delta time.Duration, en ecs.Entity) {
+			ec, err := engine.Get(en, PositionType)
+			if err != nil {
+				return
+			}
+			p := ec.(PositionComponent)
+			ec, err = engine.Get(en, AsteroidStatusType)
+			if err != nil {
+				return
+			}
+			c := ec.(AsteroidStatusComponent)
 
 			if c.Destroyed {
 				//fmt.Println("removing dead asteroid", e.Name)
@@ -526,77 +555,131 @@ func NewAsteroidSpawnSystem(em *EntityManager) ecs.System {
 				}
 
 				// remove dead asteroid
-				en.Delete()
+				if err := engine.Delete(en); err != nil {
+					log.Println("could not delete asteroid:", err)
+				}
 			}
 		},
 		[]ecs.ComponentType{AsteroidStatusType, PositionType},
 	)
 }
 
-type BulletSystem struct {
-	engine  *ecs.Engine
-	cannon  *ecs.Collection
-	bullets *ecs.Collection
+func newBulletSystem(engine *ecs.Engine, im *InputManager, em *EntityManager) {
+	cannonChan, bulletChan, eventChan := make(chan ecs.Message), make(chan ecs.Message), make(chan ecs.Message)
+	engine.Subscribe(ecs.Filter{
+		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
+		Aspect: []ecs.ComponentType{PositionType, CannonType},
+	}, PriorityBeforeRender, cannonChan)
+	engine.Subscribe(ecs.Filter{
+		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
+		Aspect: []ecs.ComponentType{BulletStatusType},
+	}, PriorityBeforeRender, bulletChan)
+	engine.Subscribe(ecs.Filter{
+		Types: []ecs.MessageType{ecs.UpdateMessageType},
+	}, PriorityBeforeRender, eventChan)
 
-	im *InputManager
-	em *EntityManager
-}
+	cannons := []ecs.Entity{}
+	bullets := []ecs.Entity{}
 
-func NewBulletSystem(im *InputManager, em *EntityManager) *BulletSystem {
-	return &BulletSystem{
-		im: im,
-		em: em,
-	}
-}
+	go func() {
+		for {
+			select {
+			case event := <-cannonChan:
+				switch e := event.(type) {
+				case ecs.MessageEntityAdd:
+					cannons = append(cannons, e.Added)
+				case ecs.MessageEntityRemove:
+					for i, f := range cannons {
+						if f == e.Removed {
+							cannons = append(cannons[:i], cannons[i+1:]...)
+						}
+					}
+				}
 
-func (s *BulletSystem) AddedToEngine(e *ecs.Engine) error {
-	s.engine = e
-	s.cannon = e.Collection(PositionType, CannonType)
-	s.bullets = e.Collection(BulletStatusType)
+			case event := <-bulletChan:
+				switch e := event.(type) {
+				case ecs.MessageEntityAdd:
+					bullets = append(bullets, e.Added)
+				case ecs.MessageEntityRemove:
+					for i, f := range bullets {
+						if f == e.Removed {
+							bullets = append(bullets[:i], bullets[i+1:]...)
+						}
+					}
+				}
 
-	return nil
-}
+			case event := <-eventChan:
+				switch event.(type) {
+				case ecs.MessageUpdate:
 
-func (s *BulletSystem) RemovedFromEngine(*ecs.Engine) error {
-	return nil
-}
+					// fire new bullet
+					for _, e := range cannons {
+						ec, err := engine.Get(e, PositionType)
+						if err != nil {
+							continue
+						}
+						p := ec.(PositionComponent)
+						ec, err = engine.Get(e, CannonType)
+						if err != nil {
+							continue
+						}
+						c := ec.(CannonComponent)
 
-func (s *BulletSystem) Update(delta time.Duration) error {
-	// fire new bullet
-	for _, e := range s.cannon.Entities() {
-		p := e.Get(PositionType).(*PositionComponent)
-		c := e.Get(CannonType).(*CannonComponent)
+						//fmt.Println("controlling", e.Name)
 
-		//fmt.Println("controlling", e.Name)
+						if im.IsDown(c.FireKey) && time.Now().After(c.LastBullet.Add(time.Second/4)) {
+							vx := math.Cos(p.Rotation*deg2rad) * c.BulletSpeed
+							vy := math.Sin(p.Rotation*deg2rad) * c.BulletSpeed
 
-		if s.im.IsDown(c.FireKey) && time.Now().After(c.LastBullet.Add(time.Second/4)) {
-			vx := math.Cos(p.Rotation*deg2rad) * c.BulletSpeed
-			vy := math.Sin(p.Rotation*deg2rad) * c.BulletSpeed
+							em.createBullet(p.Position.X, p.Position.Y, vx, vy)
+							c.LastBullet = time.Now()
+							if err := engine.Set(e, c); err != nil {
+								log.Println("could not set last bullet time:", err)
+							}
+						}
 
-			s.em.createBullet(p.Position.X, p.Position.Y, vx, vy)
-			c.LastBullet = time.Now()
+					}
+
+					// remove dead bullets, should be in its own generic lifetime system
+					for _, e := range bullets {
+						ec, err := engine.Get(e, BulletStatusType)
+						if err != nil {
+							continue
+						}
+						b := ec.(BulletStatusComponent)
+						if b.LifeTime.Before(time.Now()) {
+							if err := engine.Delete(e); err != nil {
+								log.Println("could not delete bullet:", err)
+							}
+						}
+					}
+
+				}
+			}
 		}
-
-	}
-
-	// remove dead bullets, should be in its own generic lifetime system
-	for _, e := range s.bullets.Entities() {
-		b := e.Get(BulletStatusType).(*BulletStatusComponent)
-		if b.LifeTime.Before(time.Now()) {
-			s.engine.RemoveEntity(e)
-		}
-	}
-
-	return nil
+	}()
 }
 
-func NewMotionControlSystem(im *InputManager) ecs.System {
-	return ecs.CollectionSystem(
-		func(delta time.Duration, en *ecs.Entity) {
+func newMotionControlSystem(engine *ecs.Engine, im *InputManager) {
+	ecs.SingleAspectSystem(
+		engine, PriorityBeforeRender,
+		func(delta time.Duration, en ecs.Entity) {
 
-			p := en.Get(PositionType).(*PositionComponent)
-			m := en.Get(MotionControlType).(*MotionControlComponent)
-			v := en.Get(VelocityType).(*VelocityComponent)
+			ec, err := engine.Get(en, PositionType)
+			if err != nil {
+				return
+			}
+			p := ec.(PositionComponent)
+			ec, err = engine.Get(en, MotionControlType)
+			if err != nil {
+				return
+			}
+			m := ec.(MotionControlComponent)
+			ec, err = engine.Get(en, VelocityType)
+			if err != nil {
+				return
+			}
+			v := ec.(VelocityComponent)
 
 			//fmt.Println("controlling", e.Name)
 
@@ -625,24 +708,28 @@ func NewMotionControlSystem(im *InputManager) ecs.System {
 				v.Velocity.Y *= factor
 			}
 
+			if err := engine.Set(en, p, v); err != nil {
+				log.Println("could not update position/velocity:", err)
+			}
 		},
 		[]ecs.ComponentType{PositionType, MotionControlType, VelocityType},
 	)
 }
 
-type MovementSystem struct {
-	engine   *ecs.Engine
-	moveable *ecs.Collection
-
-	minx, maxx,
-	miny, maxy float64
-}
-
-func NewMovementSystem(minx, maxx, miny, maxy float64) ecs.System {
-	return ecs.CollectionSystem(
-		func(delta time.Duration, en *ecs.Entity) {
-			p := en.Get(PositionType).(*PositionComponent)
-			v := en.Get(VelocityType).(*VelocityComponent)
+func newMovementSystem(engine *ecs.Engine, minx, maxx, miny, maxy float64) {
+	ecs.SingleAspectSystem(
+		engine, PriorityBeforeRender,
+		func(delta time.Duration, en ecs.Entity) {
+			ec, err := engine.Get(en, PositionType)
+			if err != nil {
+				return
+			}
+			p := ec.(PositionComponent)
+			ec, err = engine.Get(en, VelocityType)
+			if err != nil {
+				return
+			}
+			v := ec.(VelocityComponent)
 
 			//fmt.Println("moving", e.Name)
 
@@ -662,111 +749,255 @@ func NewMovementSystem(minx, maxx, miny, maxy float64) ecs.System {
 			} else if p.Position.Y > maxy {
 				p.Position.Y -= maxy - miny
 			}
+
+			if err := engine.Set(en, p); err != nil {
+				log.Println("could not update position:", err)
+			}
 		},
 		[]ecs.ComponentType{PositionType, VelocityType},
 	)
 }
 
-type RenderSystem struct {
-	engine   *ecs.Engine
-	drawable *ecs.Collection
-}
+func newRenderSystem(engine *ecs.Engine, wm *WindowManager) {
+	c := make(chan ecs.Message)
+	engine.Subscribe(ecs.Filter{
+		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
+		Aspect: []ecs.ComponentType{PositionType, MeshType, ColorType},
+	}, PriorityRender, c)
+	engine.Subscribe(ecs.Filter{
+		Types: []ecs.MessageType{ecs.UpdateMessageType},
+	}, PriorityRender, c)
 
-func NewRenderSystem() ecs.System {
-	return &RenderSystem{}
-}
+	drawable := []ecs.Entity{}
 
-func (s *RenderSystem) AddedToEngine(e *ecs.Engine) error {
-	s.engine = e
-	s.drawable = e.Collection(PositionType, MeshType, ColorType)
-	return nil
-}
+	go func() {
+		for event := range c {
+			switch e := event.(type) {
+			case ecs.MessageEntityAdd:
+				drawable = append(drawable, e.Added)
+			case ecs.MessageEntityRemove:
+				for i, f := range drawable {
+					if f == e.Removed {
+						drawable = append(drawable[:i], drawable[i+1:]...)
+					}
+				}
 
-func (s *RenderSystem) RemovedFromEngine(*ecs.Engine) error {
-	return nil
-}
+			case ecs.MessageUpdate:
+				// init
+				MainThread(func() {
+					gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+					gl.LoadIdentity()
+				})
 
-func (s *RenderSystem) Update(delta time.Duration) error {
-	// init
-	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
-	gl.LoadIdentity()
+				for _, e := range drawable {
+					ec, err := engine.Get(e, PositionType)
+					if err != nil {
+						continue
+					}
+					p := ec.(PositionComponent)
+					ec, err = engine.Get(e, MeshType)
+					if err != nil {
+						continue
+					}
+					m := ec.(MeshComponent)
+					ec, err = engine.Get(e, ColorType)
+					if err != nil {
+						continue
+					}
+					c := ec.(ColorComponent)
 
-	for _, e := range s.drawable.Entities() {
-		p := e.Get(PositionType).(*PositionComponent)
-		m := e.Get(MeshType).(*MeshComponent)
-		c := e.Get(ColorType).(*ColorComponent)
+					//fmt.Println("rendering", e.Name, "at", p)
 
-		//fmt.Println("rendering", e.Name, "at", p)
+					MainThread(func() {
+						gl.LoadIdentity()
+						gl.Translated(p.Position.X, p.Position.Y, 0)
+						gl.Rotated(p.Rotation-90, 0, 0, 1)
+						gl.Color3d(c.R, c.G, c.B)
 
-		gl.LoadIdentity()
-		gl.Translated(p.Position.X, p.Position.Y, 0)
-		gl.Rotated(p.Rotation-90, 0, 0, 1)
-		gl.Color3d(c.R, c.G, c.B)
+						gl.Begin(gl.LINE_LOOP)
+						for _, point := range m.Points {
+							gl.Vertex3d(point.X, point.Y, 0)
+						}
+						gl.End()
+					})
+				}
 
-		gl.Begin(gl.LINE_LOOP)
-		for _, point := range m.Points {
-			gl.Vertex3d(point.X, point.Y, 0)
-		}
-		gl.End()
-	}
-
-	return nil
-}
-
-type CollisionSystem struct {
-	engine                    *ecs.Engine
-	ships, bullets, asteroids *ecs.Collection
-}
-
-func NewCollisionSystem() *CollisionSystem {
-	return &CollisionSystem{}
-}
-
-func (s *CollisionSystem) AddedToEngine(e *ecs.Engine) error {
-	s.engine = e
-	s.ships = e.Collection(PositionType, MeshType, ShipStatusType)
-	s.bullets = e.Collection(PositionType, MeshType, BulletStatusType)
-	s.asteroids = e.Collection(PositionType, MeshType, AsteroidStatusType)
-
-	return nil
-}
-
-func (s *CollisionSystem) RemovedFromEngine(*ecs.Engine) error {
-	return nil
-}
-
-func (s *CollisionSystem) Update(delta time.Duration) error {
-	ship := s.ships.First()
-	if ship == nil {
-		return fmt.Errorf("no ship found for collision system")
-	}
-
-	sp := ship.Get(PositionType).(*PositionComponent).Position
-	sm := ship.Get(MeshType).(*MeshComponent).Max
-
-	for _, asteroid := range s.asteroids.Entities() {
-		ap := asteroid.Get(PositionType).(*PositionComponent).Position
-		am := asteroid.Get(MeshType).(*MeshComponent).Max
-
-		if sp.Distance(ap) < sm+am {
-			//fmt.Println("collision between", ship.Name, "and", asteroid.Name)
-
-			ship.Get(ShipStatusType).(*ShipStatusComponent).Lifes -= 1
-		}
-
-		for _, bullet := range s.bullets.Entities() {
-			bp := bullet.Get(PositionType).(*PositionComponent).Position
-			bm := bullet.Get(MeshType).(*MeshComponent).Max
-
-			if bp.Distance(ap) < bm+am {
-				//fmt.Println("collision between", bullet.Name, "and", asteroid.Name)
-
-				ship.Get(ShipStatusType).(*ShipStatusComponent).Score += 100
-				asteroid.Get(AsteroidStatusType).(*AsteroidStatusComponent).Destroyed = true
-				bullet.Get(BulletStatusType).(*BulletStatusComponent).LifeTime = time.Time{}
+				// Swap buffers
+				wm.update()
 			}
 		}
-	}
+	}()
+}
 
-	return nil
+type SliceEntityList []ecs.Entity
+
+func (l *SliceEntityList) Add(e ecs.Entity) {
+	*l = append(*l, e)
+}
+func (l *SliceEntityList) Remove(e ecs.Entity) {
+	a := *l
+	for i, f := range a {
+		if f == e {
+			*l = append(a[:i], a[i+1:]...)
+			return
+		}
+	}
+}
+func (l SliceEntityList) Entities() []ecs.Entity {
+	return l
+}
+func (l SliceEntityList) First() (ecs.Entity, bool) {
+	if len(l) < 1 {
+		return 0, false
+	}
+	return l[0], true
+}
+
+func newCollisionSystem(engine *ecs.Engine) {
+	shipChan, bulletChan, asteroidChan := make(chan ecs.Message), make(chan ecs.Message), make(chan ecs.Message)
+	engine.Subscribe(ecs.Filter{
+		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
+		Aspect: []ecs.ComponentType{PositionType, MeshType, ShipStatusType},
+	}, PriorityAfterRender, shipChan)
+	engine.Subscribe(ecs.Filter{
+		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
+		Aspect: []ecs.ComponentType{PositionType, MeshType, BulletStatusType},
+	}, PriorityAfterRender, bulletChan)
+	engine.Subscribe(ecs.Filter{
+		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
+		Aspect: []ecs.ComponentType{PositionType, MeshType, AsteroidStatusType},
+	}, PriorityAfterRender, asteroidChan)
+
+	eventChan := make(chan ecs.Message)
+	engine.Subscribe(ecs.Filter{
+		Types: []ecs.MessageType{ecs.UpdateMessageType},
+	}, PriorityAfterRender, eventChan)
+
+	var ship ecs.Entity = -1
+	var bullets, asteroids SliceEntityList
+
+	go func() {
+		for {
+			select {
+			case event := <-shipChan:
+				switch e := event.(type) {
+				case ecs.MessageEntityAdd:
+					ship = e.Added
+				case ecs.MessageEntityRemove:
+					ship = -1
+				}
+
+			case event := <-bulletChan:
+				switch e := event.(type) {
+				case ecs.MessageEntityAdd:
+					bullets.Add(e.Added)
+				case ecs.MessageEntityRemove:
+					bullets.Remove(e.Removed)
+				}
+
+			case event := <-asteroidChan:
+				switch e := event.(type) {
+				case ecs.MessageEntityAdd:
+					asteroids.Add(e.Added)
+				case ecs.MessageEntityRemove:
+					asteroids.Remove(e.Removed)
+				}
+
+			case event := <-eventChan:
+				switch event.(type) {
+				case ecs.MessageUpdate:
+
+					if ship == -1 {
+						log.Fatalf("no ship found for collision system")
+					}
+
+					ec, err := engine.Get(ship, PositionType)
+					if err != nil {
+						continue
+					}
+					sp := ec.(PositionComponent).Position
+					ec, err = engine.Get(ship, MeshType)
+					if err != nil {
+						continue
+					}
+					sm := ec.(MeshComponent).Max
+
+					for _, asteroid := range asteroids.Entities() {
+						ec, err := engine.Get(asteroid, PositionType)
+						if err != nil {
+							continue
+						}
+						ap := ec.(PositionComponent).Position
+						ec, err = engine.Get(asteroid, MeshType)
+						if err != nil {
+							continue
+						}
+						am := ec.(MeshComponent).Max
+
+						if sp.Distance(ap) < sm+am {
+							//fmt.Println("collision between", ship.Name, "and", asteroid.Name)
+
+							ec, err := engine.Get(ship, ShipStatusType)
+							if err != nil {
+								continue
+							}
+							ss := ec.(ShipStatusComponent)
+							ss.Lifes -= 1
+							if err := engine.Set(ship, ss); err != nil {
+								log.Println("could not update ship status:", err)
+							}
+						}
+
+						for _, bullet := range bullets.Entities() {
+							ec, err := engine.Get(bullet, PositionType)
+							if err != nil {
+								continue
+							}
+							bp := ec.(PositionComponent).Position
+							ec, err = engine.Get(bullet, MeshType)
+							if err != nil {
+								continue
+							}
+							bm := ec.(MeshComponent).Max
+
+							if bp.Distance(ap) < bm+am {
+								//fmt.Println("collision between", bullet.Name, "and", asteroid.Name)
+
+								ec, err := engine.Get(ship, ShipStatusType)
+								if err != nil {
+									continue
+								}
+								ss := ec.(ShipStatusComponent)
+								ss.Score += 100
+								if err := engine.Set(ship, ss); err != nil {
+									log.Println("could not update ship status:", err)
+								}
+
+								ec, err = engine.Get(asteroid, AsteroidStatusType)
+								if err != nil {
+									continue
+								}
+								as := ec.(AsteroidStatusComponent)
+								as.Destroyed = true
+								if err := engine.Set(asteroid, as); err != nil {
+									log.Println("could not update asteroid status:", err)
+								}
+
+								ec, err = engine.Get(bullet, BulletStatusType)
+								if err != nil {
+									continue
+								}
+								bs := ec.(BulletStatusComponent)
+								bs.LifeTime = time.Time{}
+								if err := engine.Set(bullet, bs); err != nil {
+									log.Println("could not update bullet status:", err)
+								}
+							}
+						}
+					}
+
+				}
+			}
+		}
+	}()
 }
