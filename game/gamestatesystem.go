@@ -9,36 +9,71 @@ import (
 
 type GameStateSystem struct {
 	engine *ecs.Engine
-	state  *ecs.Entity
+	prio   ecs.SystemPriority
+	em     *EntityManager
+	im     *InputManager
+	wm     *WindowManager
 
-	em *EntityManager
-	im *InputManager
-	wm *WindowManager
+	messages chan ecs.Message
+	state    ecs.Entity
 }
 
-func NewGameStateSystem(em *EntityManager, im *InputManager, wm *WindowManager) ecs.System {
-	return &GameStateSystem{
-		em: em,
-		im: im,
-		wm: wm,
+func NewGameStateSystem(engine *ecs.Engine, em *EntityManager, im *InputManager, wm *WindowManager) *GameStateSystem {
+	s := &GameStateSystem{
+		engine:   engine,
+		prio:     PriorityBeforeRender,
+		em:       em,
+		im:       im,
+		wm:       wm,
+		messages: make(chan ecs.Message),
+		state:    -1,
 	}
+
+	go func() {
+		s.Restart()
+
+		for event := range s.messages {
+			switch e := event.(type) {
+			case ecs.MessageEntityAdd:
+				s.state = e.Added
+			case ecs.MessageEntityRemove:
+				if s.state == e.Removed {
+					s.state = -1
+				}
+
+			case ecs.MessageUpdate:
+				if err := s.Update(e.Delta); err != nil {
+					log.Fatal("could not update game state:", err)
+				}
+			}
+		}
+	}()
+
+	return s
 }
 
-func (s *GameStateSystem) AddedToEngine(e *ecs.Engine) error {
-	s.engine = e
+func (s *GameStateSystem) Restart() {
+	s.engine.Subscribe(ecs.Filter{
+		Types: []ecs.MessageType{ecs.UpdateMessageType},
+	}, s.prio, s.messages)
 
-	e.Collection(GameStateType).Subscribe(s, func(en *ecs.Entity) {
-		s.state = en
-	}, func(en *ecs.Entity) {
-		s.state = nil
-	})
-
-	return nil
+	s.engine.Subscribe(ecs.Filter{
+		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
+		Aspect: []ecs.ComponentType{GameStateType},
+	}, s.prio, s.messages)
 }
 
-func (s *GameStateSystem) RemovedFromEngine(e *ecs.Engine) error {
-	e.Collection(GameStateType).Unsubscribe(s)
-	return nil
+func (s *GameStateSystem) Stop() {
+	s.engine.Unsubscribe(ecs.Filter{
+		Types: []ecs.MessageType{ecs.UpdateMessageType},
+	}, s.messages)
+
+	s.engine.Unsubscribe(ecs.Filter{
+		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
+		Aspect: []ecs.ComponentType{GameStateType},
+	}, s.messages)
+
+	s.state = -1
 }
 
 func (s *GameStateSystem) Update(delta time.Duration) error {
@@ -49,7 +84,7 @@ func (s *GameStateSystem) Update(delta time.Duration) error {
 		return nil
 	}
 
-	if s.state == nil {
+	if s.state == -1 {
 		log.Println("initialize")
 		s.em.Initalize()
 
@@ -62,7 +97,13 @@ func (s *GameStateSystem) Update(delta time.Duration) error {
 		return nil
 	}
 
-	se := s.state.Get(GameStateType).(*GameStateComponent)
+	ec, err := s.engine.Get(s.state, GameStateType)
+	if err != nil {
+		return err
+	}
+	se := ec.(GameStateComponent)
+	var update bool
+
 	switch se.State {
 	case "init":
 		log.Println("create splash screen")
@@ -70,21 +111,23 @@ func (s *GameStateSystem) Update(delta time.Duration) error {
 		s.em.CreateSplashScreen()
 		se.State = "splash"
 		se.Since = time.Now()
+		update = true
 
 	case "splash":
 		if time.Now().After(se.Since.Add(5*time.Second)) || s.im.AnyKeyDown() {
 			log.Println("create main menu")
 
-			for _, e := range s.engine.Collection().Entities() {
+			for _, e := range s.engine.Query() {
 				if e == s.state {
 					continue
 				}
-				s.engine.RemoveEntity(e)
+				s.engine.Delete(e) // ignoring errors
 			}
 
 			s.em.CreateMainMenu()
 			se.State = "mainmenu"
 			se.Since = time.Now()
+			update = true
 		}
 
 	case "mainmenu":
@@ -93,6 +136,7 @@ func (s *GameStateSystem) Update(delta time.Duration) error {
 
 			se.State = "playing"
 			se.Since = time.Now()
+			update = true
 		}
 
 	case "optionsmenu":
@@ -101,6 +145,7 @@ func (s *GameStateSystem) Update(delta time.Duration) error {
 
 			se.State = "mainmenu"
 			se.Since = time.Now()
+			update = true
 		}
 
 	case "playing":
@@ -109,6 +154,7 @@ func (s *GameStateSystem) Update(delta time.Duration) error {
 
 			se.State = "pause"
 			se.Since = time.Now()
+			update = true
 		}
 
 	case "pause":
@@ -117,6 +163,13 @@ func (s *GameStateSystem) Update(delta time.Duration) error {
 
 			se.State = "playing"
 			se.Since = time.Now()
+			update = true
+		}
+	}
+
+	if update {
+		if err := s.engine.Set(s.state, se); err != nil {
+			return err
 		}
 	}
 

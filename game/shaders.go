@@ -103,7 +103,6 @@ func GetShader(name string) *shader {
 	}
 
 	s := &shader{
-		program: gl.CreateProgram(),
 		uniforms: map[string]struct {
 			location gl.UniformLocation
 			standard interface{}
@@ -115,54 +114,58 @@ func GetShader(name string) *shader {
 		}{},
 	}
 
-	// vertex shader
-	vshader := gl.CreateShader(gl.VERTEX_SHADER)
-	vshader.Source(data.Vertex)
-	vshader.Compile()
-	if vshader.Get(gl.COMPILE_STATUS) != gl.TRUE {
-		log.Fatalf("vertex shader error: %v", vshader.GetInfoLog())
-	}
-	defer vshader.Delete()
+	MainThread(func() {
+		s.program = gl.CreateProgram()
 
-	// fragment shader
-	fshader := gl.CreateShader(gl.FRAGMENT_SHADER)
-	fshader.Source(data.Fragment)
-	fshader.Compile()
-	if fshader.Get(gl.COMPILE_STATUS) != gl.TRUE {
-		log.Fatalf("fragment shader error: %v", fshader.GetInfoLog())
-	}
-	defer fshader.Delete()
-
-	// program
-	s.program.AttachShader(vshader)
-	s.program.AttachShader(fshader)
-	s.program.Link()
-	if s.program.Get(gl.LINK_STATUS) != gl.TRUE {
-		log.Fatalf("linker error: %v", s.program.GetInfoLog())
-	}
-
-	// locations
-	for n, v := range data.Uniforms {
-		s.uniforms[n] = struct {
-			location gl.UniformLocation
-			standard interface{}
-		}{
-			location: s.program.GetUniformLocation(n),
-			standard: v,
+		// vertex shader
+		vshader := gl.CreateShader(gl.VERTEX_SHADER)
+		vshader.Source(data.Vertex)
+		vshader.Compile()
+		if vshader.Get(gl.COMPILE_STATUS) != gl.TRUE {
+			log.Fatalf("vertex shader error: %v", vshader.GetInfoLog())
 		}
-	}
+		defer vshader.Delete()
 
-	for n, v := range data.Attributes {
-		s.attributes[n] = struct {
-			location gl.AttribLocation
-			size     uint
-			enabled  bool
-		}{
-			location: s.program.GetAttribLocation(n),
-			size:     v,
-			enabled:  false,
+		// fragment shader
+		fshader := gl.CreateShader(gl.FRAGMENT_SHADER)
+		fshader.Source(data.Fragment)
+		fshader.Compile()
+		if fshader.Get(gl.COMPILE_STATUS) != gl.TRUE {
+			log.Fatalf("fragment shader error: %v", fshader.GetInfoLog())
 		}
-	}
+		defer fshader.Delete()
+
+		// program
+		s.program.AttachShader(vshader)
+		s.program.AttachShader(fshader)
+		s.program.Link()
+		if s.program.Get(gl.LINK_STATUS) != gl.TRUE {
+			log.Fatalf("linker error: %v", s.program.GetInfoLog())
+		}
+
+		// locations
+		for n, v := range data.Uniforms {
+			s.uniforms[n] = struct {
+				location gl.UniformLocation
+				standard interface{}
+			}{
+				location: s.program.GetUniformLocation(n),
+				standard: v,
+			}
+		}
+
+		for n, v := range data.Attributes {
+			s.attributes[n] = struct {
+				location gl.AttribLocation
+				size     uint
+				enabled  bool
+			}{
+				location: s.program.GetAttribLocation(n),
+				size:     v,
+				enabled:  false,
+			}
+		}
+	})
 
 	shaderCache.shaders[name] = s
 	return s
@@ -187,7 +190,6 @@ func (s *shader) EnableAttribute(name string) {
 	if !a.enabled {
 		a.location.EnableArray()
 		a.enabled = true
-
 		s.attributes[name] = a
 	}
 

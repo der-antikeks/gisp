@@ -13,38 +13,37 @@ type EntityManager struct {
 	engine *ecs.Engine
 
 	// TODO: move to separate loader/manager
-	geometryCache map[string]*Geometry
+	geometryCache map[string]Geometry
 }
 
 func NewEntityManager(e *ecs.Engine) *EntityManager {
 	return &EntityManager{
 		engine: e,
 
-		geometryCache: map[string]*Geometry{},
+		geometryCache: map[string]Geometry{},
 	}
 }
 
-func (m *EntityManager) Initalize() {
-	s := ecs.NewEntity(
-		"game",
-		&GameStateComponent{"init", time.Now()},
-	)
-
-	if err := m.engine.AddEntity(s); err != nil {
-		log.Fatal(err)
+func (em *EntityManager) Initalize() {
+	s := em.engine.Entity()
+	if err := em.engine.Set(
+		s,
+		GameStateComponent{"init", time.Now()},
+	); err != nil {
+		log.Fatal("could not initialize:", err)
 	}
 }
 
-func (m *EntityManager) CreateSplashScreen() {
-	m.createCube()
-	m.createSphere()
+func (em *EntityManager) CreateSplashScreen() {
+	em.createCube()
+	em.createSphere()
 }
 
-func (m *EntityManager) CreateMainMenu() {}
+func (em *EntityManager) CreateMainMenu() {}
 
 func (em *EntityManager) createCube() {
 	// Transformation
-	trans := &Transformation{
+	trans := Transformation{
 		Position: math.Vector{-1, 2, 0},
 		Rotation: math.QuaternionFromAxisAngle(math.Vector{1, 0.5, 0}, m.Pi/4.0),
 		Scale:    math.Vector{1, 1, 1},
@@ -57,18 +56,18 @@ func (em *EntityManager) createCube() {
 	mat.SetUniform("opacity", 0.8)
 
 	// Entity
-	cube := ecs.NewEntity(
-		"cube", trans, geo, mat,
-	)
-
-	if err := em.engine.AddEntity(cube); err != nil {
-		log.Fatal(err)
+	cube := em.engine.Entity()
+	if err := em.engine.Set(
+		cube,
+		trans, geo, mat,
+	); err != nil {
+		log.Fatal("could not create cube:", err)
 	}
 }
 
 func (em *EntityManager) createSphere() {
 	// Transformation
-	trans := &Transformation{
+	trans := Transformation{
 		Position: math.Vector{0, 0, 1},
 		Rotation: math.Quaternion{},
 		Scale:    math.Vector{1, 1, 1},
@@ -80,17 +79,17 @@ func (em *EntityManager) createSphere() {
 	mat.SetUniform("diffuse", math.Color{0, 1, 0})
 
 	// Entity
-	sphere := ecs.NewEntity(
-		"sphere", trans, geo, mat,
-	)
-
-	if err := em.engine.AddEntity(sphere); err != nil {
-		log.Fatal(err)
+	sphere := em.engine.Entity()
+	if err := em.engine.Set(
+		sphere,
+		trans, geo, mat,
+	); err != nil {
+		log.Fatal("could not create sphere:", err)
 	}
 }
 
-func (em *EntityManager) getMaterial(id string) *Material {
-	mat := &Material{
+func (em *EntityManager) getMaterial(id string) Material {
+	mat := Material{
 		Uniforms: map[string]interface{}{},
 		Shader:   GetShader(id),
 	}
@@ -98,13 +97,13 @@ func (em *EntityManager) getMaterial(id string) *Material {
 	return mat
 }
 
-func (em *EntityManager) getGeometry(id string) *Geometry {
+func (em *EntityManager) getGeometry(id string) Geometry {
 	if g, found := em.geometryCache[id]; found {
 		return g
 	}
 
 	// Geometry
-	geo := &Geometry{}
+	geo := Geometry{}
 
 	switch id {
 	default:
@@ -446,7 +445,7 @@ func (em *EntityManager) getGeometry(id string) *Geometry {
 }
 
 func (em *EntityManager) CreatePerspectiveCamera(fov, aspect, near, far float64) {
-	t := &Transformation{
+	t := Transformation{
 		Position: math.Vector{0, 0, -10},
 		//Rotation: math.Quaternion{},
 		Scale: math.Vector{1, 1, 1},
@@ -454,17 +453,17 @@ func (em *EntityManager) CreatePerspectiveCamera(fov, aspect, near, far float64)
 	}
 	t.Rotation = math.QuaternionFromRotationMatrix(math.LookAt(t.Position, math.Vector{0, 0, 0}, t.Up))
 
-	c := ecs.NewEntity(
-		"camera",
-		&Projection{
+	c := em.engine.Entity()
+	if err := em.engine.Set(
+		c,
+		Projection{
 			Fovy:   fov,
 			Aspect: aspect,
 			Near:   near,
 			Far:    far,
-		}, t,
-	)
-
-	if err := em.engine.AddEntity(c); err != nil {
-		log.Fatal(err)
+		},
+		t,
+	); err != nil {
+		log.Fatal("could not create camera:", err)
 	}
 }
