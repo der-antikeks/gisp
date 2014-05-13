@@ -294,7 +294,7 @@ func (em *EntityManager) createSpaceship(x, y float64) {
 	*/
 
 	s := em.engine.Entity()
-	em.engine.Set(
+	if err := em.engine.Set(
 		s,
 		ShipStatusComponent{
 			Lifes: 5,
@@ -330,7 +330,9 @@ func (em *EntityManager) createSpaceship(x, y float64) {
 			BulletSpeed: BulletSpeed,
 			FireKey:     glfw.KeySpace,
 		},
-	)
+	); err != nil {
+		log.Println("could not create spaceship:", err)
+	}
 }
 
 func (em *EntityManager) createAsteroid(x, y float64, size int) {
@@ -339,7 +341,7 @@ func (em *EntityManager) createAsteroid(x, y float64, size int) {
 	speed := rand.Float64() * MaxAsteroidSpeed
 
 	a := em.engine.Entity()
-	em.engine.Set(
+	if err := em.engine.Set(
 		a,
 		AsteroidStatusComponent{
 			Size: size,
@@ -354,7 +356,9 @@ func (em *EntityManager) createAsteroid(x, y float64, size int) {
 		},
 
 		ColorComponent{1, 1, 0},
-	)
+	); err != nil {
+		log.Println("could not create asteroid:", err)
+	}
 
 	em.asteroidsNum++
 
@@ -377,12 +381,14 @@ func (em *EntityManager) createAsteroid(x, y float64, size int) {
 		mc.Max = math.Max(mc.Max, length)
 	}
 
-	em.engine.Set(a, mc)
+	if err := em.engine.Set(a, mc); err != nil {
+		log.Println("could not create asteroid:", err)
+	}
 }
 
 func (em *EntityManager) createBullet(x, y, vx, vy float64) {
 	b := em.engine.Entity()
-	em.engine.Set(
+	if err := em.engine.Set(
 		b,
 		BulletStatusComponent{
 			LifeTime: time.Now().Add(2 * time.Second),
@@ -401,7 +407,9 @@ func (em *EntityManager) createBullet(x, y, vx, vy float64) {
 			},
 			Max: 2,
 		},
-	)
+	); err != nil {
+		log.Println("could not create bullet:", err)
+	}
 
 	em.bulletsNum++
 }
@@ -547,7 +555,9 @@ func newAsteroidSpawnSystem(engine *ecs.Engine, em *EntityManager) {
 				}
 
 				// remove dead asteroid
-				engine.Delete(en)
+				if err := engine.Delete(en); err != nil {
+					log.Println("could not delete asteroid:", err)
+				}
 			}
 		},
 		[]ecs.ComponentType{AsteroidStatusType, PositionType},
@@ -623,7 +633,9 @@ func newBulletSystem(engine *ecs.Engine, im *InputManager, em *EntityManager) {
 
 							em.createBullet(p.Position.X, p.Position.Y, vx, vy)
 							c.LastBullet = time.Now()
-							engine.Set(e, c)
+							if err := engine.Set(e, c); err != nil {
+								log.Println("could not set last bullet time:", err)
+							}
 						}
 
 					}
@@ -636,7 +648,9 @@ func newBulletSystem(engine *ecs.Engine, im *InputManager, em *EntityManager) {
 						}
 						b := ec.(BulletStatusComponent)
 						if b.LifeTime.Before(time.Now()) {
-							engine.Delete(e)
+							if err := engine.Delete(e); err != nil {
+								log.Println("could not delete bullet:", err)
+							}
 						}
 					}
 
@@ -694,7 +708,9 @@ func newMotionControlSystem(engine *ecs.Engine, im *InputManager) {
 				v.Velocity.Y *= factor
 			}
 
-			engine.Set(en, p, v)
+			if err := engine.Set(en, p, v); err != nil {
+				log.Println("could not update position/velocity:", err)
+			}
 		},
 		[]ecs.ComponentType{PositionType, MotionControlType, VelocityType},
 	)
@@ -734,7 +750,9 @@ func newMovementSystem(engine *ecs.Engine, minx, maxx, miny, maxy float64) {
 				p.Position.Y -= maxy - miny
 			}
 
-			engine.Set(en, p)
+			if err := engine.Set(en, p); err != nil {
+				log.Println("could not update position:", err)
+			}
 		},
 		[]ecs.ComponentType{PositionType, VelocityType},
 	)
@@ -783,6 +801,9 @@ func newRenderSystem(engine *ecs.Engine, wm *WindowManager) {
 					}
 					m := ec.(MeshComponent)
 					ec, err = engine.Get(e, ColorType)
+					if err != nil {
+						continue
+					}
 					c := ec.(ColorComponent)
 
 					//fmt.Println("rendering", e.Name, "at", p)
@@ -922,7 +943,9 @@ func newCollisionSystem(engine *ecs.Engine) {
 							}
 							ss := ec.(ShipStatusComponent)
 							ss.Lifes -= 1
-							engine.Set(ship, ss)
+							if err := engine.Set(ship, ss); err != nil {
+								log.Println("could not update ship status:", err)
+							}
 						}
 
 						for _, bullet := range bullets.Entities() {
@@ -946,7 +969,9 @@ func newCollisionSystem(engine *ecs.Engine) {
 								}
 								ss := ec.(ShipStatusComponent)
 								ss.Score += 100
-								engine.Set(ship, ss)
+								if err := engine.Set(ship, ss); err != nil {
+									log.Println("could not update ship status:", err)
+								}
 
 								ec, err = engine.Get(asteroid, AsteroidStatusType)
 								if err != nil {
@@ -954,7 +979,9 @@ func newCollisionSystem(engine *ecs.Engine) {
 								}
 								as := ec.(AsteroidStatusComponent)
 								as.Destroyed = true
-								engine.Set(asteroid, as)
+								if err := engine.Set(asteroid, as); err != nil {
+									log.Println("could not update asteroid status:", err)
+								}
 
 								ec, err = engine.Get(bullet, BulletStatusType)
 								if err != nil {
@@ -962,7 +989,9 @@ func newCollisionSystem(engine *ecs.Engine) {
 								}
 								bs := ec.(BulletStatusComponent)
 								bs.LifeTime = time.Time{}
-								engine.Set(bullet, bs)
+								if err := engine.Set(bullet, bs); err != nil {
+									log.Println("could not update bullet status:", err)
+								}
 							}
 						}
 					}

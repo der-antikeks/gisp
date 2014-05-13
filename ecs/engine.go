@@ -11,13 +11,19 @@ var (
 	ErrNoSuchComponent = errors.New("ecs: no such component")
 )
 
+type msgchan struct {
+	c chan<- Message
+	m Message
+}
+
 // Engine collects and connects Systems with matching Entities
 type Engine struct {
-	lock sync.RWMutex // TODO: replace mutex with single goroutine? single monolithic event-scheduler...
+	lock sync.RWMutex
 
-	observers      map[*aspect]map[MessageType][]chan<- Message
-	priorities     map[chan<- Message]SystemPriority
-	updatePriority bool
+	observers  map[*aspect]map[MessageType][]chan<- Message
+	priorities map[chan<- Message]SystemPriority
+	pending    []msgchan
+	send       chan msgchan
 
 	nextEntity       int
 	deletedEntities  []int
@@ -27,15 +33,44 @@ type Engine struct {
 
 // Creates a new Engine
 func NewEngine() *Engine {
-	return &Engine{
+	e := &Engine{
 		observers:  map[*aspect]map[MessageType][]chan<- Message{nil: map[MessageType][]chan<- Message{}},
 		priorities: map[chan<- Message]SystemPriority{},
+		pending:    []msgchan{},
+		send:       make(chan msgchan),
 
 		nextEntity:       1,
 		deletedEntities:  []int{},
 		entityComponents: map[int]map[ComponentType]Component{},
 		entityAspects:    map[int][]*aspect{},
 	}
+
+	go func() {
+		var (
+			mc msgchan
+			ok bool
+		)
+		for {
+			if len(e.pending) == 0 {
+				mc, ok = <-e.send
+				if !ok {
+					return
+				}
+				e.pending = append(e.pending, mc)
+			}
+			select {
+			case mc, ok = <-e.send:
+				if !ok {
+					return
+				}
+				e.pending = append(e.pending, mc)
+			case e.pending[0].c <- e.pending[0].m:
+				e.pending = e.pending[1:]
+			}
+		}
+	}()
+
+	return e
 }
 
 // Create a new Entity
@@ -99,8 +134,7 @@ func (e *Engine) Query(types ...ComponentType) []Entity {
 }
 
 func (e *Engine) componentTypes(en Entity) []ComponentType {
-	// TODO: no lock
-
+	// unexported func, lock is/mustbe handled by caller
 	id := int(en)
 	if _, ok := e.entityComponents[id]; !ok {
 		return nil
@@ -223,7 +257,7 @@ func (e *Engine) Subscribe(f Filter, prio SystemPriority, c chan<- Message) {
 	defer e.lock.Unlock()
 
 	e.priorities[c] = prio
-	e.updatePriority = true
+	defer e.sortObservers()
 
 	// no aspect message observer or entity message for all aspects
 	if len(f.Aspect) == 0 {
@@ -250,9 +284,7 @@ func (e *Engine) Subscribe(f Filter, prio SystemPriority, c chan<- Message) {
 					en := Entity(id)
 					for _, f := range as {
 						if f == a {
-							go func(c chan<- Message, en Entity) {
-								c <- MessageEntityAdd{Added: en}
-							}(c, en)
+							e.send <- msgchan{c, MessageEntityAdd{Added: en}}
 							break
 						}
 					}
@@ -283,9 +315,7 @@ func (e *Engine) Subscribe(f Filter, prio SystemPriority, c chan<- Message) {
 
 			// send entity to observer
 			if hasAddMessage {
-				go func(c chan<- Message, en Entity) {
-					c <- MessageEntityAdd{Added: en}
-				}(c, en)
+				e.send <- msgchan{c, MessageEntityAdd{Added: en}}
 			}
 		}
 	}
@@ -347,41 +377,9 @@ func (e *Engine) Publish(msg Message) {
 
 // aspect observers, mostly entity-messages
 func (e *Engine) publish(msg Message, a *aspect) {
-	// TODO: no lock, sorting needs RWMutex.Lock
-	if e.updatePriority {
-		e.sortObservers()
-		e.updatePriority = false
-	}
-
 	for _, o := range e.observers[a][msg.Type()] {
-		go func(c chan<- Message) {
-			c <- msg
-		}(o)
+		e.send <- msgchan{o, msg}
 	}
-
-	/*
-		TODO:	systems may respond to an update message with a component set,
-				locking while publish-rlock not yet revoked
-
-		var wg sync.WaitGroup
-		var cur SystemPriority = -1
-
-		for _, o := range e.observers[a][msg.Type()] {
-			if p := e.priorities[o]; p != cur {
-				// wait until previous observers are finished
-				wg.Wait()
-				cur = p
-			}
-
-			wg.Add(1)
-			go func(c chan<- Message) {
-				defer wg.Done()
-				c <- msg
-			}(o)
-		}
-
-		wg.Wait()
-	*/
 }
 
 // byPriority attaches the methods of sort.Interface to []eventObservers, sorting in increasing order of priority
