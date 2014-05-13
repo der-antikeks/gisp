@@ -51,33 +51,33 @@ func Run() error {
 		delta    time.Duration
 		ds       float64
 
-		ratio     = 0.01
-		curfps    = float64(fps)
-		nextPrint = lastTime
+		ratio  = 0.01
+		curfps = float64(fps)
 
-		ticker = time.Tick(time.Duration(1000/fps) * time.Millisecond)
+		update  = time.Tick(time.Duration(1000/fps) * time.Millisecond)
+		console = time.Tick(500 * time.Millisecond)
 	)
 
 	for running {
 		select {
-		case now = <-ticker:
+		case <-update:
 			// calc delay
+			now = time.Now()
 			delta = now.Sub(lastTime)
 			lastTime = now
 
-			// fps test
+			// calc fps
 			if ds = delta.Seconds(); ds > 0 {
 				curfps = curfps*(1-ratio) + (1.0/ds)*ratio
-			}
-			if now.After(nextPrint) {
-				nextPrint = now.Add(time.Second / 2.0)
-				log.Println(curfps)
 			}
 
 			// update
 			if err := engine.Update(delta); err != nil {
 				return err
 			}
+		case <-console:
+			// print fps
+			log.Println(curfps)
 		}
 	}
 

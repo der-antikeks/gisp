@@ -52,6 +52,13 @@ func (s *GameStateSystem) Update(delta time.Duration) error {
 	if s.state == nil {
 		log.Println("initialize")
 		s.em.Initalize()
+
+		w, h := s.wm.Size()
+		aspect := float64(w) / float64(h) // 4.0 / 3.0
+		// TODO: update aspect after wm.onResize
+
+		s.em.CreatePerspectiveCamera(45.0, aspect, 0.1, 100.0) // TODO: replace with orthographic camera for menu
+
 		return nil
 	}
 
@@ -59,8 +66,6 @@ func (s *GameStateSystem) Update(delta time.Duration) error {
 	switch se.State {
 	case "init":
 		log.Println("create splash screen")
-
-		s.em.CreateAsteroid(100, 100, 5)
 
 		s.em.CreateSplashScreen()
 		se.State = "splash"
