@@ -444,7 +444,7 @@ func (em *EntityManager) getGeometry(id string) Geometry {
 	return geo
 }
 
-func (em *EntityManager) CreatePerspectiveCamera(fov, aspect, near, far float64) {
+func (em *EntityManager) CreatePerspectiveCamera(fov, aspect, near, far float64) ecs.Entity {
 	t := Transformation{
 		Position: math.Vector{0, 0, -10},
 		//Rotation: math.Quaternion{},
@@ -457,13 +457,35 @@ func (em *EntityManager) CreatePerspectiveCamera(fov, aspect, near, far float64)
 	if err := em.engine.Set(
 		c,
 		Projection{
-			Fovy:   fov,
-			Aspect: aspect,
-			Near:   near,
-			Far:    far,
+			Matrix: math.NewPerspectiveMatrix(fov, aspect, near, far),
 		},
 		t,
 	); err != nil {
 		log.Fatal("could not create camera:", err)
 	}
+
+	return c
+}
+
+func (em *EntityManager) CreateOrthographicCamera(left, right, top, bottom, near, far float64) ecs.Entity {
+	t := Transformation{
+		Position: math.Vector{0, 0, -10},
+		//Rotation: math.Quaternion{},
+		Scale: math.Vector{1, 1, 1},
+		Up:    math.Vector{0, 1, 0},
+	}
+	t.Rotation = math.QuaternionFromRotationMatrix(math.LookAt(t.Position, math.Vector{0, 0, 0}, t.Up))
+
+	c := em.engine.Entity()
+	if err := em.engine.Set(
+		c,
+		Projection{ // TODO: top/bottom switched?
+			Matrix: math.NewOrthoMatrix(left, right, bottom, top, near, far),
+		},
+		t,
+	); err != nil {
+		log.Fatal("could not create camera:", err)
+	}
+
+	return c
 }

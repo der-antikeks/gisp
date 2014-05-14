@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/der-antikeks/gisp/ecs"
+	"github.com/der-antikeks/gisp/math"
 )
 
 type GameStateSystem struct {
@@ -98,7 +99,21 @@ func (s *GameStateSystem) init() {
 	aspect := float64(w) / float64(h) // 4.0 / 3.0
 	// TODO: update aspect after wm.onResize
 
-	s.em.CreatePerspectiveCamera(45.0, aspect, 0.1, 100.0) // TODO: replace with orthographic camera for menu
+	size := 10.0
+	c := s.em.CreateOrthographicCamera(-size, size, size/aspect, -size/aspect, 1, 100)
+
+	ec, err := s.engine.Get(c, TransformationType)
+	if err != nil {
+		log.Fatal("could not get transform of camera:", err)
+	}
+	t := ec.(Transformation)
+
+	t.Position = math.Vector{0, 10, 0}
+	t.Rotation = math.QuaternionFromRotationMatrix(math.LookAt(t.Position, math.Vector{0, 0, 0}, t.Up))
+
+	if err := s.engine.Set(c, t); err != nil {
+		log.Fatal("could not move camera:", err)
+	}
 
 	s.initialized = true
 }
@@ -136,7 +151,7 @@ func (s *GameStateSystem) Update() error {
 		if s.timer != nil {
 			s.timer.Stop()
 		}
-		s.timer = time.AfterFunc(5*time.Second, func() {
+		s.timer = time.AfterFunc(5*time.Second+1, func() {
 			log.Println("timeout!")
 			s.messages <- MessageTimeout(se.Since)
 		})
@@ -152,12 +167,14 @@ func (s *GameStateSystem) Update() error {
 				Types: []ecs.MessageType{KeyMessageType, TimeoutMessageType},
 			}, s.prio, s.messages)
 
-			for _, e := range s.engine.Query() {
-				if e == s.state {
-					continue
+			/*
+				for _, e := range s.engine.Query() {
+					if e == s.state {
+						continue
+					}
+					s.engine.Delete(e) // ignoring errors
 				}
-				s.engine.Delete(e) // ignoring errors
-			}
+			*/
 
 			s.em.CreateMainMenu()
 

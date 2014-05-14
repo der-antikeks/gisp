@@ -36,32 +36,8 @@ func (c GameStateComponent) Type() ecs.ComponentType {
 	return GameStateType
 }
 
-type Camera struct {
-	Projection math.Matrix
-}
-
-type Orthographic struct {
-	left, right float64
-	bottom, top float64
-	near, far   float64
-
-	matrix            math.Matrix
-	matrixNeedsUpdate bool
-}
-
 type Projection struct {
-	Fovy, Aspect, Near, Far float64
-
-	matrix        math.Matrix
-	updatedMatrix bool
-}
-
-func (c *Projection) ProjectionMatrix() math.Matrix {
-	if !c.updatedMatrix {
-		c.matrix = math.NewPerspectiveMatrix(c.Fovy, c.Aspect, c.Near, c.Far)
-		c.updatedMatrix = true
-	}
-	return c.matrix
+	Matrix math.Matrix
 }
 
 func (c Projection) Type() ecs.ComponentType {

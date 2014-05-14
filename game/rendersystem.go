@@ -147,7 +147,7 @@ func (s *RenderSystem) Update(delta time.Duration) error {
 	}
 	t := ec.(Transformation)
 
-	projScreenMatrix := p.ProjectionMatrix().Mul(t.MatrixWorld().Inverse())
+	projScreenMatrix := p.Matrix.Mul(t.MatrixWorld().Inverse())
 	frustum := math.FrustumFromMatrix(projScreenMatrix)
 	// fetch all objects visible in frustum
 	opaque, transparent := s.visibleEntities(frustum)
@@ -281,7 +281,7 @@ func (s *RenderSystem) renderEntity(object, camera ecs.Entity) error {
 		return err
 	}
 	projection := ec.(Projection)
-	material.SetUniform("projectionMatrix", projection.ProjectionMatrix().Float32())
+	material.SetUniform("projectionMatrix", projection.Matrix.Float32())
 
 	// viewMatrix
 	ec, err = s.engine.Get(camera, TransformationType)
