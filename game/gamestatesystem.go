@@ -14,8 +14,10 @@ type GameStateSystem struct {
 	im     *InputManager
 	wm     *WindowManager
 
-	messages chan ecs.Message
-	state    ecs.Entity
+	messages    chan ecs.Message
+	state       ecs.Entity
+	initialized bool
+	timer       *time.Timer
 }
 
 func NewGameStateSystem(engine *ecs.Engine, em *EntityManager, im *InputManager, wm *WindowManager) *GameStateSystem {
@@ -31,18 +33,26 @@ func NewGameStateSystem(engine *ecs.Engine, em *EntityManager, im *InputManager,
 
 	go func() {
 		s.Restart()
+		s.init()
 
 		for event := range s.messages {
 			switch e := event.(type) {
 			case ecs.MessageEntityAdd:
 				s.state = e.Added
+
+				if err := s.Update(); err != nil {
+					log.Fatal("could not update game state:", err)
+				}
 			case ecs.MessageEntityRemove:
 				if s.state == e.Removed {
 					s.state = -1
 				}
 
-			case ecs.MessageUpdate:
-				if err := s.Update(e.Delta); err != nil {
+			case ecs.MessageEntityUpdate,
+				MessageKey,
+				MessageTimeout:
+
+				if err := s.Update(); err != nil {
 					log.Fatal("could not update game state:", err)
 				}
 			}
@@ -54,46 +64,56 @@ func NewGameStateSystem(engine *ecs.Engine, em *EntityManager, im *InputManager,
 
 func (s *GameStateSystem) Restart() {
 	s.engine.Subscribe(ecs.Filter{
-		Types: []ecs.MessageType{ecs.UpdateMessageType},
+		Types: []ecs.MessageType{TimeoutMessageType},
 	}, s.prio, s.messages)
 
 	s.engine.Subscribe(ecs.Filter{
-		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
+		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityUpdateMessageType, ecs.EntityRemoveMessageType},
 		Aspect: []ecs.ComponentType{GameStateType},
 	}, s.prio, s.messages)
 }
 
 func (s *GameStateSystem) Stop() {
 	s.engine.Unsubscribe(ecs.Filter{
-		Types: []ecs.MessageType{ecs.UpdateMessageType},
+		Types: []ecs.MessageType{KeyMessageType, TimeoutMessageType},
 	}, s.messages)
 
 	s.engine.Unsubscribe(ecs.Filter{
-		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
+		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityUpdateMessageType, ecs.EntityRemoveMessageType},
 		Aspect: []ecs.ComponentType{GameStateType},
 	}, s.messages)
 
 	s.state = -1
 }
 
-func (s *GameStateSystem) Update(delta time.Duration) error {
+func (s *GameStateSystem) init() {
+	if s.initialized || s.state != -1 {
+		return
+	}
+
+	log.Println("initialize")
+	s.em.Initalize()
+
+	w, h := s.wm.Size()
+	aspect := float64(w) / float64(h) // 4.0 / 3.0
+	// TODO: update aspect after wm.onResize
+
+	s.em.CreatePerspectiveCamera(45.0, aspect, 0.1, 100.0) // TODO: replace with orthographic camera for menu
+
+	s.initialized = true
+}
+
+func (s *GameStateSystem) Update() error {
 	if s.im.IsKeyDown(KeyEscape) {
+		log.Println("closing")
+
 		s.wm.Close()
 		running = false
-		// TODO: later replace with quit screen
+		// TODO: later replace with quit screen, closing initialized by gui-system
 		return nil
 	}
 
 	if s.state == -1 {
-		log.Println("initialize")
-		s.em.Initalize()
-
-		w, h := s.wm.Size()
-		aspect := float64(w) / float64(h) // 4.0 / 3.0
-		// TODO: update aspect after wm.onResize
-
-		s.em.CreatePerspectiveCamera(45.0, aspect, 0.1, 100.0) // TODO: replace with orthographic camera for menu
-
 		return nil
 	}
 
@@ -113,9 +133,24 @@ func (s *GameStateSystem) Update(delta time.Duration) error {
 		se.Since = time.Now()
 		update = true
 
+		if s.timer != nil {
+			s.timer.Stop()
+		}
+		s.timer = time.AfterFunc(5*time.Second, func() {
+			log.Println("timeout!")
+			s.messages <- MessageTimeout(se.Since)
+		})
+
 	case "splash":
 		if time.Now().After(se.Since.Add(5*time.Second)) || s.im.AnyKeyDown() {
 			log.Println("create main menu")
+
+			s.timer.Stop()
+
+			// late key message subscription
+			s.engine.Subscribe(ecs.Filter{
+				Types: []ecs.MessageType{KeyMessageType, TimeoutMessageType},
+			}, s.prio, s.messages)
 
 			for _, e := range s.engine.Query() {
 				if e == s.state {
@@ -125,6 +160,10 @@ func (s *GameStateSystem) Update(delta time.Duration) error {
 			}
 
 			s.em.CreateMainMenu()
+
+			w, h := s.wm.Size()
+			s.em.CreatePerspectiveCamera(45.0, float64(w)/float64(h), 0.1, 100.0)
+
 			se.State = "mainmenu"
 			se.Since = time.Now()
 			update = true

@@ -33,7 +33,7 @@ func Run() error {
 
 	// managers
 	em := NewEntityManager(engine)
-	im, wm := InitOpenGL(w, h, title)
+	im, wm := InitOpenGL(w, h, title, engine)
 	defer wm.Cleanup()
 
 	// systems
@@ -79,9 +79,3 @@ func Run() error {
 
 	return nil
 }
-
-const (
-	PriorityBeforeRender ecs.SystemPriority = iota
-	PriorityRender
-	PriorityAfterRender
-)

@@ -5,6 +5,8 @@ import (
 	"runtime"
 	"sync"
 
+	"github.com/der-antikeks/gisp/ecs"
+
 	"github.com/go-gl/gl"
 	glfw "github.com/go-gl/glfw3"
 )
@@ -30,20 +32,22 @@ func MainThread(f func()) {
 	<-mDone
 }
 
-func InitOpenGL(w, h int, title string) (*InputManager, *WindowManager) {
-	im := NewInputManager()
-	wm := NewWindowManager(w, h, title, im)
+func InitOpenGL(w, h int, title string, e *ecs.Engine) (*InputManager, *WindowManager) {
+	im := NewInputManager(e)
+	wm := NewWindowManager(w, h, title, im, e)
 
 	return im, wm
 }
 
 type WindowManager struct {
+	engine        *ecs.Engine
 	width, height int
 	window        *glfw.Window
 }
 
-func NewWindowManager(w, h int, title string, im *InputManager) *WindowManager {
+func NewWindowManager(w, h int, title string, im *InputManager, e *ecs.Engine) *WindowManager {
 	m := &WindowManager{
+		engine: e,
 		width:  w,
 		height: h,
 	}
@@ -179,14 +183,16 @@ const (
 )
 
 type InputManager struct {
+	engine       *ecs.Engine
 	keyPressed   map[glfw.Key]bool
 	mousePressed map[glfw.MouseButton]bool
 	mouseClicked map[glfw.MouseButton]bool
 	mx, my, zoom float64
 }
 
-func NewInputManager() *InputManager {
+func NewInputManager(e *ecs.Engine) *InputManager {
 	return &InputManager{
+		engine:       e,
 		keyPressed:   map[glfw.Key]bool{},
 		mousePressed: map[glfw.MouseButton]bool{},
 		mouseClicked: map[glfw.MouseButton]bool{},
@@ -200,6 +206,8 @@ func (m *InputManager) onKey(w *glfw.Window, key glfw.Key, scancode int, action 
 	case glfw.Release:
 		delete(m.keyPressed, key)
 	}
+
+	m.engine.Publish(MessageKey(key))
 }
 
 func (m *InputManager) IsKeyDown(key glfw.Key) bool {
