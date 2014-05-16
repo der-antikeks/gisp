@@ -17,6 +17,8 @@ const (
 	GeometryType
 	MaterialType
 
+	MotionControlType
+
 	// old
 	MenuType
 	MeshType
@@ -144,4 +146,23 @@ func (m *Material) Get(name string) interface{} {
 		return v
 	}
 	return nil
+}
+
+type MotionControl struct {
+	MovementSpeed,
+	RotationSpeed float64
+
+	ForwardKey,
+	BackwardKey,
+	LeftKey,
+	RightKey,
+	UpKey,
+	DownKey Key
+
+	RotLeft,
+	RotRight Key
+}
+
+func (c MotionControl) Type() ecs.ComponentType {
+	return MotionControlType
 }

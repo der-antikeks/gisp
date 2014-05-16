@@ -174,12 +174,26 @@ func (m *WindowManager) Close() {
 	m.window.SetShouldClose(true)
 }
 
-type Key glfw.Key
+type Key int
 
 const (
-	KeyEscape = glfw.KeyEscape
-	KeyEnter  = glfw.KeyEnter
-	KeyPause  = glfw.KeyPause
+	KeyEscape      = Key(glfw.KeyEscape)
+	KeyEnter       = Key(glfw.KeyEnter)
+	KeyPause       = Key(glfw.KeyPause)
+	KeySpace       = Key(glfw.KeySpace)
+	KeyLeftControl = Key(glfw.KeyLeftControl)
+
+	KeyUp    = Key(glfw.KeyUp)
+	KeyDown  = Key(glfw.KeyDown)
+	KeyLeft  = Key(glfw.KeyLeft)
+	KeyRight = Key(glfw.KeyRight)
+
+	KeyQ = Key(glfw.KeyQ)
+	KeyE = Key(glfw.KeyE)
+	KeyW = Key(glfw.KeyW)
+	KeyS = Key(glfw.KeyS)
+	KeyA = Key(glfw.KeyA)
+	KeyD = Key(glfw.KeyD)
 )
 
 type InputManager struct {
@@ -210,8 +224,8 @@ func (m *InputManager) onKey(w *glfw.Window, key glfw.Key, scancode int, action 
 	m.engine.Publish(MessageKey(key))
 }
 
-func (m *InputManager) IsKeyDown(key glfw.Key) bool {
-	return m.keyPressed[key]
+func (m *InputManager) IsKeyDown(key Key) bool {
+	return m.keyPressed[glfw.Key(key)]
 }
 
 func (m *InputManager) AnyKeyDown() bool {

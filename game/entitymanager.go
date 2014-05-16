@@ -55,6 +55,15 @@ func (em *EntityManager) createCube() {
 	if err := em.engine.Set(
 		cube,
 		trans, geo, mat,
+		MotionControl{
+			MovementSpeed: 1.0,
+			RotationSpeed: 0.1,
+
+			ForwardKey:  KeyUp,
+			BackwardKey: KeyDown,
+			LeftKey:     KeyLeft,
+			RightKey:    KeyRight,
+		},
 	); err != nil {
 		log.Fatal("could not create cube:", err)
 	}
@@ -121,6 +130,20 @@ func (em *EntityManager) CreatePerspectiveCamera(fov, aspect, near, far float64)
 			Matrix: math.NewPerspectiveMatrix(fov, aspect, near, far),
 		},
 		t,
+		MotionControl{
+			MovementSpeed: 1.0,
+			RotationSpeed: 0.1,
+
+			ForwardKey:  KeyW,
+			BackwardKey: KeyS,
+			LeftKey:     KeyA,
+			RightKey:    KeyD,
+			UpKey:       KeySpace,
+			DownKey:     KeyLeftControl,
+
+			RotLeft:  KeyQ,
+			RotRight: KeyE,
+		},
 	); err != nil {
 		log.Fatal("could not create camera:", err)
 	}

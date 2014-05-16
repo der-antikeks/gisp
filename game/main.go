@@ -40,6 +40,7 @@ func Run() error {
 	NewGameStateSystem(engine, em, im, wm)
 	NewMenuSystem(engine, im)
 	NewRenderSystem(engine, wm)
+	NewControlSystem(engine, im)
 
 	// main loop
 	var (
