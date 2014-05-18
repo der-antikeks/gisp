@@ -243,6 +243,8 @@ func (m *InputManager) onMouseMove(window *glfw.Window, xpos float64, ypos float
 	for b := range m.mouseClicked {
 		delete(m.mouseClicked, b)
 	}
+
+	m.engine.Publish(MessageMouseMove{xpos, ypos})
 }
 
 func (m *InputManager) MousePos() (x, y float64) {
@@ -257,7 +259,7 @@ func (m *InputManager) onMouseButton(w *glfw.Window, b glfw.MouseButton, action 
 	switch action {
 	case glfw.Press:
 		m.mousePressed[b] = true
-		m.mouseClicked[b] = false
+		delete(m.mouseClicked, b)
 	case glfw.Release:
 		delete(m.mousePressed, b)
 
@@ -265,15 +267,23 @@ func (m *InputManager) onMouseButton(w *glfw.Window, b glfw.MouseButton, action 
 			m.mouseClicked[b] = true
 		}
 	}
+
+	m.engine.Publish(MessageMouseButton(b))
 }
 
-func (m *InputManager) IsMouseDown(button glfw.MouseButton) bool {
-	return m.mousePressed[button]
+type MouseButton int
+
+const (
+	MouseLeft  = MouseButton(glfw.MouseButton1)
+	MouseRight = MouseButton(glfw.MouseButton2)
+)
+
+func (m *InputManager) IsMouseDown(button MouseButton) bool {
+	return m.mousePressed[glfw.MouseButton(button)]
 }
 
 // mouse up after a down without movement
-func (m *InputManager) IsMouseClick(button glfw.MouseButton) bool {
-	s := m.mouseClicked[button]
-	m.mouseClicked[button] = false
+func (m *InputManager) IsMouseClick(button MouseButton) bool {
+	s := m.mouseClicked[glfw.MouseButton(button)]
 	return s
 }

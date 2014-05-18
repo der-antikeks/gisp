@@ -33,3 +33,13 @@ func (e MessagePause) Type() ecs.MessageType { return PauseMessageType }
 type MessageContinue struct{}
 
 func (e MessageContinue) Type() ecs.MessageType { return ContinueMessageType }
+
+type MessageMouseButton MouseButton
+
+func (e MessageMouseButton) Type() ecs.MessageType { return MouseButtonMessageType }
+
+type MessageMouseMove struct {
+	X, Y float64
+}
+
+func (e MessageMouseMove) Type() ecs.MessageType { return MouseMoveMessageType }

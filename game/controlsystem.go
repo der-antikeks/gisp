@@ -7,7 +7,7 @@ import (
 	"github.com/der-antikeks/gisp/math"
 )
 
-type MotionControlSystem struct {
+type OrbitControlSystem struct {
 	engine *ecs.Engine
 	im     *InputManager
 	prio   ecs.SystemPriority
@@ -16,8 +16,8 @@ type MotionControlSystem struct {
 	controlable []ecs.Entity
 }
 
-func NewControlSystem(engine *ecs.Engine, im *InputManager) *MotionControlSystem {
-	s := &MotionControlSystem{
+func NewOrbitControlSystem(engine *ecs.Engine, im *InputManager) *OrbitControlSystem {
+	s := &OrbitControlSystem{
 		engine: engine,
 		im:     im,
 		prio:   PriorityBeforeRender,
@@ -28,6 +28,9 @@ func NewControlSystem(engine *ecs.Engine, im *InputManager) *MotionControlSystem
 
 	go func() {
 		s.Restart()
+
+		var dragging bool
+		var oldx, oldy float64
 
 		for event := range s.messages {
 			switch e := event.(type) {
@@ -41,9 +44,29 @@ func NewControlSystem(engine *ecs.Engine, im *InputManager) *MotionControlSystem
 					}
 				}
 
+			case MessageMouseButton:
+				if !dragging && s.im.IsMouseDown(MouseRight) {
+					dragging = true
+					oldx, oldy = s.im.MousePos()
+				} else if dragging && !s.im.IsMouseDown(MouseRight) {
+					dragging = false
+				}
+
+			case MessageMouseMove:
+
 			case ecs.MessageUpdate:
-				if err := s.Update(); err != nil {
-					log.Fatal("could not update game state:", err)
+				if !dragging {
+					continue
+				}
+
+				x, y := s.im.MousePos()
+				deltax, deltay := x-oldx, y-oldy
+				oldx, oldy = x, y
+
+				if deltax != 0 || deltay != 0 {
+					if err := s.Update(deltax, deltay, 0); err != nil {
+						log.Fatal("could not update game state:", err)
+					}
 				}
 			}
 		}
@@ -52,31 +75,31 @@ func NewControlSystem(engine *ecs.Engine, im *InputManager) *MotionControlSystem
 	return s
 }
 
-func (s *MotionControlSystem) Restart() {
+func (s *OrbitControlSystem) Restart() {
 	s.engine.Subscribe(ecs.Filter{
-		Types: []ecs.MessageType{ecs.UpdateMessageType},
+		Types: []ecs.MessageType{ecs.UpdateMessageType, MouseButtonMessageType, MouseMoveMessageType},
 	}, s.prio, s.messages)
 
 	s.engine.Subscribe(ecs.Filter{
 		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
-		Aspect: []ecs.ComponentType{TransformationType, MotionControlType},
+		Aspect: []ecs.ComponentType{TransformationType, OrbitControlType},
 	}, s.prio, s.messages)
 }
 
-func (s *MotionControlSystem) Stop() {
+func (s *OrbitControlSystem) Stop() {
 	s.engine.Unsubscribe(ecs.Filter{
-		Types: []ecs.MessageType{ecs.UpdateMessageType},
+		Types: []ecs.MessageType{ecs.UpdateMessageType, MouseButtonMessageType, MouseMoveMessageType},
 	}, s.messages)
 
 	s.engine.Unsubscribe(ecs.Filter{
 		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
-		Aspect: []ecs.ComponentType{TransformationType, MotionControlType},
+		Aspect: []ecs.ComponentType{TransformationType, OrbitControlType},
 	}, s.messages)
 
 	s.controlable = s.controlable[:0]
 }
 
-func (s *MotionControlSystem) Update() error {
+func (s *OrbitControlSystem) Update(deltax, deltay, deltaz float64) error {
 	for _, en := range s.controlable {
 
 		ec, err := s.engine.Get(en, TransformationType)
@@ -85,66 +108,34 @@ func (s *MotionControlSystem) Update() error {
 		}
 		transform := ec.(Transformation)
 
-		ec, err = s.engine.Get(en, MotionControlType)
+		ec, err = s.engine.Get(en, OrbitControlType)
 		if err != nil {
 			return err
 		}
-		control := ec.(MotionControl)
+		control := ec.(OrbitControl)
 
-		var updateTransform bool
-
-		if s.im.IsKeyDown(control.ForwardKey) {
-			p := (math.Vector{0, 0, 1}).MulScalar(control.MovementSpeed)
-			transform.Position = transform.Position.Add(p)
-			updateTransform = true
-		}
-
-		if s.im.IsKeyDown(control.BackwardKey) {
-			p := (math.Vector{0, 0, -1}).MulScalar(control.MovementSpeed)
-			transform.Position = transform.Position.Add(p)
-			updateTransform = true
-		}
-
-		if s.im.IsKeyDown(control.LeftKey) {
-			p := (math.Vector{-1, 0, 0}).MulScalar(control.MovementSpeed)
-			transform.Position = transform.Position.Add(p)
-			updateTransform = true
-		}
-
-		if s.im.IsKeyDown(control.RightKey) {
-			p := (math.Vector{1, 0, 0}).MulScalar(control.MovementSpeed)
-			transform.Position = transform.Position.Add(p)
-			updateTransform = true
-		}
-
-		if s.im.IsKeyDown(control.UpKey) {
-			p := (math.Vector{0, 1, 0}).MulScalar(control.MovementSpeed)
-			transform.Position = transform.Position.Add(p)
-			updateTransform = true
-		}
-
-		if s.im.IsKeyDown(control.DownKey) {
-			p := (math.Vector{0, -1, 0}).MulScalar(control.MovementSpeed)
-			transform.Position = transform.Position.Add(p)
-			updateTransform = true
-		}
-
-		if s.im.IsKeyDown(control.RotLeft) {
-			r := math.QuaternionFromAxisAngle(math.Vector{0, 1, 0}, control.RotationSpeed)
-			transform.Rotation = transform.Rotation.Mul(r)
-			updateTransform = true
-		}
-
-		if s.im.IsKeyDown(control.RotRight) {
-			r := math.QuaternionFromAxisAngle(math.Vector{0, -1, 0}, control.RotationSpeed)
-			transform.Rotation = transform.Rotation.Mul(r)
-			updateTransform = true
-		}
-
-		if updateTransform {
-			if err := s.engine.Set(en, transform); err != nil {
+		var target math.Vector
+		if control.Target != 0 {
+			ec, err = s.engine.Get(control.Target, TransformationType)
+			if err != nil {
 				return err
 			}
+			target = ec.(Transformation).Position
+		}
+
+		distance := transform.Position.Sub(target)
+		delta := math.QuaternionFromEuler(math.Vector{
+			deltax * control.RotationSpeed,
+			deltay * control.RotationSpeed,
+			0,
+		}, math.RotateXYZ).Inverse()
+
+		transform.Position = delta.Rotate(distance).Add(target)
+		//transform.Rotation = transform.Rotation.Mul(delta)
+		transform.Rotation = math.QuaternionFromRotationMatrix(math.LookAt(transform.Position, target, transform.Up))
+
+		if err := s.engine.Set(en, transform); err != nil {
+			return err
 		}
 	}
 	return nil

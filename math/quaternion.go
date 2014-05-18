@@ -7,26 +7,26 @@ import (
 
 type Quaternion [4]float64
 
-func (self Quaternion) String() string {
-	return fmt.Sprintf("%5.2f %5.2f %5.2f %5.2f", self[0], self[1], self[2], self[3])
+func (q Quaternion) String() string {
+	return fmt.Sprintf("%5.2f %5.2f %5.2f %5.2f", q[0], q[1], q[2], q[3])
 }
 
-func (self Quaternion) Equals(q Quaternion, precision int) bool {
+func (q Quaternion) Equals(qi Quaternion, precision int) bool {
 	p := math.Pow(10, float64(-precision))
 
-	return (NearlyEquals(self[0], q[0], p) &&
-		NearlyEquals(self[1], q[1], p) &&
-		NearlyEquals(self[2], q[2], p) &&
-		NearlyEquals(self[3], q[3], p))
+	return (NearlyEquals(q[0], qi[0], p) &&
+		NearlyEquals(q[1], qi[1], p) &&
+		NearlyEquals(q[2], qi[2], p) &&
+		NearlyEquals(q[3], qi[3], p))
 }
 
 // http://www.euclideanspace.com/maths/algebra/realNormedAlgebra/quaternions/code/index.htm
-func (self Quaternion) Length() float64 {
-	return math.Sqrt(self[0]*self[0] + self[1]*self[1] + self[2]*self[2] + self[3]*self[3])
+func (q Quaternion) Length() float64 {
+	return math.Sqrt(q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3])
 }
 
-func (self Quaternion) Normalize() Quaternion {
-	l := self.Length()
+func (q Quaternion) Normalize() Quaternion {
+	l := q.Length()
 	if l == 0 {
 		return Quaternion{
 			0,
@@ -37,87 +37,87 @@ func (self Quaternion) Normalize() Quaternion {
 	}
 
 	return Quaternion{
-		self[0] / l,
-		self[1] / l,
-		self[2] / l,
-		self[3] / l,
+		q[0] / l,
+		q[1] / l,
+		q[2] / l,
+		q[3] / l,
 	}
 }
 
-func (self Quaternion) Conjugate() Quaternion {
+func (q Quaternion) Conjugate() Quaternion {
 	return Quaternion{
-		-self[0],
-		-self[1],
-		-self[2],
-		self[3],
+		-q[0],
+		-q[1],
+		-q[2],
+		q[3],
 	}
 }
 
-func (self Quaternion) Mul(q Quaternion) Quaternion {
+func (q Quaternion) Mul(qi Quaternion) Quaternion {
 	return Quaternion{
-		self[0]*q[3] + self[1]*q[2] - self[2]*q[1] + self[3]*q[0],
-		-self[0]*q[2] + self[1]*q[3] + self[2]*q[0] + self[3]*q[1],
-		self[0]*q[1] - self[1]*q[0] + self[2]*q[3] + self[3]*q[2],
-		-self[0]*q[0] - self[1]*q[1] - self[2]*q[2] + self[3]*q[3],
+		q[0]*qi[3] + q[1]*qi[2] - q[2]*qi[1] + q[3]*qi[0],
+		-q[0]*qi[2] + q[1]*qi[3] + q[2]*qi[0] + q[3]*qi[1],
+		q[0]*qi[1] - q[1]*qi[0] + q[2]*qi[3] + q[3]*qi[2],
+		-q[0]*qi[0] - q[1]*qi[1] - q[2]*qi[2] + q[3]*qi[3],
 	}
 }
 
-func (self Quaternion) MulScalar(s float64) Quaternion {
+func (q Quaternion) MulScalar(s float64) Quaternion {
 	return Quaternion{
-		self[0] * s,
-		self[1] * s,
-		self[2] * s,
-		self[3] * s,
+		q[0] * s,
+		q[1] * s,
+		q[2] * s,
+		q[3] * s,
 	}
 }
 
-func (self Quaternion) Add(q Quaternion) Quaternion {
+func (q Quaternion) Add(qi Quaternion) Quaternion {
 	return Quaternion{
-		self[0] + q[0],
-		self[1] + q[1],
-		self[2] + q[2],
-		self[3] + q[3],
+		q[0] + qi[0],
+		q[1] + qi[1],
+		q[2] + qi[2],
+		q[3] + qi[3],
 	}
 }
 
-func (self Quaternion) Sub(q Quaternion) Quaternion {
+func (q Quaternion) Sub(qi Quaternion) Quaternion {
 	return Quaternion{
-		self[0] - q[0],
-		self[1] - q[1],
-		self[2] - q[2],
-		self[3] - q[3],
+		q[0] - qi[0],
+		q[1] - qi[1],
+		q[2] - qi[2],
+		q[3] - qi[3],
 	}
 }
 
 /*
 	Slerp generates a quaternion between two given quaternions in proportion to the variable t
-	if t=0 it returns q, if t=1 then self, if t is between them returned quaternion will interpolate between them.
+	if t=0 it returns qi, if t=1 then q, if t is between them returned quaternion will interpolate between them.
 	http://www.euclideanspace.com/maths/algebra/realNormedAlgebra/quaternions/slerp/index.htm
 */
-func (self Quaternion) Slerp(q Quaternion, t float64) Quaternion {
-	cosHalfTheta := self[3]*q[3] + self[0]*q[0] + self[1]*q[1] + self[2]*q[2]
+func (q Quaternion) Slerp(qi Quaternion, t float64) Quaternion {
+	cosHalfTheta := q[3]*qi[3] + q[0]*qi[0] + q[1]*qi[1] + q[2]*qi[2]
 	if math.Abs(cosHalfTheta) >= 1.0 {
-		return self
+		return q
 	}
 
 	halfTheta := math.Acos(cosHalfTheta)
 	sinHalfTheta := math.Sqrt(1.0 - cosHalfTheta*cosHalfTheta)
 	if math.Abs(sinHalfTheta) < 0.001 {
 		return Quaternion{
-			(self[0]*0.5 + q[0]*0.5),
-			(self[1]*0.5 + q[1]*0.5),
-			(self[2]*0.5 + q[2]*0.5),
-			(self[3]*0.5 + q[3]*0.5),
+			(q[0]*0.5 + qi[0]*0.5),
+			(q[1]*0.5 + qi[1]*0.5),
+			(q[2]*0.5 + qi[2]*0.5),
+			(q[3]*0.5 + qi[3]*0.5),
 		}
 	}
 
 	ratioA := math.Sin((1.0-t)*halfTheta) / sinHalfTheta
 	ratioB := math.Sin(t*halfTheta) / sinHalfTheta
 	return Quaternion{
-		(self[0]*ratioA + q[0]*ratioB),
-		(self[1]*ratioA + q[1]*ratioB),
-		(self[2]*ratioA + q[2]*ratioB),
-		(self[3]*ratioA + q[3]*ratioB),
+		(q[0]*ratioA + qi[0]*ratioB),
+		(q[1]*ratioA + qi[1]*ratioB),
+		(q[2]*ratioA + qi[2]*ratioB),
+		(q[3]*ratioA + qi[3]*ratioB),
 	}
 }
 
@@ -245,4 +245,58 @@ func (q Quaternion) RotationMatrix() Matrix {
 		xz + wy, yz - wx, 1 - (xx + yy), 0,
 		0, 0, 0, 1,
 	}
+}
+
+func (q Quaternion) Inverse() Quaternion {
+	l := q.Length()
+	return q.Conjugate().MulScalar(1 / (l * l))
+}
+
+func (q Quaternion) Rotate(v Vector) Vector {
+	r := q.Mul(Quaternion{
+		v[0],
+		v[1],
+		v[2],
+		0,
+	}).Mul(q.Conjugate())
+
+	return Vector{
+		r[0],
+		r[1],
+		r[2],
+		v[3],
+	}
+}
+
+func (q Quaternion) Cross(qi Quaternion) Quaternion {
+	return Quaternion{
+		q[3]*qi[3] - q[0]*qi[0] - q[1]*qi[1] - q[2]*qi[2],
+		q[3]*qi[0] + q[0]*qi[3] + q[1]*qi[2] - q[2]*qi[1],
+		q[3]*qi[1] - q[0]*qi[2] + q[1]*qi[3] + q[2]*qi[0],
+		q[3]*qi[2] + q[0]*qi[1] - q[1]*qi[0] + q[2]*qi[3],
+	}
+}
+
+// http://www.euclideanspace.com/maths/algebra/vectors/angleBetween/
+func QuaternionBetween(a, b Vector) Quaternion {
+	d := a.Dot(b)
+	axis := a.Cross(b)
+	qw := (a.Length() * b.Length()) + d
+
+	if qw < 0.0001 {
+		// vectors are 180 degrees apart
+		return (Quaternion{
+			-a[2],
+			a[1],
+			a[0],
+			0,
+		}).Normalize()
+	}
+
+	return (Quaternion{
+		axis[0],
+		axis[1],
+		axis[2],
+		qw,
+	}).Normalize()
 }

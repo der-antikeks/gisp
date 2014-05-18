@@ -2,6 +2,7 @@ package game
 
 import (
 	"log"
+	m "math"
 	"time"
 
 	"github.com/der-antikeks/gisp/ecs"
@@ -179,7 +180,18 @@ func (s *GameStateSystem) Update() error {
 			s.em.CreateMainMenu()
 
 			w, h := s.wm.Size()
-			s.em.CreatePerspectiveCamera(45.0, float64(w)/float64(h), 0.1, 100.0)
+			c := s.em.CreatePerspectiveCamera(45.0, float64(w)/float64(h), 0.1, 100.0)
+			s.engine.Set(c,
+				OrbitControl{
+					MovementSpeed: 1.0,
+					RotationSpeed: 0.1,
+					ZoomSpeed:     0.1,
+
+					Min:    5.0,
+					Max:    m.Inf(1),
+					Target: ecs.Entity(0),
+				},
+			)
 
 			se.State = "mainmenu"
 			se.Since = time.Now()
