@@ -36,7 +36,7 @@ func (em *EntityManager) CreateSplashScreen() {
 }
 
 func (em *EntityManager) CreateMainMenu() {
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 2000; i++ {
 		em.createRndCube()
 	}
 }
@@ -80,9 +80,9 @@ func (em *EntityManager) createRndCube() ecs.Entity {
 
 	trans := Transformation{
 		Position: math.Vector{
-			r(1, 5) * d(),
-			r(1, 5) * d(),
-			r(1, 5) * d(),
+			r(1, 100) * d(),
+			r(1, 100) * d(),
+			r(1, 100) * d(),
 		},
 		Rotation: math.QuaternionFromAxisAngle((math.Vector{
 			rand.Float64(),
@@ -124,8 +124,13 @@ func (em *EntityManager) createSphere() ecs.Entity {
 	}
 
 	geo := em.getGeometry("sphere")
-	mat := em.getMaterial("basic")
-	mat.Set("diffuse", math.Color{0, 1, 0})
+	mat := em.getMaterial("phong")
+
+	tex, err := LoadTexture("assets/uvtemplate.png")
+	if err != nil {
+		log.Fatal("could not load texture:", err)
+	}
+	mat.Set("diffuseMap", tex)
 
 	// Entity
 	sphere := em.engine.Entity()

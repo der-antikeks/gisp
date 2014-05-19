@@ -81,7 +81,6 @@ var shaderProgramLib = map[string]struct {
 				in vec3 vertexNormal;
 				in vec2 vertexUV;
 				in vec2 vertexUV2;
-				in vec3 vertexColor;
 
 				// Values that stay constant for the whole mesh.
 				uniform mat4 projectionMatrix;
@@ -92,7 +91,6 @@ var shaderProgramLib = map[string]struct {
 
 				// Output data, will be interpolated for each fragment.
 				out vec2 UV;
-				out vec3 Color;
 
 				out vec3 Position; //Position_worldspace
 				//out vec3 eyeDir;   //EyeDirection_cameraspace 
@@ -123,16 +121,12 @@ var shaderProgramLib = map[string]struct {
 					
 					// UV of the vertex
 					UV = vertexUV;
-
-					// Color of the vertex
-					Color = vertexColor; // * lightColor * cosTheta / (distance*distance);
 				}`,
 		Fragment: `
 				#version 330 core
 
 				// Interpolated values from the vertex shaders
 				in vec2 UV;
-				in vec3 Color;
 
 				in vec3 Position; //Position_worldspace
 				//in vec3 eyeDir;   //EyeDirection_cameraspace 
@@ -206,7 +200,6 @@ var shaderProgramLib = map[string]struct {
 			"vertexPosition": 3,
 			"vertexNormal":   3,
 			"vertexUV":       2,
-			"vertexColor":    3,
 		},
 	},
 }
