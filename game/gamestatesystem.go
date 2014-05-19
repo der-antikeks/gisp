@@ -110,7 +110,7 @@ func (s *GameStateSystem) init() {
 	t := ec.(Transformation)
 
 	t.Position = math.Vector{0, 10, 0}
-	t.Rotation = math.QuaternionFromRotationMatrix(math.LookAt(t.Position, math.Vector{0, 0, 0}, t.Up))
+	t.Rotation = math.QuaternionLookAt(t.Position, math.Vector{0, 0, 0}, t.Up)
 
 	if err := s.engine.Set(c, t); err != nil {
 		log.Fatal("could not move camera:", err)
@@ -184,12 +184,12 @@ func (s *GameStateSystem) Update() error {
 			s.engine.Set(c,
 				OrbitControl{
 					MovementSpeed: 1.0,
-					RotationSpeed: 0.1,
-					ZoomSpeed:     0.1,
+					RotationSpeed: 0.01,
+					ZoomSpeed:     1.0,
 
 					Min:    5.0,
 					Max:    m.Inf(1),
-					Target: ecs.Entity(0),
+					Target: ecs.Entity(0), // TODO: proper target setting
 				},
 			)
 

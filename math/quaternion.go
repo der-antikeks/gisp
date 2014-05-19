@@ -300,3 +300,33 @@ func QuaternionBetween(a, b Vector) Quaternion {
 		qw,
 	}).Normalize()
 }
+
+func QuaternionLookAt(eye, target, up Vector) Quaternion {
+	forward := eye.Sub(target).Normalize()
+	f := Vector{0, 0, 1}
+	dot := f.Dot(forward)
+
+	if math.Abs(dot-(-1.0)) < 0.0001 {
+		// vectors point in opposite direction
+
+		/* should be:
+		return Quaternion{
+			up[0],
+			up[1],
+			up[2],
+			math.Pi,
+		}
+		*/
+
+		return QuaternionFromAxisAngle(up, math.Pi)
+	}
+
+	if math.Abs(dot-(1.0)) < 0.0001 {
+		// vectors point in same direction
+		return Quaternion{0, 0, 0, 1}
+	}
+
+	angle := math.Acos(dot)
+	axis := f.Cross(forward).Normalize()
+	return QuaternionFromAxisAngle(axis, angle)
+}

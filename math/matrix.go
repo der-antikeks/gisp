@@ -200,7 +200,7 @@ func (self Matrix) Translate(v Vector) Matrix {
 	})
 }
 
-func LookAt(eye, target, up Vector) Matrix {
+func MatrixLookAt(eye, target, up Vector) Matrix {
 	z := eye.Sub(target).Normalize()
 	if z.Length() == 0 {
 		z[2] = 1

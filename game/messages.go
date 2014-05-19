@@ -12,6 +12,8 @@ const (
 	KeyMessageType
 	MouseButtonMessageType
 	MouseMoveMessageType
+	MouseScrollMessageType
+	ResizeMessageType
 	TimeoutMessageType
 
 	PauseMessageType
@@ -43,3 +45,13 @@ type MessageMouseMove struct {
 }
 
 func (e MessageMouseMove) Type() ecs.MessageType { return MouseMoveMessageType }
+
+type MessageResize struct {
+	Width, Height int
+}
+
+func (e MessageResize) Type() ecs.MessageType { return ResizeMessageType }
+
+type MessageMouseScroll float64
+
+func (e MessageMouseScroll) Type() ecs.MessageType { return MouseScrollMessageType }

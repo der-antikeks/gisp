@@ -31,6 +31,11 @@ func NewOrbitControlSystem(engine *ecs.Engine, im *InputManager) *OrbitControlSy
 
 		var dragging bool
 		var oldx, oldy float64
+		var deltax, deltay, deltaz float64
+		/*
+			TODO: initial value
+			var width, height float64
+		*/
 
 		for event := range s.messages {
 			switch e := event.(type) {
@@ -50,23 +55,30 @@ func NewOrbitControlSystem(engine *ecs.Engine, im *InputManager) *OrbitControlSy
 					oldx, oldy = s.im.MousePos()
 				} else if dragging && !s.im.IsMouseDown(MouseRight) {
 					dragging = false
+					deltax, deltay = 0, 0
 				}
 
-			case MessageMouseMove:
+			case MessageMouseScroll:
+				deltaz -= float64(e)
+
+			case MessageResize:
+				/*
+					width = float64(e.Width)
+					height = float64(e.Height)
+				*/
 
 			case ecs.MessageUpdate:
-				if !dragging {
-					continue
+				if dragging {
+					x, y := s.im.MousePos()
+					deltax, deltay = x-oldx, y-oldy // /width, /height
+					oldx, oldy = x, y
 				}
 
-				x, y := s.im.MousePos()
-				deltax, deltay := x-oldx, y-oldy
-				oldx, oldy = x, y
-
-				if deltax != 0 || deltay != 0 {
-					if err := s.Update(deltax, deltay, 0); err != nil {
+				if deltax != 0 || deltay != 0 || deltaz != 0 {
+					if err := s.Update(deltax, deltay, deltaz); err != nil {
 						log.Fatal("could not update game state:", err)
 					}
+					deltaz = 0
 				}
 			}
 		}
@@ -77,7 +89,12 @@ func NewOrbitControlSystem(engine *ecs.Engine, im *InputManager) *OrbitControlSy
 
 func (s *OrbitControlSystem) Restart() {
 	s.engine.Subscribe(ecs.Filter{
-		Types: []ecs.MessageType{ecs.UpdateMessageType, MouseButtonMessageType, MouseMoveMessageType},
+		Types: []ecs.MessageType{
+			ecs.UpdateMessageType,
+			MouseButtonMessageType,
+			MouseScrollMessageType,
+			ResizeMessageType,
+		},
 	}, s.prio, s.messages)
 
 	s.engine.Subscribe(ecs.Filter{
@@ -88,7 +105,12 @@ func (s *OrbitControlSystem) Restart() {
 
 func (s *OrbitControlSystem) Stop() {
 	s.engine.Unsubscribe(ecs.Filter{
-		Types: []ecs.MessageType{ecs.UpdateMessageType, MouseButtonMessageType, MouseMoveMessageType},
+		Types: []ecs.MessageType{
+			ecs.UpdateMessageType,
+			MouseButtonMessageType,
+			MouseScrollMessageType,
+			ResizeMessageType,
+		},
 	}, s.messages)
 
 	s.engine.Unsubscribe(ecs.Filter{
@@ -115,6 +137,7 @@ func (s *OrbitControlSystem) Update(deltax, deltay, deltaz float64) error {
 		control := ec.(OrbitControl)
 
 		var target math.Vector
+		// TODO: if no target is set return error
 		if control.Target != 0 {
 			ec, err = s.engine.Get(control.Target, TransformationType)
 			if err != nil {
@@ -123,16 +146,23 @@ func (s *OrbitControlSystem) Update(deltax, deltay, deltaz float64) error {
 			target = ec.(Transformation).Position
 		}
 
-		distance := transform.Position.Sub(target)
+		// TODO: exponential zoom?
+		distance := math.Limit(
+			transform.Position.Sub(target).Length()+(deltaz*control.ZoomSpeed),
+			control.Min, control.Max)
+
 		delta := math.QuaternionFromEuler(math.Vector{
-			deltax * control.RotationSpeed,
 			deltay * control.RotationSpeed,
+			deltax * control.RotationSpeed,
 			0,
 		}, math.RotateXYZ).Inverse()
 
-		transform.Position = delta.Rotate(distance).Add(target)
-		//transform.Rotation = transform.Rotation.Mul(delta)
-		transform.Rotation = math.QuaternionFromRotationMatrix(math.LookAt(transform.Position, target, transform.Up))
+		transform.Rotation = transform.Rotation.Mul(delta)
+		transform.Position = transform.Rotation.Rotate(math.Vector{
+			0,
+			0,
+			distance,
+		}).Add(target)
 
 		if err := s.engine.Set(en, transform); err != nil {
 			return err

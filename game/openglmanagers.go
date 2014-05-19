@@ -131,7 +131,7 @@ func (m *WindowManager) Cleanup() {
 	glfw.Terminate()
 }
 
-func (m *WindowManager) onResize(w *glfw.Window, width int, height int) {
+func (m *WindowManager) onResize(w *glfw.Window, width, height int) {
 	//h := float64(height) / float64(width)
 	//znear := 1.0
 	//zfar := 1000.0
@@ -158,6 +158,8 @@ func (m *WindowManager) onResize(w *glfw.Window, width int, height int) {
 
 	m.width = width
 	m.height = height
+
+	m.engine.Publish(MessageResize{width, height})
 }
 
 func (m *WindowManager) SetSize(width, height int) {
@@ -252,7 +254,12 @@ func (m *InputManager) MousePos() (x, y float64) {
 }
 
 func (m *InputManager) onMouseScroll(w *glfw.Window, xoff float64, yoff float64) {
-	m.zoom = yoff
+	m.zoom += yoff
+	m.engine.Publish(MessageMouseScroll(yoff))
+}
+
+func (m *InputManager) MouseScroll() float64 {
+	return m.zoom
 }
 
 func (m *InputManager) onMouseButton(w *glfw.Window, b glfw.MouseButton, action glfw.Action, mods glfw.ModifierKey) {

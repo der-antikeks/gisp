@@ -50,6 +50,10 @@ func Clamp(v float64) float64 {
 	return math.Min(math.Max(v, -1), 1)
 }
 
+func Limit(v, min, max float64) float64 {
+	return math.Min(math.Max(v, min), max)
+}
+
 func IsPowerOfTwo(n int) bool {
 	return (n & (n - 1)) == 0
 }

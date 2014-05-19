@@ -39,7 +39,7 @@ func (em *EntityManager) CreateMainMenu() {}
 func (em *EntityManager) createCube() {
 	// Transformation
 	trans := Transformation{
-		Position: math.Vector{-1, 2, 0},
+		Position: math.Vector{0, 0, 0},
 		Rotation: math.QuaternionFromAxisAngle(math.Vector{1, 0.5, 0}, m.Pi/4.0),
 		Scale:    math.Vector{1, 1, 1},
 		Up:       math.Vector{0, 1, 0},
@@ -63,7 +63,7 @@ func (em *EntityManager) createCube() {
 func (em *EntityManager) createSphere() {
 	// Transformation
 	trans := Transformation{
-		Position: math.Vector{0, 0, 0},
+		Position: math.Vector{5, 0, 0},
 		Rotation: math.Quaternion{0, 0, 0, 1},
 		Scale:    math.Vector{1, 1, 1},
 		Up:       math.Vector{0, 1, 0},
@@ -112,7 +112,7 @@ func (em *EntityManager) CreatePerspectiveCamera(fov, aspect, near, far float64)
 		Scale: math.Vector{1, 1, 1},
 		Up:    math.Vector{0, 1, 0},
 	}
-	t.Rotation = math.QuaternionFromRotationMatrix(math.LookAt(t.Position, math.Vector{0, 0, 0}, t.Up))
+	t.Rotation = math.QuaternionLookAt(t.Position, math.Vector{0, 0, 0}, t.Up)
 
 	c := em.engine.Entity()
 	if err := em.engine.Set(
@@ -135,7 +135,7 @@ func (em *EntityManager) CreateOrthographicCamera(left, right, top, bottom, near
 		Scale: math.Vector{1, 1, 1},
 		Up:    math.Vector{0, 1, 0},
 	}
-	t.Rotation = math.QuaternionFromRotationMatrix(math.LookAt(t.Position, math.Vector{0, 0, 0}, t.Up))
+	t.Rotation = math.QuaternionLookAt(t.Position, math.Vector{0, 0, 0}, t.Up)
 
 	c := em.engine.Entity()
 	if err := em.engine.Set(
