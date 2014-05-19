@@ -51,9 +51,16 @@ func (em *EntityManager) createCube() ecs.Entity {
 	}
 
 	geo := em.getGeometry("cube")
-	mat := em.getMaterial("basic")
+	mat := em.getMaterial("flat")
+	mat.Set("lightPosition", math.Vector{5, 5, 0, 1})
 	mat.Set("diffuse", math.Color{1, 0, 0})
 	mat.Set("opacity", 0.8)
+
+	tex, err := LoadTexture("assets/cube/cube.png")
+	if err != nil {
+		log.Fatal("could not load texture:", err)
+	}
+	mat.Set("diffuseMap", tex)
 
 	// Entity
 	cube := em.engine.Entity()
@@ -149,6 +156,13 @@ func (em *EntityManager) getMaterial(id string) Material {
 		Program:  id,
 		uniforms: map[string]interface{}{},
 		program:  GetShader(id),
+	}
+
+	// preset with standard values
+	for n, v := range mat.program.uniforms {
+		if v.standard != nil {
+			mat.uniforms[n] = v.standard
+		}
 	}
 
 	return mat

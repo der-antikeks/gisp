@@ -8,6 +8,7 @@ __todo:__
 * Renderpasses/targets
 * Text/Distance Field Fonts
 * Rendersystem Quadtree
+* Shadows
 
 __later:__
 * Entity/Component Load/Save via interface (file, db, etc.) that is passed to the engine

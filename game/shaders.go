@@ -202,6 +202,119 @@ var shaderProgramLib = map[string]struct {
 			"vertexUV":       2,
 		},
 	},
+
+	"flat": {
+		Vertex: `
+				#version 330 core
+
+				in vec3 vertexPosition;
+				in vec3 vertexNormal;
+				in vec2 vertexUV;
+
+				uniform mat4 projectionMatrix;
+				uniform mat4 viewMatrix;
+				uniform mat4 modelMatrix;
+				uniform mat4 modelViewMatrix;
+				uniform mat3 normalMatrix;
+
+				//struct LightInfo {
+					uniform vec4 lightPosition;
+					uniform vec3 diffuse;
+					uniform vec3 ambient;
+					uniform vec3 specular;
+				//};
+				//uniform LightInfo Light;
+
+				/*
+				struct MaterialInfo {
+					vec3 Ka; // Ambient reflectivity
+					vec3 Kd; // Diffuse reflectivity
+					vec3 Ks; // Specular reflectivity
+					float Shininess; // Specular shininess factor
+				};
+				uniform MaterialInfo Material;
+				*/
+
+				flat out vec3 FrontColor;
+				flat out vec3 BackColor;
+				out vec2 UV;
+
+				vec3 phongModel(vec4 position, vec3 norm)
+				{
+					vec4 lightPosEye = viewMatrix * modelMatrix * lightPosition;
+
+					vec3 Ka = vec3(0.2);
+					vec3 Kd = vec3(0.6);
+					vec3 Ks = vec3(0.2);
+					float shininess = 1.0;
+
+					vec3 s = normalize(vec3(lightPosEye - position));
+					vec3 v = normalize(-position.xyz);
+					vec3 r = reflect(-s, norm);
+					vec3 amb = ambient * Ka;
+					float sDotN = max(dot(s, norm), 0.0);
+					vec3 diff = diffuse * Kd * sDotN;
+					vec3 spec = vec3(0.0);
+					if (sDotN > 0.0) {
+						spec = specular * Ks * pow(max(dot(r, v), 0.0), shininess);
+					}
+					return amb + diff + spec;
+				}
+
+				void main(){
+					// Get the position and normal in eye space
+					vec3 eyeNorm = normalize(normalMatrix * vertexNormal);
+					vec4 eyePosition = modelViewMatrix * vec4(vertexPosition, 1.0);
+					
+					// Evaluate the lighting equation
+					FrontColor = phongModel(eyePosition, eyeNorm);
+					BackColor = phongModel(eyePosition, -eyeNorm);
+					UV = vertexUV;
+
+					// Output position of the vertex, clipspace
+					gl_Position = projectionMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
+				}`,
+		Fragment: `
+				#version 330 core
+
+				flat in vec3 FrontColor;
+				flat in vec3 BackColor;
+				in vec2 UV;
+
+				uniform float opacity;
+				uniform sampler2D diffuseMap;
+
+				out vec4 fragmentColor;
+
+				void main()
+				{
+					vec3 materialDiffuseColor = texture(diffuseMap, UV).rgb * vec3(0.5);
+
+					if (gl_FrontFacing) {
+						fragmentColor = vec4(FrontColor + materialDiffuseColor, opacity);
+					} else {
+						fragmentColor = vec4(BackColor + materialDiffuseColor, opacity);
+					}
+				}`,
+		Uniforms: map[string]interface{}{
+			"projectionMatrix": nil, //[16]float32{}, // matrix.Float32()
+			"viewMatrix":       nil, //[16]float32{},
+			"modelMatrix":      nil, //[16]float32{},
+			"modelViewMatrix":  nil, //[16]float32{},
+			"normalMatrix":     nil, //[9]float32{}, // matrix.Matrix3Float32()
+
+			"opacity":       1.0,
+			"lightPosition": math.Vector{0, 0, 0, 1},
+			"diffuse":       math.Color{1, 1, 1},
+			"ambient":       math.Color{1, 1, 1},
+			"specular":      math.Color{1, 1, 1},
+		},
+		Attributes: map[string]uint{
+			"vertexPosition": 3,
+			"vertexNormal":   3,
+			"vertexUV":       2,
+		},
+	},
 }
 
 type shaderprogram struct {

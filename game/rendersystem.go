@@ -380,12 +380,30 @@ func (s *RenderSystem) render(
 			return err
 		}
 	}
+	defer s.unbindTextures()
 
 	// ### draw
 	s.currentGeometry.FaceBuffer.Bind(gl.ELEMENT_ARRAY_BUFFER)
 	gl.DrawElements(gl.TRIANGLES, s.currentGeometry.FaceCount*3, gl.UNSIGNED_SHORT, nil /* uintptr(start) */) // gl.UNSIGNED_INT, UNSIGNED_SHORT
 
 	return nil
+}
+
+func (s *RenderSystem) bindTexture(buffer gl.Texture) int {
+	slot := len(s.currentTextures)
+	s.currentTextures = append(s.currentTextures, buffer)
+
+	buffer.Bind(gl.TEXTURE_2D)
+	gl.ActiveTexture(gl.TEXTURE0 + gl.GLenum(slot))
+
+	return slot
+}
+
+func (s *RenderSystem) unbindTextures() {
+	for _, buffer := range s.currentTextures {
+		buffer.Unbind(gl.TEXTURE_2D)
+	}
+	s.currentTextures = s.currentTextures[:0]
 }
 
 func (s *RenderSystem) UpdateUniform(name string, value interface{}) error {
@@ -398,10 +416,7 @@ func (s *RenderSystem) UpdateUniform(name string, value interface{}) error {
 		return fmt.Errorf("%v has unknown type: %T", name, t)
 
 	case Texture:
-		t.Bind(s.usedTextureUnits)
-		s.currentProgram.uniforms[name].location.Uniform1i(s.usedTextureUnits)
-
-		s.usedTextureUnits++
+		s.currentProgram.uniforms[name].location.Uniform1i(s.bindTexture(t.buffer))
 
 	case int:
 		s.currentProgram.uniforms[name].location.Uniform1i(t)
@@ -417,6 +432,9 @@ func (s *RenderSystem) UpdateUniform(name string, value interface{}) error {
 
 	case math.Color:
 		s.currentProgram.uniforms[name].location.Uniform3f(float32(t.R), float32(t.G), float32(t.B))
+
+	case math.Vector:
+		s.currentProgram.uniforms[name].location.Uniform4f(float32(t[0]), float32(t[1]), float32(t[2]), float32(t[3]))
 
 	case bool:
 		if t {
