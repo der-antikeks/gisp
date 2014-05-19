@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"log"
+	"sort"
 	"time"
 
 	"github.com/der-antikeks/gisp/ecs"
@@ -156,7 +157,7 @@ func (s *RenderSystem) Update(delta time.Duration) error {
 	projScreenMatrix := p.Matrix.Mul(t.MatrixWorld().Inverse())
 	frustum := math.FrustumFromMatrix(projScreenMatrix)
 	// fetch all objects visible in frustum
-	opaque, transparent := s.visibleEntities(frustum)
+	opaque, transparent := s.visibleEntities(frustum, t.Position)
 
 	// opaque pass (front-to-back order)
 	MainThread(func() {
@@ -189,12 +190,28 @@ func (s *RenderSystem) setClearColor(color math.Color, alpha float64) {
 	})
 }
 
-func (s *RenderSystem) visibleEntities(frustum math.Frustum) (opaque, transparent []ecs.Entity) {
-	opaque = make([]ecs.Entity, len(s.drawable))
-	transparent = make([]ecs.Entity, len(s.drawable))
-	var cntOp, cntTr int
+type byZ struct {
+	entities []ecs.Entity
+	zorder   map[ecs.Entity]float64
+}
+
+func (a byZ) Len() int {
+	return len(a.entities)
+}
+func (a byZ) Swap(i, j int) {
+	a.entities[i], a.entities[j] = a.entities[j], a.entities[i]
+}
+func (a byZ) Less(i, j int) bool {
+	return a.zorder[a.entities[i]] < a.zorder[a.entities[j]]
+}
+
+func (s *RenderSystem) visibleEntities(frustum math.Frustum, cp math.Vector) (opaque, transparent []ecs.Entity) {
+	opaque = make([]ecs.Entity, 0)
+	transparent = make([]ecs.Entity, 0)
 	var err error
 	var ec ecs.Component
+
+	zorder := map[ecs.Entity]float64{}
 
 	for _, e := range s.drawable {
 		ec, err = s.engine.Get(e, TransformationType)
@@ -216,19 +233,33 @@ func (s *RenderSystem) visibleEntities(frustum math.Frustum) (opaque, transparen
 		m := ec.(Material)
 
 		c, r := g.Bounding.Sphere()
+		c = t.MatrixWorld().Transform(c)
+		r *= t.MatrixWorld().MaxScaleOnAxis()
 
-		if frustum.IntersectsSphere(t.MatrixWorld().Transform(c), r*t.MatrixWorld().MaxScaleOnAxis()) {
+		if frustum.IntersectsSphere(c, r) {
+			zorder[e] = c.Sub(cp).Length()
+
 			if m.opaque() {
-				opaque[cntOp] = e
-				cntOp++
+				opaque = append(opaque, e)
 			} else {
-				transparent[cntTr] = e
-				cntTr++
+				transparent = append(transparent, e)
 			}
 		}
 	}
 
-	return opaque[:cntOp], transparent[:cntTr]
+	// front-to-back order
+	sort.Sort(byZ{
+		entities: opaque,
+		zorder:   zorder,
+	})
+
+	// back-to-front order
+	sort.Sort(sort.Reverse(byZ{
+		entities: transparent,
+		zorder:   zorder,
+	}))
+
+	return opaque, transparent
 }
 
 func (s *RenderSystem) renderEntity(object, camera ecs.Entity) error {

@@ -3,6 +3,7 @@ package game
 import (
 	"log"
 	m "math"
+	"math/rand"
 	"time"
 
 	"github.com/der-antikeks/gisp/ecs"
@@ -34,9 +35,13 @@ func (em *EntityManager) CreateSplashScreen() {
 	em.createSphere()
 }
 
-func (em *EntityManager) CreateMainMenu() {}
+func (em *EntityManager) CreateMainMenu() {
+	for i := 0; i < 10; i++ {
+		em.createRndCube()
+	}
+}
 
-func (em *EntityManager) createCube() {
+func (em *EntityManager) createCube() ecs.Entity {
 	// Transformation
 	trans := Transformation{
 		Position: math.Vector{0, 0, 0},
@@ -58,9 +63,58 @@ func (em *EntityManager) createCube() {
 	); err != nil {
 		log.Fatal("could not create cube:", err)
 	}
+
+	return cube
 }
 
-func (em *EntityManager) createSphere() {
+func (em *EntityManager) createRndCube() ecs.Entity {
+	r := func(min, max float64) float64 {
+		return rand.Float64()*(max-min) + min
+	}
+	d := func() float64 {
+		if rand.Intn(2) == 0 {
+			return -1
+		}
+		return 1
+	}
+
+	trans := Transformation{
+		Position: math.Vector{
+			r(1, 5) * d(),
+			r(1, 5) * d(),
+			r(1, 5) * d(),
+		},
+		Rotation: math.QuaternionFromAxisAngle((math.Vector{
+			rand.Float64(),
+			rand.Float64(),
+			rand.Float64(),
+		}).Normalize(), r(0, m.Pi*2)),
+		Scale: math.Vector{1, 1, 1},
+		Up:    math.Vector{0, 1, 0},
+	}
+
+	geo := em.getGeometry("cube")
+	mat := em.getMaterial("basic")
+	mat.Set("diffuse", math.Color{
+		r(0.5, 1),
+		r(0.5, 1),
+		r(0.5, 1),
+	})
+	mat.Set("opacity", r(0.2, 1))
+
+	// Entity
+	cube := em.engine.Entity()
+	if err := em.engine.Set(
+		cube,
+		trans, geo, mat,
+	); err != nil {
+		log.Fatal("could not create cube:", err)
+	}
+
+	return cube
+}
+
+func (em *EntityManager) createSphere() ecs.Entity {
 	// Transformation
 	trans := Transformation{
 		Position: math.Vector{5, 0, 0},
@@ -81,6 +135,8 @@ func (em *EntityManager) createSphere() {
 	); err != nil {
 		log.Fatal("could not create sphere:", err)
 	}
+
+	return sphere
 }
 
 func (em *EntityManager) getMaterial(id string) Material {
