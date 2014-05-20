@@ -53,7 +53,7 @@ func (em *EntityManager) createCube() ecs.Entity {
 	geo := em.getGeometry("cube")
 	mat := em.getMaterial("flat")
 	mat.Set("lightPosition", math.Vector{5, 5, 0, 1})
-	mat.Set("diffuse", math.Color{1, 0, 0})
+	mat.Set("lightDiffuse", math.Color{1, 0, 0})
 	mat.Set("opacity", 0.8)
 
 	tex, err := LoadTexture("assets/cube/cube.png")

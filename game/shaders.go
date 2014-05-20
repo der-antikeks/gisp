@@ -207,23 +207,29 @@ var shaderProgramLib = map[string]struct {
 		Vertex: `
 				#version 330 core
 
-				in vec3 vertexPosition;
+				//#define MAX_LIGHTS 10
+
+				// Input vertex data, different for all executions of this shader
+				in vec3 vertexPosition;			// modelspace
 				in vec3 vertexNormal;
 				in vec2 vertexUV;
 
-				uniform mat4 projectionMatrix;
-				uniform mat4 viewMatrix;
-				uniform mat4 modelMatrix;
-				uniform mat4 modelViewMatrix;
-				uniform mat3 normalMatrix;
+				// Values that stay constant for the whole mesh
+				uniform mat4 projectionMatrix;	// camera projection
+				uniform mat4 viewMatrix;		// camera matrix
+				uniform mat4 modelMatrix;		// model matrix
+				uniform mat4 modelViewMatrix;	// view * model matrix
+				uniform mat3 normalMatrix;		// model-view normal
 
 				//struct LightInfo {
-					uniform vec4 lightPosition;
-					uniform vec3 diffuse;
-					uniform vec3 ambient;
-					uniform vec3 specular;
+					uniform vec3 lightPosition; // worldspace
+					uniform vec3 lightDiffuse;
+					uniform float lightPower;
 				//};
-				//uniform LightInfo Light;
+				//uniform int lightCount;
+				//uniform LightInfo Lights[MAX_LIGHTS];
+
+				uniform vec3 ambientColor;		// indirect light
 
 				/*
 				struct MaterialInfo {
@@ -235,40 +241,47 @@ var shaderProgramLib = map[string]struct {
 				uniform MaterialInfo Material;
 				*/
 
-				flat out vec3 FrontColor;
-				flat out vec3 BackColor;
+				// Output data, will be interpolated for each fragment
+				flat out vec3 lightColor;
 				out vec2 UV;
 
-				vec3 phongModel(vec4 position, vec3 norm)
+				vec3 adsShading(vec4 position, vec3 norm /*, int idx*/)
 				{
-					vec4 lightPosEye = viewMatrix * modelMatrix * lightPosition;
+					vec4 lightPosCam = viewMatrix * vec4(lightPosition, 1.0); // cameraspace
+					vec3 lightDir = normalize(vec3(lightPosCam - position));
+					vec3 viewDir = normalize(-position.xyz);
+					vec3 reflectDir = reflect(-lightDir, norm);
+					float distance = length(lightPosition - (modelMatrix * vec4(vertexPosition,1)).xyz);
 
-					vec3 Ka = vec3(0.2);
-					vec3 Kd = vec3(0.6);
-					vec3 Ks = vec3(0.2);
-					float shininess = 1.0;
+					// ambient, simulates indirect lighting
+					vec3 amb = ambientColor * vec3(0.1, 0.1, 0.1);
 
-					vec3 s = normalize(vec3(lightPosEye - position));
-					vec3 v = normalize(-position.xyz);
-					vec3 r = reflect(-s, norm);
-					vec3 amb = ambient * Ka;
-					float sDotN = max(dot(s, norm), 0.0);
-					vec3 diff = diffuse * Kd * sDotN;
-					vec3 spec = vec3(0.0);
-					if (sDotN > 0.0) {
-						spec = specular * Ks * pow(max(dot(r, v), 0.0), shininess);
-					}
+					// diffuse, direct lightning
+					float cosTheta = clamp(dot(norm, lightDir), 0.0, 1.0);
+					vec3 diff = lightDiffuse * lightPower * cosTheta / (distance * distance);
+
+					// specular, reflective highlight, like a mirror
+					float cosAlpha = clamp(dot(viewDir, reflectDir), 0.0, 1.0);
+					vec3 spec = vec3(0.3, 0.3, 0.3) * lightDiffuse * lightPower * pow(cosAlpha, 5.0) / (distance * distance);
+
 					return amb + diff + spec;
 				}
 
 				void main(){
-					// Get the position and normal in eye space
-					vec3 eyeNorm = normalize(normalMatrix * vertexNormal);
-					vec4 eyePosition = modelViewMatrix * vec4(vertexPosition, 1.0);
+					// Get the position and normal in camera space
+					//vec3 camNorm = normalize(normalMatrix * vertexNormal);
+					vec3 camNorm = normalize((viewMatrix * modelMatrix * vec4(vertexNormal, 0.0)).xyz);
+					vec4 camPosition = modelViewMatrix * vec4(vertexPosition, 1.0);
 					
 					// Evaluate the lighting equation
-					FrontColor = phongModel(eyePosition, eyeNorm);
-					BackColor = phongModel(eyePosition, -eyeNorm);
+					lightColor = adsShading(camPosition, camNorm);
+					/*
+					lightColor = vec3(0.0);
+					for (int idx = 0; idx < lightCount; idx++)
+					{
+						lightColor += adsShading(camPosition, camNorm, idx);
+					}
+					*/
 					UV = vertexUV;
 
 					// Output position of the vertex, clipspace
@@ -277,24 +290,21 @@ var shaderProgramLib = map[string]struct {
 		Fragment: `
 				#version 330 core
 
-				flat in vec3 FrontColor;
-				flat in vec3 BackColor;
+				// Interpolated values from the vertex shaders
+				flat in vec3 lightColor;
 				in vec2 UV;
 
+				// Values that stay constant for the whole mesh
 				uniform float opacity;
 				uniform sampler2D diffuseMap;
 
+				// Output data
 				out vec4 fragmentColor;
 
 				void main()
 				{
-					vec3 materialDiffuseColor = texture(diffuseMap, UV).rgb * vec3(0.5);
-
-					if (gl_FrontFacing) {
-						fragmentColor = vec4(FrontColor + materialDiffuseColor, opacity);
-					} else {
-						fragmentColor = vec4(BackColor + materialDiffuseColor, opacity);
-					}
+					vec3 materialColor = texture(diffuseMap, UV).rgb;
+					fragmentColor = vec4(lightColor * materialColor, opacity);
 				}`,
 		Uniforms: map[string]interface{}{
 			"projectionMatrix": nil, //[16]float32{}, // matrix.Float32()
@@ -303,11 +313,14 @@ var shaderProgramLib = map[string]struct {
 			"modelViewMatrix":  nil, //[16]float32{},
 			"normalMatrix":     nil, //[9]float32{}, // matrix.Matrix3Float32()
 
-			"opacity":       1.0,
-			"lightPosition": math.Vector{0, 0, 0, 1},
-			"diffuse":       math.Color{1, 1, 1},
-			"ambient":       math.Color{1, 1, 1},
-			"specular":      math.Color{1, 1, 1},
+			"lightPosition": math.Vector{0, 0, 0},
+			"lightDiffuse":  math.Color{1, 1, 1}, //
+			"lightPower":    50.0,
+
+			"ambientColor": math.Color{1, 1, 1},
+
+			"diffuseMap": nil, // texture
+			"opacity":    1.0,
 		},
 		Attributes: map[string]uint{
 			"vertexPosition": 3,

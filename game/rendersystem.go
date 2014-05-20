@@ -23,10 +23,9 @@ type RenderSystem struct {
 	lights   []ecs.Entity
 	camera   ecs.Entity
 
-	currentGeometry  *meshbuffer
-	currentProgram   *shaderprogram
-	currentTextures  []gl.Texture // usedTextureUnits
-	usedTextureUnits int
+	currentGeometry *meshbuffer
+	currentProgram  *shaderprogram
+	currentTextures []gl.Texture // usedTextureUnits
 }
 
 func NewRenderSystem(engine *ecs.Engine, wm *WindowManager) *RenderSystem {
@@ -317,6 +316,9 @@ func (s *RenderSystem) render(
 		updateAttributes = true
 	}
 
+	// TODO: caching, unbind only if not needed by new material
+	s.unbindTextures()
+
 	// ### bind geometry
 	if geometry.mesh != s.currentGeometry || updateAttributes {
 		s.currentGeometry = geometry.mesh
@@ -374,13 +376,11 @@ func (s *RenderSystem) render(
 	s.UpdateUniform("normalMatrix", normalMatrix.Matrix3Float32())
 
 	// update material uniforms
-	s.usedTextureUnits = 0
 	for n, v := range material.uniforms {
 		if err := s.UpdateUniform(n, v); err != nil {
 			return err
 		}
 	}
-	defer s.unbindTextures()
 
 	// ### draw
 	s.currentGeometry.FaceBuffer.Bind(gl.ELEMENT_ARRAY_BUFFER)
@@ -390,6 +390,12 @@ func (s *RenderSystem) render(
 }
 
 func (s *RenderSystem) bindTexture(buffer gl.Texture) int {
+	for s, b := range s.currentTextures {
+		if b == buffer {
+			return s
+		}
+	}
+
 	slot := len(s.currentTextures)
 	s.currentTextures = append(s.currentTextures, buffer)
 
@@ -434,7 +440,7 @@ func (s *RenderSystem) UpdateUniform(name string, value interface{}) error {
 		s.currentProgram.uniforms[name].location.Uniform3f(float32(t.R), float32(t.G), float32(t.B))
 
 	case math.Vector:
-		s.currentProgram.uniforms[name].location.Uniform4f(float32(t[0]), float32(t[1]), float32(t[2]), float32(t[3]))
+		s.currentProgram.uniforms[name].location.Uniform3f(float32(t[0]), float32(t[1]), float32(t[2]))
 
 	case bool:
 		if t {

@@ -9,7 +9,9 @@ __todo:__
 * Text/Distance Field Fonts
 * Rendersystem Quadtree
 * Shadows
+* Motion
 
 __later:__
 * Entity/Component Load/Save via interface (file, db, etc.) that is passed to the engine
 * Synchronize Entities/Components over io.ReadWriter/net.Conn
+* AI system for Waypoints, evasion, pathfinding, swarm grouping
