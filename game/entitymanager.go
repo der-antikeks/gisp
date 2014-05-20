@@ -50,6 +50,16 @@ func (em *EntityManager) createCube() ecs.Entity {
 		Up:       math.Vector{0, 1, 0},
 	}
 
+	// velocity, rate of change per second
+	vel := Velocity{
+		Velocity: math.Vector{0, 0, 0},
+		Angular: math.Vector{
+			45.0 * math.DEG2RAD,
+			5.0 * math.DEG2RAD,
+			0,
+		},
+	}
+
 	geo := em.getGeometry("cube")
 	mat := em.getMaterial("flat")
 	mat.Set("lightPosition", math.Vector{5, 5, 0, 1})
@@ -66,7 +76,7 @@ func (em *EntityManager) createCube() ecs.Entity {
 	cube := em.engine.Entity()
 	if err := em.engine.Set(
 		cube,
-		trans, geo, mat,
+		trans, geo, mat, vel,
 	); err != nil {
 		log.Fatal("could not create cube:", err)
 	}

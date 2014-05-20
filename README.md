@@ -1,7 +1,6 @@
 # gisp
 
 __todo:__
-* Phong shader
 * Load Obj Files
 * Light
 * Billboards
@@ -9,7 +8,7 @@ __todo:__
 * Text/Distance Field Fonts
 * Rendersystem Quadtree
 * Shadows
-* Motion
+* Entity/Transformation Grouping
 
 __later:__
 * Entity/Component Load/Save via interface (file, db, etc.) that is passed to the engine

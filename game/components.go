@@ -93,8 +93,8 @@ func (c *Transformation) MatrixWorld() math.Matrix {
 }
 
 type Velocity struct {
-	Position math.Vector
-	Rotation math.Quaternion
+	Velocity math.Vector // distance units(?)/sec
+	Angular  math.Vector // euler angles in radian/sec
 }
 
 func (c Velocity) Type() ecs.ComponentType {
