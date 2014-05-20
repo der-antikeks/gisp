@@ -242,7 +242,7 @@ var shaderProgramLib = map[string]struct {
 				*/
 
 				// Output data, will be interpolated for each fragment
-				flat out vec3 lightColor;
+				 out vec3 lightColor;
 				out vec2 UV;
 
 				vec3 adsShading(vec4 position, vec3 norm /*, int idx*/)
@@ -291,7 +291,7 @@ var shaderProgramLib = map[string]struct {
 				#version 330 core
 
 				// Interpolated values from the vertex shaders
-				flat in vec3 lightColor;
+				 in vec3 lightColor;
 				in vec2 UV;
 
 				// Values that stay constant for the whole mesh

@@ -1,14 +1,14 @@
 # gisp
 
 __todo:__
+* Rendersystem "Bounding Volume Hierarchy" aka sphere tree
 * Load Obj Files
+* Entity/Transformation Grouping
 * Light
 * Billboards
-* Renderpasses/targets
 * Text/Distance Field Fonts
-* Rendersystem Quadtree
+* Renderpasses/targets
 * Shadows
-* Entity/Transformation Grouping
 
 __later:__
 * Entity/Component Load/Save via interface (file, db, etc.) that is passed to the engine
