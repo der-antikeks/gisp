@@ -20,8 +20,9 @@ type RenderSystem struct {
 	drawChan, camChan, updChan chan ecs.Message
 
 	drawable []ecs.Entity
-	lights   []ecs.Entity
-	camera   ecs.Entity
+	//drawable *SphereTree
+	lights []ecs.Entity
+	camera ecs.Entity
 
 	currentGeometry *meshbuffer
 	currentProgram  *shaderprogram
@@ -38,6 +39,7 @@ func NewRenderSystem(engine *ecs.Engine, wm *WindowManager) *RenderSystem {
 		camChan:  make(chan ecs.Message),
 		updChan:  make(chan ecs.Message),
 
+		//drawable: NewSphereTree(),
 		camera: -1,
 	}
 
@@ -50,6 +52,7 @@ func NewRenderSystem(engine *ecs.Engine, wm *WindowManager) *RenderSystem {
 				switch e := event.(type) {
 				case ecs.MessageEntityAdd:
 					s.drawable = append(s.drawable, e.Added)
+					//s.drawable.Add(e.Added, p math.Vector, r float64)
 				case ecs.MessageEntityRemove:
 					for i, f := range s.drawable {
 						if f == e.Removed {
@@ -57,6 +60,9 @@ func NewRenderSystem(engine *ecs.Engine, wm *WindowManager) *RenderSystem {
 							break
 						}
 					}
+					//s.drawable.Remove(e.Removed)
+					//case ecs.MessageEntityUpdate:
+					//s.drawable.Update(e.Updated, p math.Vector, r float64)
 				}
 
 			case event := <-s.camChan:

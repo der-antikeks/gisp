@@ -146,6 +146,7 @@ func (self Vector) Clamp(min, max Vector) (result Vector) {
 	return
 }
 
+// Euclidean norm!
 func (self Vector) DistanceTo(v Vector) float64 {
 	return math.Sqrt(self.DistanceToSquared(v))
 }
