@@ -4,69 +4,52 @@ import (
 	"log"
 	m "math"
 
-	"github.com/der-antikeks/gisp/ecs"
 	"github.com/der-antikeks/gisp/math"
 )
 
 type SphereTree struct {
 	root      *Node
 	restraint float64
-	lookup    map[ecs.Entity]*Node
-	// add/remove/recompute nodes only on rendersysmte.update?
+	pool      []*Node
 }
 
-func NewSphereTree() *SphereTree {
+func NewSphereTree(restraint float64) *SphereTree {
 	return &SphereTree{
-		restraint: 1.0,
-		lookup:    map[ecs.Entity]*Node{},
+		restraint: restraint,
 	}
 }
 
-// update/insert entity with bounding sphere
-func (t *SphereTree) Add(e ecs.Entity, p math.Vector, r float64) {
+func (t *SphereTree) put(n *Node) {
+	n.parent, n.children = nil, nil
+	n.center, n.radius = math.Vector{}, 0.0
+	t.pool = append(t.pool, n)
+}
+
+func (t *SphereTree) get() *Node {
+	if l := len(t.pool) - 1; l >= 0 {
+		n := t.pool[l]
+		t.pool = t.pool[:l]
+		return n
+	}
+	return &Node{tree: t}
+}
+
+// creates a new node in the size of the passed bounding sphere
+func (t *SphereTree) Add(p math.Vector, r float64) *Node {
 	if t.root == nil {
-		t.root = &Node{
-			center: p,
-			radius: r,
-		}
+		t.root = t.get()
+		t.root.typ = BranchNode
+		t.root.center = p
+		t.root.radius = r + t.restraint
 	}
-	n := &Node{
-		entity: e,
-		center: p,
-		radius: r,
-	}
-	t.lookup[e] = n
+
+	n := t.get()
+	n.typ = LeafNode
+	n.center = p
+	n.radius = r
+
 	t.insert(t.root, n)
-}
-func (t *SphereTree) Update(e ecs.Entity, p math.Vector, r float64) {
-	n, ok := t.lookup[e]
-	if !ok {
-		t.Add(e, p, r)
-	}
-
-	dist := n.center.Sub(p).Length()
-	if dist+r > n.radius {
-		n.center = p
-		n.radius = r
-
-		if n.parent != nil {
-			n.parent.removeChild(n)
-			n.parent = nil
-			t.recalc(n.parent)
-		}
-
-		t.insert(t.root, n)
-	}
-}
-func (t *SphereTree) Remove(e ecs.Entity) {
-	n, ok := t.lookup[e]
-	if !ok {
-		return
-	}
-	delete(t.lookup, e)
-
-	n.entity = -1
-	t.recalc(n)
+	return n
 }
 
 // add node to root/traverse children
@@ -75,7 +58,7 @@ func (t *SphereTree) insert(p, c *Node) {
 		// parent is inside of child
 		if p.parent == nil {
 			// parent is root
-			t.root = p.Merge(c)
+			t.root = t.mergeNodes(p, c)
 			t.root.addChild(p)
 			p.parent = t.root
 
@@ -102,7 +85,7 @@ func (t *SphereTree) insert(p, c *Node) {
 
 	if sibling != nil {
 		// create new branch with sibling
-		branch := sibling.Merge(c)
+		branch := t.mergeNodes(sibling, c)
 
 		p.addChild(branch)
 		branch.parent = p
@@ -122,16 +105,19 @@ func (t *SphereTree) insert(p, c *Node) {
 	t.recalc(p)
 }
 
-// check if has childrens, delete
-// recalculate bounding sphere sum of childrens
+// delete branch nodes without children
+// recalculate the bounding sphere of the sum of the children
 func (t *SphereTree) recalc(n *Node) {
-	if n.entity == -1 && len(n.children) == 0 {
-		// no leaf and no branch, delete
-		n.parent.removeChild(n)
-		n.parent = nil
-	}
-	if n.entity != 0 {
+	if n.typ == LeafNode {
 		// leaf node, do nothing
+		return
+	}
+	if n.typ == BranchNode && len(n.children) == 0 {
+		// empty branch, delete
+		if n.parent != nil {
+			n.parent.removeChild(n)
+		}
+		t.put(n)
 		return
 	}
 
@@ -146,22 +132,66 @@ func (t *SphereTree) recalc(n *Node) {
 		max := (m.Max(n.radius, dist+n.children[i].radius) - min) * 0.5
 
 		n.center = n.center.Add(v.MulScalar(max + min))
-		n.radius = max
+		n.radius = max + t.restraint
 	}
 }
+
+func (t *SphereTree) mergeNodes(a, b *Node) *Node {
+	diff := b.center.Sub(a.center)
+	dist := diff.Length()
+
+	if a.radius+b.radius >= dist {
+		// intersects
+		if a.radius-b.radius >= dist {
+			// b inside a
+			n := t.get()
+			n.typ = BranchNode
+			n.center = a.center
+			n.radius = a.radius
+			return n
+		}
+		if b.radius-a.radius >= dist {
+			// a inside b
+			n := t.get()
+			n.typ = BranchNode
+			n.center = b.center
+			n.radius = b.radius
+			return n
+		}
+	}
+
+	v := diff.MulScalar(1.0 / dist)
+	min := m.Min(-a.radius, dist-b.radius)
+	max := (m.Max(a.radius, dist+b.radius) - min) * 0.5
+
+	n := t.get()
+	n.typ = BranchNode
+	n.center = a.center.Add(v.MulScalar(max + min))
+	n.radius = max
+	return n
+}
+
+type NodeType int
+
+const (
+	LeafNode NodeType = iota
+	BranchNode
+)
 
 type Node struct {
 	center math.Vector
 	radius float64
 
+	typ      NodeType
+	tree     *SphereTree
 	parent   *Node
 	children []*Node
-	entity   ecs.Entity
 }
 
 func (n *Node) addChild(c *Node) {
 	n.children = append(n.children, c)
 }
+
 func (n *Node) removeChild(c *Node) {
 	for i, f := range n.children {
 		if f == c {
@@ -173,47 +203,48 @@ func (n *Node) removeChild(c *Node) {
 	}
 }
 
-func (n *Node) Merge(b *Node) *Node {
-	diff := b.center.Sub(n.center)
-	dist := diff.Length()
-
-	if n.radius+b.radius >= dist {
-		// intersects
-		if n.radius-b.radius >= dist {
-			// b inside a
-			return &Node{
-				center: n.center,
-				radius: n.radius,
-			}
-		}
-		if b.radius-n.radius >= dist {
-			// a inside b
-			return &Node{
-				center: b.center,
-				radius: b.radius,
-			}
-		}
+func (n *Node) Update(p math.Vector, r float64) {
+	if n.typ != LeafNode {
+		log.Fatalln("updating node that is not a leaf: ", n)
 	}
 
-	v := diff.MulScalar(1.0 / dist)
-	min := m.Min(-n.radius, dist-b.radius)
-	max := (m.Max(n.radius, dist+b.radius) - min) * 0.5
+	dist := n.center.Sub(p).Length()
+	if dist+r > n.radius {
+		n.center = p
+		n.radius = r
 
-	return &Node{
-		center: n.center.Add(v.MulScalar(max + min)),
-		radius: max,
+		if n.parent != nil {
+			n.parent.removeChild(n)
+			n.parent = nil
+			n.tree.recalc(n.parent)
+		}
+
+		n.tree.insert(n.tree.root, n)
 	}
 }
 
-type Intersection int
+func (n *Node) Delete() {
+	if n.typ != LeafNode {
+		log.Fatalln("deleting node that is not a leaf: ", n)
+	}
+
+	if n.parent != nil {
+		n.parent.removeChild(n)
+		n.tree.recalc(n.parent)
+	}
+
+	n.tree.put(n)
+}
+
+type IntersectionType int
 
 const (
-	Disjoint Intersection = iota
+	Disjoint IntersectionType = iota
 	Intersects
 	Contains
 )
 
-func (n *Node) Intersects(b *Node) Intersection {
+func (n *Node) Intersects(b *Node) IntersectionType {
 	dist := n.center.Sub(b.center).Length()
 
 	if n.radius+b.radius < dist {
