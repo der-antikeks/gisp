@@ -42,6 +42,7 @@ func Run() error {
 	NewRenderSystem(engine, wm)
 	NewOrbitControlSystem(engine, im)
 	NewMovementSystem(engine)
+	NewSceneSystem(engine)
 
 	// main loop
 	var (

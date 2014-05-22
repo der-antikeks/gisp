@@ -60,7 +60,10 @@ func (em *EntityManager) createCube() ecs.Entity {
 		},
 	}
 
+	// geometry
 	geo := em.getGeometry("cube")
+
+	// material
 	mat := em.getMaterial("flat")
 	mat.Set("lightPosition", math.Vector{5, 5, 0, 1})
 	mat.Set("lightDiffuse", math.Color{1, 0, 0})
@@ -72,11 +75,14 @@ func (em *EntityManager) createCube() ecs.Entity {
 	}
 	mat.Set("diffuseMap", tex)
 
+	// scene
+	stc := SceneTree{Name: "mainscene"}
+
 	// Entity
 	cube := em.engine.Entity()
 	if err := em.engine.Set(
 		cube,
-		trans, geo, mat, vel,
+		trans, geo, mat, vel, stc,
 	); err != nil {
 		log.Fatal("could not create cube:", err)
 	}
@@ -85,6 +91,7 @@ func (em *EntityManager) createCube() ecs.Entity {
 }
 
 func (em *EntityManager) createRndCube() ecs.Entity {
+	// helper
 	r := func(min, max float64) float64 {
 		return rand.Float64()*(max-min) + min
 	}
@@ -95,6 +102,7 @@ func (em *EntityManager) createRndCube() ecs.Entity {
 		return 1
 	}
 
+	// transformation
 	trans := Transformation{
 		Position: math.Vector{
 			r(1, 100) * d(),
@@ -110,7 +118,10 @@ func (em *EntityManager) createRndCube() ecs.Entity {
 		Up:    math.Vector{0, 1, 0},
 	}
 
+	// geometry
 	geo := em.getGeometry("cube")
+
+	// material
 	mat := em.getMaterial("basic")
 	mat.Set("diffuse", math.Color{
 		r(0.5, 1),
@@ -119,11 +130,14 @@ func (em *EntityManager) createRndCube() ecs.Entity {
 	})
 	mat.Set("opacity", r(0.2, 1))
 
+	// scene
+	stc := SceneTree{Name: "mainscene"}
+
 	// Entity
 	cube := em.engine.Entity()
 	if err := em.engine.Set(
 		cube,
-		trans, geo, mat,
+		trans, geo, mat, stc,
 	); err != nil {
 		log.Fatal("could not create cube:", err)
 	}
@@ -140,7 +154,10 @@ func (em *EntityManager) createSphere() ecs.Entity {
 		Up:       math.Vector{0, 1, 0},
 	}
 
+	// geometry
 	geo := em.getGeometry("sphere")
+
+	// material
 	mat := em.getMaterial("phong")
 
 	tex, err := LoadTexture("assets/uvtemplate.png")
@@ -149,11 +166,14 @@ func (em *EntityManager) createSphere() ecs.Entity {
 	}
 	mat.Set("diffuseMap", tex)
 
+	// scene
+	stc := SceneTree{Name: "mainscene"}
+
 	// Entity
 	sphere := em.engine.Entity()
 	if err := em.engine.Set(
 		sphere,
-		trans, geo, mat,
+		trans, geo, mat, stc,
 	); err != nil {
 		log.Fatal("could not create sphere:", err)
 	}
@@ -206,6 +226,7 @@ func (em *EntityManager) CreatePerspectiveCamera(fov, aspect, near, far float64)
 			Matrix: math.NewPerspectiveMatrix(fov, aspect, near, far),
 		},
 		t,
+		SceneTree{Name: "mainscene"},
 	); err != nil {
 		log.Fatal("could not create camera:", err)
 	}
@@ -229,6 +250,7 @@ func (em *EntityManager) CreateOrthographicCamera(left, right, top, bottom, near
 			Matrix: math.NewOrthoMatrix(left, right, bottom, top, near, far),
 		},
 		t,
+		SceneTree{Name: "mainscene"},
 	); err != nil {
 		log.Fatal("could not create camera:", err)
 	}

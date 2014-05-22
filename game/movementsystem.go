@@ -42,7 +42,7 @@ func NewMovementSystem(engine *ecs.Engine) *MovementSystem {
 
 			case ecs.MessageUpdate:
 				if err := s.Update(e.Delta); err != nil {
-					log.Fatal("could not update game state:", err)
+					log.Fatal("could not update movement:", err)
 				}
 			}
 		}

@@ -19,6 +19,8 @@ const (
 
 	OrbitControlType
 
+	SceneTreeType
+
 	// old
 	MenuType
 	MeshType
@@ -36,6 +38,8 @@ func (c GameStateComponent) Type() ecs.ComponentType {
 
 type Projection struct {
 	Matrix math.Matrix
+	// Width, Height float64		-> update Projection via RenderSystem hooked to MessageResize
+	// Rendertarget *Framebuffer	-> nil for screen
 }
 
 func (c Projection) Type() ecs.ComponentType {
@@ -159,4 +163,13 @@ type OrbitControl struct {
 
 func (c OrbitControl) Type() ecs.ComponentType {
 	return OrbitControlType
+}
+
+type SceneTree struct {
+	Name string
+	leaf *Node
+}
+
+func (c SceneTree) Type() ecs.ComponentType {
+	return SceneTreeType
 }
