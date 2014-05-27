@@ -22,7 +22,7 @@ func NewMenuSystem(engine *Engine, im *InputManager) *MenuSystem {
 		prio:      PriorityBeforeRender,
 		im:        im,
 		messages:  make(chan Message),
-		gamestate: -1,
+		gamestate: NoEntity,
 	}
 
 	go func() {
@@ -74,7 +74,7 @@ func (s *MenuSystem) Stop() {
 	}, s.messages)
 
 	s.buttons = []Entity{}
-	s.gamestate = -1
+	s.gamestate = NoEntity
 }
 
 func (s *MenuSystem) Update(delta time.Duration) error {

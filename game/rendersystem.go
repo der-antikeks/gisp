@@ -82,7 +82,7 @@ func NewRenderSystem(engine *Engine, wm *WindowManager) *RenderSystem {
 					sn := s.getScene(e.Removed)
 					sc := s.scenes[sn]
 					if sc.camera == e.Removed {
-						sc.camera = -1
+						sc.camera = NoEntity
 					}
 					s.scenes[sn] = sc
 				}
@@ -133,7 +133,7 @@ func (s *RenderSystem) Stop() {
 	}, s.camChan)
 
 	//s.drawable = []Entity{}
-	//s.camera = -1
+	//s.camera = NoEntity
 	// TODO: empty scenes?
 }
 
@@ -171,7 +171,7 @@ func (s *RenderSystem) updateScene(delta time.Duration, sc string) error {
 	}
 
 	// TODO: move rendertarget to camera? or camera like interface (Viewport(w,h), Projection, etc.)
-	if s.scenes[sc].camera == -1 {
+	if s.scenes[sc].camera == NoEntity {
 		return fmt.Errorf("no camera found for RenderSystem")
 	}
 	// update scene matrix (all objects)

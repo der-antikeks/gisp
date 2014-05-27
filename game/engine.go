@@ -25,10 +25,10 @@ type Engine struct {
 	pending    []msgchan
 	send       chan msgchan
 
-	nextEntity       int
-	deletedEntities  []int
-	entityComponents map[int]map[ComponentType]Component
-	entityAspects    map[int][]*aspect
+	nextEntity       uint
+	deletedEntities  []uint
+	entityComponents map[uint]map[ComponentType]Component
+	entityAspects    map[uint][]*aspect
 }
 
 // Creates a new Engine
@@ -40,9 +40,9 @@ func NewEngine() *Engine {
 		send:       make(chan msgchan),
 
 		nextEntity:       1,
-		deletedEntities:  []int{},
-		entityComponents: map[int]map[ComponentType]Component{},
-		entityAspects:    map[int][]*aspect{},
+		deletedEntities:  []uint{},
+		entityComponents: map[uint]map[ComponentType]Component{},
+		entityAspects:    map[uint][]*aspect{},
 	}
 
 	go func() {
@@ -78,7 +78,7 @@ func (e *Engine) Entity() Entity {
 	e.lock.Lock()
 	defer e.lock.Unlock()
 
-	var id int
+	var id uint
 	if l := len(e.deletedEntities); l > 0 {
 		id, e.deletedEntities = e.deletedEntities[l-1], e.deletedEntities[:l-1]
 	} else {
@@ -97,7 +97,7 @@ func (e *Engine) Delete(en Entity) error {
 	e.lock.Lock()
 	defer e.lock.Unlock()
 
-	id := int(en)
+	id := en.Uint()
 	if _, ok := e.entityComponents[id]; !ok {
 		return ErrNoSuchEntity
 	}
@@ -135,7 +135,7 @@ func (e *Engine) Query(types ...ComponentType) []Entity {
 
 func (e *Engine) componentTypes(en Entity) []ComponentType {
 	// unexported func, lock is/mustbe handled by caller
-	id := int(en)
+	id := en.Uint()
 	if _, ok := e.entityComponents[id]; !ok {
 		return nil
 	}
@@ -151,7 +151,7 @@ func (e *Engine) Set(en Entity, components ...Component) error {
 	e.lock.Lock()
 	defer e.lock.Unlock()
 
-	id := int(en)
+	id := en.Uint()
 	if _, ok := e.entityComponents[id]; !ok {
 		return ErrNoSuchEntity
 	}
@@ -211,7 +211,7 @@ func (e *Engine) Remove(en Entity, types ...ComponentType) error {
 	e.lock.Lock()
 	defer e.lock.Unlock()
 
-	id := int(en)
+	id := en.Uint()
 	if _, ok := e.entityComponents[id]; !ok {
 		return ErrNoSuchEntity
 	}
@@ -239,7 +239,7 @@ func (e *Engine) Get(en Entity, t ComponentType) (Component, error) {
 	e.lock.RLock()
 	defer e.lock.RUnlock()
 
-	id := int(en)
+	id := en.Uint()
 	if _, ok := e.entityComponents[id]; !ok {
 		return nil, ErrNoSuchEntity
 	}
@@ -368,7 +368,7 @@ func (e *Engine) Publish(msg Message) {
 
 	// external entity messages
 	if emsg, ok := msg.(EntityMessage); ok {
-		id := int(emsg.Entity())
+		id := emsg.Entity().Uint()
 		for _, a := range e.entityAspects[id] {
 			e.publish(msg, a)
 		}

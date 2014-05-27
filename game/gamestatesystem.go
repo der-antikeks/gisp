@@ -30,7 +30,7 @@ func NewGameStateSystem(engine *Engine, em *EntityManager, im *InputManager, wm 
 		im:       im,
 		wm:       wm,
 		messages: make(chan Message),
-		state:    -1,
+		state:    NoEntity,
 		quit:     quit,
 	}
 
@@ -48,7 +48,7 @@ func NewGameStateSystem(engine *Engine, em *EntityManager, im *InputManager, wm 
 				}
 			case MessageEntityRemove:
 				if s.state == e.Removed {
-					s.state = -1
+					s.state = NoEntity
 				}
 
 			case MessageEntityUpdate,
@@ -86,11 +86,11 @@ func (s *GameStateSystem) Stop() {
 		Aspect: []ComponentType{GameStateType},
 	}, s.messages)
 
-	s.state = -1
+	s.state = NoEntity
 }
 
 func (s *GameStateSystem) init() {
-	if s.initialized || s.state != -1 {
+	if s.initialized || s.state != NoEntity {
 		return
 	}
 
@@ -130,7 +130,7 @@ func (s *GameStateSystem) Update() error {
 		return nil
 	}
 
-	if s.state == -1 {
+	if s.state == NoEntity {
 		return nil
 	}
 
