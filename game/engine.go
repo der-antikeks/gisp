@@ -11,11 +11,6 @@ var (
 	ErrNoSuchComponent = errors.New("ecs: no such component")
 )
 
-type msgchan struct {
-	c chan<- Message
-	m Message
-}
-
 // Engine collects and connects Systems with matching Entities
 type Engine struct {
 	lock sync.RWMutex
