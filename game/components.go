@@ -4,12 +4,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/der-antikeks/gisp/ecs"
 	"github.com/der-antikeks/gisp/math"
 )
 
 const (
-	GameStateType ecs.ComponentType = iota
+	GameStateType ComponentType = 1 << iota
 
 	ProjectionType
 	TransformationType
@@ -32,7 +31,7 @@ type GameStateComponent struct {
 	Since time.Time
 }
 
-func (c GameStateComponent) Type() ecs.ComponentType {
+func (c GameStateComponent) Type() ComponentType {
 	return GameStateType
 }
 
@@ -42,7 +41,7 @@ type Projection struct {
 	// Rendertarget *Framebuffer	-> nil for screen
 }
 
-func (c Projection) Type() ecs.ComponentType {
+func (c Projection) Type() ComponentType {
 	return ProjectionType
 }
 
@@ -73,11 +72,11 @@ type Transformation struct {
 	matrix        math.Matrix
 	updatedMatrix bool
 
-	Parent   *Transformation // TODO: replace with ecs.Entity/engine.Get(parent, TransformationType)
+	Parent   *Transformation // TODO: replace with Entity/engine.Get(parent, TransformationType)
 	Children []*Transformation
 }
 
-func (c Transformation) Type() ecs.ComponentType {
+func (c Transformation) Type() ComponentType {
 	return TransformationType
 }
 
@@ -101,7 +100,7 @@ type Velocity struct {
 	Angular  math.Vector // euler angles in radian/sec
 }
 
-func (c Velocity) Type() ecs.ComponentType {
+func (c Velocity) Type() ComponentType {
 	return VelocityType
 }
 
@@ -112,7 +111,7 @@ type Geometry struct {
 	Bounding math.Boundary
 }
 
-func (c Geometry) Type() ecs.ComponentType {
+func (c Geometry) Type() ComponentType {
 	return GeometryType
 }
 
@@ -123,7 +122,7 @@ type Material struct {
 	uniforms map[string]interface{}
 }
 
-func (m Material) Type() ecs.ComponentType {
+func (m Material) Type() ComponentType {
 	return MaterialType
 }
 
@@ -158,10 +157,10 @@ type OrbitControl struct {
 	ZoomSpeed float64
 
 	Min, Max float64
-	Target   ecs.Entity
+	Target   Entity
 }
 
-func (c OrbitControl) Type() ecs.ComponentType {
+func (c OrbitControl) Type() ComponentType {
 	return OrbitControlType
 }
 
@@ -170,6 +169,6 @@ type SceneTree struct {
 	leaf *Node
 }
 
-func (c SceneTree) Type() ecs.ComponentType {
+func (c SceneTree) Type() ComponentType {
 	return SceneTreeType
 }

@@ -6,23 +6,22 @@ import (
 	"sort"
 	"time"
 
-	"github.com/der-antikeks/gisp/ecs"
 	"github.com/der-antikeks/gisp/math"
 
 	"github.com/go-gl/gl"
 )
 
 type RenderSystem struct {
-	engine *ecs.Engine
-	prio   ecs.SystemPriority
+	engine *Engine
+	prio   SystemPriority
 	wm     *WindowManager
 
-	drawChan, camChan, updChan chan ecs.Message
+	drawChan, camChan, updChan chan Message
 
 	scenes map[string]struct {
-		drawable []ecs.Entity
-		lights   []ecs.Entity
-		camera   ecs.Entity
+		drawable []Entity
+		lights   []Entity
+		camera   Entity
 	}
 
 	currentGeometry *meshbuffer
@@ -30,20 +29,20 @@ type RenderSystem struct {
 	currentTextures []gl.Texture // usedTextureUnits
 }
 
-func NewRenderSystem(engine *ecs.Engine, wm *WindowManager) *RenderSystem {
+func NewRenderSystem(engine *Engine, wm *WindowManager) *RenderSystem {
 	s := &RenderSystem{
 		engine: engine,
 		prio:   PriorityRender,
 		wm:     wm,
 
-		drawChan: make(chan ecs.Message),
-		camChan:  make(chan ecs.Message),
-		updChan:  make(chan ecs.Message),
+		drawChan: make(chan Message),
+		camChan:  make(chan Message),
+		updChan:  make(chan Message),
 
 		scenes: map[string]struct {
-			drawable []ecs.Entity
-			lights   []ecs.Entity
-			camera   ecs.Entity
+			drawable []Entity
+			lights   []Entity
+			camera   Entity
 		}{},
 	}
 
@@ -54,13 +53,13 @@ func NewRenderSystem(engine *ecs.Engine, wm *WindowManager) *RenderSystem {
 			select {
 			case event := <-s.drawChan:
 				switch e := event.(type) {
-				case ecs.MessageEntityAdd:
+				case MessageEntityAdd:
 					sn := s.getScene(e.Added)
 					sc := s.scenes[sn]
 					sc.drawable = append(sc.drawable, e.Added)
 					s.scenes[sn] = sc
 
-				case ecs.MessageEntityRemove:
+				case MessageEntityRemove:
 					sn := s.getScene(e.Removed)
 					sc := s.scenes[sn]
 					for i, f := range sc.drawable {
@@ -74,12 +73,12 @@ func NewRenderSystem(engine *ecs.Engine, wm *WindowManager) *RenderSystem {
 
 			case event := <-s.camChan:
 				switch e := event.(type) {
-				case ecs.MessageEntityAdd:
+				case MessageEntityAdd:
 					sn := s.getScene(e.Added)
 					sc := s.scenes[sn]
 					sc.camera = e.Added
 					s.scenes[sn] = sc
-				case ecs.MessageEntityRemove:
+				case MessageEntityRemove:
 					sn := s.getScene(e.Removed)
 					sc := s.scenes[sn]
 					if sc.camera == e.Removed {
@@ -90,7 +89,7 @@ func NewRenderSystem(engine *ecs.Engine, wm *WindowManager) *RenderSystem {
 
 			case event := <-s.updChan:
 				switch e := event.(type) {
-				case ecs.MessageUpdate:
+				case MessageUpdate:
 					if err := s.Update(e.Delta); err != nil {
 						log.Println("could not render:", err)
 					}
@@ -103,42 +102,42 @@ func NewRenderSystem(engine *ecs.Engine, wm *WindowManager) *RenderSystem {
 }
 
 func (s *RenderSystem) Restart() {
-	s.engine.Subscribe(ecs.Filter{
-		Types: []ecs.MessageType{ecs.UpdateMessageType},
+	s.engine.Subscribe(Filter{
+		Types: []MessageType{UpdateMessageType},
 	}, s.prio, s.updChan)
 
-	s.engine.Subscribe(ecs.Filter{
-		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
-		Aspect: []ecs.ComponentType{TransformationType, GeometryType, MaterialType, SceneTreeType},
+	s.engine.Subscribe(Filter{
+		Types:  []MessageType{EntityAddMessageType, EntityRemoveMessageType},
+		Aspect: []ComponentType{TransformationType, GeometryType, MaterialType, SceneTreeType},
 	}, s.prio, s.drawChan)
 
-	s.engine.Subscribe(ecs.Filter{
-		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
-		Aspect: []ecs.ComponentType{TransformationType, ProjectionType, SceneTreeType},
+	s.engine.Subscribe(Filter{
+		Types:  []MessageType{EntityAddMessageType, EntityRemoveMessageType},
+		Aspect: []ComponentType{TransformationType, ProjectionType, SceneTreeType},
 	}, s.prio, s.camChan)
 }
 
 func (s *RenderSystem) Stop() {
-	s.engine.Unsubscribe(ecs.Filter{
-		Types: []ecs.MessageType{ecs.UpdateMessageType},
+	s.engine.Unsubscribe(Filter{
+		Types: []MessageType{UpdateMessageType},
 	}, s.updChan)
 
-	s.engine.Unsubscribe(ecs.Filter{
-		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
-		Aspect: []ecs.ComponentType{TransformationType, GeometryType, MaterialType, SceneTreeType},
+	s.engine.Unsubscribe(Filter{
+		Types:  []MessageType{EntityAddMessageType, EntityRemoveMessageType},
+		Aspect: []ComponentType{TransformationType, GeometryType, MaterialType, SceneTreeType},
 	}, s.drawChan)
 
-	s.engine.Unsubscribe(ecs.Filter{
-		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
-		Aspect: []ecs.ComponentType{TransformationType, ProjectionType, SceneTreeType},
+	s.engine.Unsubscribe(Filter{
+		Types:  []MessageType{EntityAddMessageType, EntityRemoveMessageType},
+		Aspect: []ComponentType{TransformationType, ProjectionType, SceneTreeType},
 	}, s.camChan)
 
-	//s.drawable = []ecs.Entity{}
+	//s.drawable = []Entity{}
 	//s.camera = -1
 	// TODO: empty scenes?
 }
 
-func (s *RenderSystem) getScene(e ecs.Entity) string {
+func (s *RenderSystem) getScene(e Entity) string {
 	ec, err := s.engine.Get(e, SceneTreeType)
 	if err != nil {
 		return ""
@@ -227,8 +226,8 @@ func (s *RenderSystem) setClearColor(color math.Color, alpha float64) {
 }
 
 type byZ struct {
-	entities []ecs.Entity
-	zorder   map[ecs.Entity]float64
+	entities []Entity
+	zorder   map[Entity]float64
 }
 
 func (a byZ) Len() int {
@@ -241,13 +240,13 @@ func (a byZ) Less(i, j int) bool {
 	return a.zorder[a.entities[i]] < a.zorder[a.entities[j]]
 }
 
-func (s *RenderSystem) visibleEntities(frustum math.Frustum, cp math.Vector, drawable []ecs.Entity) (opaque, transparent []ecs.Entity) {
-	opaque = make([]ecs.Entity, 0)
-	transparent = make([]ecs.Entity, 0)
+func (s *RenderSystem) visibleEntities(frustum math.Frustum, cp math.Vector, drawable []Entity) (opaque, transparent []Entity) {
+	opaque = make([]Entity, 0)
+	transparent = make([]Entity, 0)
 	var err error
-	var ec ecs.Component
+	var ec Component
 
-	zorder := map[ecs.Entity]float64{}
+	zorder := map[Entity]float64{}
 
 	for _, e := range drawable {
 		ec, err = s.engine.Get(e, TransformationType)
@@ -298,7 +297,7 @@ func (s *RenderSystem) visibleEntities(frustum math.Frustum, cp math.Vector, dra
 	return opaque, transparent
 }
 
-func (s *RenderSystem) renderEntity(object, camera ecs.Entity) error {
+func (s *RenderSystem) renderEntity(object, camera Entity) error {
 	ec, err := s.engine.Get(object, MaterialType)
 	if err != nil {
 		return err

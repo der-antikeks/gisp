@@ -4,25 +4,24 @@ import (
 	"log"
 	"time"
 
-	"github.com/der-antikeks/gisp/ecs"
 	"github.com/der-antikeks/gisp/math"
 )
 
 type MovementSystem struct {
-	engine *ecs.Engine
-	prio   ecs.SystemPriority
+	engine *Engine
+	prio   SystemPriority
 
-	messages chan ecs.Message
+	messages chan Message
 
-	moveable []ecs.Entity
+	moveable []Entity
 }
 
-func NewMovementSystem(engine *ecs.Engine) *MovementSystem {
+func NewMovementSystem(engine *Engine) *MovementSystem {
 	s := &MovementSystem{
 		engine: engine,
 		prio:   PriorityBeforeRender,
 
-		messages: make(chan ecs.Message),
+		messages: make(chan Message),
 	}
 
 	go func() {
@@ -30,9 +29,9 @@ func NewMovementSystem(engine *ecs.Engine) *MovementSystem {
 
 		for event := range s.messages {
 			switch e := event.(type) {
-			case ecs.MessageEntityAdd:
+			case MessageEntityAdd:
 				s.moveable = append(s.moveable, e.Added)
-			case ecs.MessageEntityRemove:
+			case MessageEntityRemove:
 				for i, f := range s.moveable {
 					if f == e.Removed {
 						s.moveable = append(s.moveable[:i], s.moveable[i+1:]...)
@@ -40,7 +39,7 @@ func NewMovementSystem(engine *ecs.Engine) *MovementSystem {
 					}
 				}
 
-			case ecs.MessageUpdate:
+			case MessageUpdate:
 				if err := s.Update(e.Delta); err != nil {
 					log.Fatal("could not update movement:", err)
 				}
@@ -52,27 +51,27 @@ func NewMovementSystem(engine *ecs.Engine) *MovementSystem {
 }
 
 func (s *MovementSystem) Restart() {
-	s.engine.Subscribe(ecs.Filter{
-		Types: []ecs.MessageType{ecs.UpdateMessageType},
+	s.engine.Subscribe(Filter{
+		Types: []MessageType{UpdateMessageType},
 	}, s.prio, s.messages)
 
-	s.engine.Subscribe(ecs.Filter{
-		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
-		Aspect: []ecs.ComponentType{TransformationType, VelocityType},
+	s.engine.Subscribe(Filter{
+		Types:  []MessageType{EntityAddMessageType, EntityRemoveMessageType},
+		Aspect: []ComponentType{TransformationType, VelocityType},
 	}, s.prio, s.messages)
 }
 
 func (s *MovementSystem) Stop() {
-	s.engine.Unsubscribe(ecs.Filter{
-		Types: []ecs.MessageType{ecs.UpdateMessageType},
+	s.engine.Unsubscribe(Filter{
+		Types: []MessageType{UpdateMessageType},
 	}, s.messages)
 
-	s.engine.Unsubscribe(ecs.Filter{
-		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
-		Aspect: []ecs.ComponentType{TransformationType, VelocityType},
+	s.engine.Unsubscribe(Filter{
+		Types:  []MessageType{EntityAddMessageType, EntityRemoveMessageType},
+		Aspect: []ComponentType{TransformationType, VelocityType},
 	}, s.messages)
 
-	s.moveable = []ecs.Entity{}
+	s.moveable = []Entity{}
 }
 
 func (s *MovementSystem) Update(delta time.Duration) error {

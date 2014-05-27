@@ -1,4 +1,4 @@
-package ecs
+package game
 
 // General purpose object that identifies a set of components.
 type Entity int
@@ -6,18 +6,20 @@ type Entity int
 // ComponentType identifies a specific Component
 type ComponentType int
 
-/*
+// Component is a set of data needed for a specific purpose
+type Component interface {
+	Type() ComponentType
+}
+
 type Property struct {
 	Name  string
 	Value interface{}
 }
-*/
 
-// Component is a set of data needed for a specific purpose
-type Component interface {
-	Type() ComponentType
-	//Load(<-chan Property) error
-	//Save(chan<- Property) error
+type SerializableComponent interface {
+	Component
+	Load(<-chan Property) error
+	Save(chan<- Property) error
 }
 
 // Aspect is a specific set of component-types

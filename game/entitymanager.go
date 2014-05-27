@@ -6,15 +6,14 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/der-antikeks/gisp/ecs"
 	"github.com/der-antikeks/gisp/math"
 )
 
 type EntityManager struct {
-	engine *ecs.Engine
+	engine *Engine
 }
 
-func NewEntityManager(e *ecs.Engine) *EntityManager {
+func NewEntityManager(e *Engine) *EntityManager {
 	return &EntityManager{
 		engine: e,
 	}
@@ -41,7 +40,7 @@ func (em *EntityManager) CreateMainMenu() {
 	}
 }
 
-func (em *EntityManager) createCube() ecs.Entity {
+func (em *EntityManager) createCube() Entity {
 	// Transformation
 	trans := Transformation{
 		Position: math.Vector{0, 0, 0},
@@ -90,7 +89,7 @@ func (em *EntityManager) createCube() ecs.Entity {
 	return cube
 }
 
-func (em *EntityManager) createRndCube() ecs.Entity {
+func (em *EntityManager) createRndCube() Entity {
 	// helper
 	r := func(min, max float64) float64 {
 		return rand.Float64()*(max-min) + min
@@ -145,7 +144,7 @@ func (em *EntityManager) createRndCube() ecs.Entity {
 	return cube
 }
 
-func (em *EntityManager) createSphere() ecs.Entity {
+func (em *EntityManager) createSphere() Entity {
 	// Transformation
 	trans := Transformation{
 		Position: math.Vector{5, 0, 0},
@@ -210,7 +209,7 @@ func (em *EntityManager) getGeometry(id string) Geometry {
 	return geo
 }
 
-func (em *EntityManager) CreatePerspectiveCamera(fov, aspect, near, far float64) ecs.Entity {
+func (em *EntityManager) CreatePerspectiveCamera(fov, aspect, near, far float64) Entity {
 	t := Transformation{
 		Position: math.Vector{0, 0, -10},
 		//Rotation: math.Quaternion{},
@@ -234,7 +233,7 @@ func (em *EntityManager) CreatePerspectiveCamera(fov, aspect, near, far float64)
 	return c
 }
 
-func (em *EntityManager) CreateOrthographicCamera(left, right, top, bottom, near, far float64) ecs.Entity {
+func (em *EntityManager) CreateOrthographicCamera(left, right, top, bottom, near, far float64) Entity {
 	t := Transformation{
 		Position: math.Vector{0, 0, -10},
 		//Rotation: math.Quaternion{},

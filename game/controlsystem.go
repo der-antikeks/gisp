@@ -3,27 +3,26 @@ package game
 import (
 	"log"
 
-	"github.com/der-antikeks/gisp/ecs"
 	"github.com/der-antikeks/gisp/math"
 )
 
 type OrbitControlSystem struct {
-	engine *ecs.Engine
+	engine *Engine
 	im     *InputManager
-	prio   ecs.SystemPriority
+	prio   SystemPriority
 
-	messages    chan ecs.Message
-	controlable []ecs.Entity
+	messages    chan Message
+	controlable []Entity
 }
 
-func NewOrbitControlSystem(engine *ecs.Engine, im *InputManager) *OrbitControlSystem {
+func NewOrbitControlSystem(engine *Engine, im *InputManager) *OrbitControlSystem {
 	s := &OrbitControlSystem{
 		engine: engine,
 		im:     im,
 		prio:   PriorityBeforeRender,
 
-		messages:    make(chan ecs.Message),
-		controlable: []ecs.Entity{},
+		messages:    make(chan Message),
+		controlable: []Entity{},
 	}
 
 	go func() {
@@ -39,9 +38,9 @@ func NewOrbitControlSystem(engine *ecs.Engine, im *InputManager) *OrbitControlSy
 
 		for event := range s.messages {
 			switch e := event.(type) {
-			case ecs.MessageEntityAdd:
+			case MessageEntityAdd:
 				s.controlable = append(s.controlable, e.Added)
-			case ecs.MessageEntityRemove:
+			case MessageEntityRemove:
 				for i, f := range s.controlable {
 					if f == e.Removed {
 						s.controlable = append(s.controlable[:i], s.controlable[i+1:]...)
@@ -67,7 +66,7 @@ func NewOrbitControlSystem(engine *ecs.Engine, im *InputManager) *OrbitControlSy
 					height = float64(e.Height)
 				*/
 
-			case ecs.MessageUpdate:
+			case MessageUpdate:
 				if dragging {
 					x, y := s.im.MousePos()
 					deltax, deltay = x-oldx, y-oldy // /width, /height
@@ -88,34 +87,34 @@ func NewOrbitControlSystem(engine *ecs.Engine, im *InputManager) *OrbitControlSy
 }
 
 func (s *OrbitControlSystem) Restart() {
-	s.engine.Subscribe(ecs.Filter{
-		Types: []ecs.MessageType{
-			ecs.UpdateMessageType,
+	s.engine.Subscribe(Filter{
+		Types: []MessageType{
+			UpdateMessageType,
 			MouseButtonMessageType,
 			MouseScrollMessageType,
 			ResizeMessageType,
 		},
 	}, s.prio, s.messages)
 
-	s.engine.Subscribe(ecs.Filter{
-		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
-		Aspect: []ecs.ComponentType{TransformationType, OrbitControlType},
+	s.engine.Subscribe(Filter{
+		Types:  []MessageType{EntityAddMessageType, EntityRemoveMessageType},
+		Aspect: []ComponentType{TransformationType, OrbitControlType},
 	}, s.prio, s.messages)
 }
 
 func (s *OrbitControlSystem) Stop() {
-	s.engine.Unsubscribe(ecs.Filter{
-		Types: []ecs.MessageType{
-			ecs.UpdateMessageType,
+	s.engine.Unsubscribe(Filter{
+		Types: []MessageType{
+			UpdateMessageType,
 			MouseButtonMessageType,
 			MouseScrollMessageType,
 			ResizeMessageType,
 		},
 	}, s.messages)
 
-	s.engine.Unsubscribe(ecs.Filter{
-		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
-		Aspect: []ecs.ComponentType{TransformationType, OrbitControlType},
+	s.engine.Unsubscribe(Filter{
+		Types:  []MessageType{EntityAddMessageType, EntityRemoveMessageType},
+		Aspect: []ComponentType{TransformationType, OrbitControlType},
 	}, s.messages)
 
 	s.controlable = s.controlable[:0]

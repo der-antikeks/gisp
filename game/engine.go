@@ -1,4 +1,4 @@
-package ecs
+package game
 
 import (
 	"errors"

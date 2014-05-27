@@ -5,32 +5,33 @@ import (
 	m "math"
 	"time"
 
-	"github.com/der-antikeks/gisp/ecs"
 	"github.com/der-antikeks/gisp/math"
 )
 
 type GameStateSystem struct {
-	engine *ecs.Engine
-	prio   ecs.SystemPriority
+	engine *Engine
+	prio   SystemPriority
 	em     *EntityManager
 	im     *InputManager
 	wm     *WindowManager
 
-	messages    chan ecs.Message
-	state       ecs.Entity
-	initialized bool
+	messages    chan Message
+	state       Entity
 	timer       *time.Timer
+	initialized bool
+	quit        chan struct{}
 }
 
-func NewGameStateSystem(engine *ecs.Engine, em *EntityManager, im *InputManager, wm *WindowManager) *GameStateSystem {
+func NewGameStateSystem(engine *Engine, em *EntityManager, im *InputManager, wm *WindowManager, quit chan struct{}) *GameStateSystem {
 	s := &GameStateSystem{
 		engine:   engine,
 		prio:     PriorityBeforeRender,
 		em:       em,
 		im:       im,
 		wm:       wm,
-		messages: make(chan ecs.Message),
+		messages: make(chan Message),
 		state:    -1,
+		quit:     quit,
 	}
 
 	go func() {
@@ -39,18 +40,18 @@ func NewGameStateSystem(engine *ecs.Engine, em *EntityManager, im *InputManager,
 
 		for event := range s.messages {
 			switch e := event.(type) {
-			case ecs.MessageEntityAdd:
+			case MessageEntityAdd:
 				s.state = e.Added
 
 				if err := s.Update(); err != nil {
 					log.Fatal("could not update game state:", err)
 				}
-			case ecs.MessageEntityRemove:
+			case MessageEntityRemove:
 				if s.state == e.Removed {
 					s.state = -1
 				}
 
-			case ecs.MessageEntityUpdate,
+			case MessageEntityUpdate,
 				MessageKey,
 				MessageTimeout:
 
@@ -65,24 +66,24 @@ func NewGameStateSystem(engine *ecs.Engine, em *EntityManager, im *InputManager,
 }
 
 func (s *GameStateSystem) Restart() {
-	s.engine.Subscribe(ecs.Filter{
-		Types: []ecs.MessageType{TimeoutMessageType},
+	s.engine.Subscribe(Filter{
+		Types: []MessageType{TimeoutMessageType},
 	}, s.prio, s.messages)
 
-	s.engine.Subscribe(ecs.Filter{
-		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityUpdateMessageType, ecs.EntityRemoveMessageType},
-		Aspect: []ecs.ComponentType{GameStateType},
+	s.engine.Subscribe(Filter{
+		Types:  []MessageType{EntityAddMessageType, EntityUpdateMessageType, EntityRemoveMessageType},
+		Aspect: []ComponentType{GameStateType},
 	}, s.prio, s.messages)
 }
 
 func (s *GameStateSystem) Stop() {
-	s.engine.Unsubscribe(ecs.Filter{
-		Types: []ecs.MessageType{KeyMessageType, TimeoutMessageType},
+	s.engine.Unsubscribe(Filter{
+		Types: []MessageType{KeyMessageType, TimeoutMessageType},
 	}, s.messages)
 
-	s.engine.Unsubscribe(ecs.Filter{
-		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityUpdateMessageType, ecs.EntityRemoveMessageType},
-		Aspect: []ecs.ComponentType{GameStateType},
+	s.engine.Unsubscribe(Filter{
+		Types:  []MessageType{EntityAddMessageType, EntityUpdateMessageType, EntityRemoveMessageType},
+		Aspect: []ComponentType{GameStateType},
 	}, s.messages)
 
 	s.state = -1
@@ -124,7 +125,7 @@ func (s *GameStateSystem) Update() error {
 		log.Println("closing")
 
 		s.wm.Close()
-		running = false
+		close(s.quit)
 		// TODO: later replace with quit screen, closing initialized by gui-system
 		return nil
 	}
@@ -164,8 +165,8 @@ func (s *GameStateSystem) Update() error {
 			s.timer.Stop()
 
 			// late key message subscription
-			s.engine.Subscribe(ecs.Filter{
-				Types: []ecs.MessageType{KeyMessageType, TimeoutMessageType},
+			s.engine.Subscribe(Filter{
+				Types: []MessageType{KeyMessageType, TimeoutMessageType},
 			}, s.prio, s.messages)
 
 			/*
@@ -189,7 +190,7 @@ func (s *GameStateSystem) Update() error {
 
 					Min:    5.0,
 					Max:    m.Inf(1),
-					Target: ecs.Entity(0), // TODO: proper target setting
+					Target: Entity(0), // TODO: proper target setting
 				},
 			)
 

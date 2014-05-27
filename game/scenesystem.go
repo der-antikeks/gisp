@@ -4,24 +4,23 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/der-antikeks/gisp/ecs"
 	"github.com/der-antikeks/gisp/math"
 )
 
 type SceneSystem struct {
-	engine *ecs.Engine
-	prio   ecs.SystemPriority
+	engine *Engine
+	prio   SystemPriority
 
-	messages chan ecs.Message
+	messages chan Message
 	trees    map[string]*SphereTree
 }
 
-func NewSceneSystem(engine *ecs.Engine) *SceneSystem {
+func NewSceneSystem(engine *Engine) *SceneSystem {
 	s := &SceneSystem{
 		engine: engine,
 		prio:   PriorityBeforeRender,
 
-		messages: make(chan ecs.Message),
+		messages: make(chan Message),
 		trees:    map[string]*SphereTree{},
 	}
 
@@ -30,19 +29,19 @@ func NewSceneSystem(engine *ecs.Engine) *SceneSystem {
 
 		for event := range s.messages {
 			switch e := event.(type) {
-			case ecs.MessageEntityAdd:
+			case MessageEntityAdd:
 				if err := s.AddEntity(e.Added); err != nil {
 					log.Fatal("could not add entity to scene:", err)
 				}
-			case ecs.MessageEntityUpdate:
+			case MessageEntityUpdate:
 				if err := s.UpdateEntity(e.Updated); err != nil {
 					log.Fatal("could not update entity:", err)
 				}
-			case ecs.MessageEntityRemove:
+			case MessageEntityRemove:
 				if err := s.RemoveEntity(e.Removed); err != nil {
 					log.Fatal("could not remove entity from scene:", err)
 				}
-			case ecs.MessageUpdate:
+			case MessageUpdate:
 				if err := s.UpdateTrees(); err != nil {
 					log.Fatal("could not update scene tree:", err)
 				}
@@ -54,30 +53,30 @@ func NewSceneSystem(engine *ecs.Engine) *SceneSystem {
 }
 
 func (s *SceneSystem) Restart() {
-	s.engine.Subscribe(ecs.Filter{
-		Types: []ecs.MessageType{ecs.UpdateMessageType},
+	s.engine.Subscribe(Filter{
+		Types: []MessageType{UpdateMessageType},
 	}, s.prio, s.messages)
 
-	s.engine.Subscribe(ecs.Filter{
-		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType, ecs.EntityUpdateMessageType},
-		Aspect: []ecs.ComponentType{TransformationType, SceneTreeType},
+	s.engine.Subscribe(Filter{
+		Types:  []MessageType{EntityAddMessageType, EntityRemoveMessageType, EntityUpdateMessageType},
+		Aspect: []ComponentType{TransformationType, SceneTreeType},
 	}, s.prio, s.messages)
 }
 
 func (s *SceneSystem) Stop() {
-	s.engine.Unsubscribe(ecs.Filter{
-		Types: []ecs.MessageType{ecs.UpdateMessageType},
+	s.engine.Unsubscribe(Filter{
+		Types: []MessageType{UpdateMessageType},
 	}, s.messages)
 
-	s.engine.Unsubscribe(ecs.Filter{
-		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType, ecs.EntityUpdateMessageType},
-		Aspect: []ecs.ComponentType{TransformationType, SceneTreeType},
+	s.engine.Unsubscribe(Filter{
+		Types:  []MessageType{EntityAddMessageType, EntityRemoveMessageType, EntityUpdateMessageType},
+		Aspect: []ComponentType{TransformationType, SceneTreeType},
 	}, s.messages)
 
 	// TODO: empty trees?
 }
 
-func (s *SceneSystem) getData(en ecs.Entity) (stc SceneTree, pos math.Vector, radius float64, err error) {
+func (s *SceneSystem) getData(en Entity) (stc SceneTree, pos math.Vector, radius float64, err error) {
 	ec, err := s.engine.Get(en, TransformationType)
 	if err != nil {
 		return
@@ -106,7 +105,7 @@ func (s *SceneSystem) getData(en ecs.Entity) (stc SceneTree, pos math.Vector, ra
 	return
 }
 
-func (s *SceneSystem) AddEntity(en ecs.Entity) error {
+func (s *SceneSystem) AddEntity(en Entity) error {
 	stc, pos, radius, err := s.getData(en)
 	if err != nil {
 		return err
@@ -129,7 +128,7 @@ func (s *SceneSystem) AddEntity(en ecs.Entity) error {
 	return nil
 }
 
-func (s *SceneSystem) UpdateEntity(en ecs.Entity) error {
+func (s *SceneSystem) UpdateEntity(en Entity) error {
 	stc, pos, radius, err := s.getData(en)
 	if err != nil {
 		return err
@@ -143,7 +142,7 @@ func (s *SceneSystem) UpdateEntity(en ecs.Entity) error {
 	return nil
 }
 
-func (s *SceneSystem) RemoveEntity(en ecs.Entity) error {
+func (s *SceneSystem) RemoveEntity(en Entity) error {
 	ec, err := s.engine.Get(en, SceneTreeType)
 	if err != nil {
 		return err

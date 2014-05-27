@@ -3,27 +3,25 @@ package game
 import (
 	"log"
 	"time"
-
-	"github.com/der-antikeks/gisp/ecs"
 )
 
 type MenuSystem struct {
-	engine *ecs.Engine
-	prio   ecs.SystemPriority
+	engine *Engine
+	prio   SystemPriority
 	im     *InputManager
 
-	messages chan ecs.Message
+	messages chan Message
 
-	buttons   []ecs.Entity
-	gamestate ecs.Entity
+	buttons   []Entity
+	gamestate Entity
 }
 
-func NewMenuSystem(engine *ecs.Engine, im *InputManager) *MenuSystem {
+func NewMenuSystem(engine *Engine, im *InputManager) *MenuSystem {
 	s := &MenuSystem{
 		engine:    engine,
 		prio:      PriorityBeforeRender,
 		im:        im,
-		messages:  make(chan ecs.Message),
+		messages:  make(chan Message),
 		gamestate: -1,
 	}
 
@@ -33,7 +31,7 @@ func NewMenuSystem(engine *ecs.Engine, im *InputManager) *MenuSystem {
 		for event := range s.messages {
 			switch e := event.(type) {
 			default:
-			case ecs.MessageUpdate:
+			case MessageUpdate:
 				if err := s.Update(e.Delta); err != nil {
 					log.Fatal("could not update menu:", err)
 				}
@@ -45,37 +43,37 @@ func NewMenuSystem(engine *ecs.Engine, im *InputManager) *MenuSystem {
 }
 
 func (s *MenuSystem) Restart() {
-	s.engine.Subscribe(ecs.Filter{
-		Types: []ecs.MessageType{ecs.UpdateMessageType},
+	s.engine.Subscribe(Filter{
+		Types: []MessageType{UpdateMessageType},
 	}, s.prio, s.messages)
 
-	s.engine.Subscribe(ecs.Filter{
-		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
-		Aspect: []ecs.ComponentType{MenuType, PositionType, MeshType},
+	s.engine.Subscribe(Filter{
+		Types:  []MessageType{EntityAddMessageType, EntityRemoveMessageType},
+		Aspect: []ComponentType{MenuType, PositionType, MeshType},
 	}, s.prio, s.messages)
 
-	s.engine.Subscribe(ecs.Filter{
-		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
-		Aspect: []ecs.ComponentType{GameStateType},
+	s.engine.Subscribe(Filter{
+		Types:  []MessageType{EntityAddMessageType, EntityRemoveMessageType},
+		Aspect: []ComponentType{GameStateType},
 	}, s.prio, s.messages)
 }
 
 func (s *MenuSystem) Stop() {
-	s.engine.Unsubscribe(ecs.Filter{
-		Types: []ecs.MessageType{ecs.UpdateMessageType},
+	s.engine.Unsubscribe(Filter{
+		Types: []MessageType{UpdateMessageType},
 	}, s.messages)
 
-	s.engine.Unsubscribe(ecs.Filter{
-		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
-		Aspect: []ecs.ComponentType{MenuType, PositionType, MeshType},
+	s.engine.Unsubscribe(Filter{
+		Types:  []MessageType{EntityAddMessageType, EntityRemoveMessageType},
+		Aspect: []ComponentType{MenuType, PositionType, MeshType},
 	}, s.messages)
 
-	s.engine.Unsubscribe(ecs.Filter{
-		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
-		Aspect: []ecs.ComponentType{GameStateType},
+	s.engine.Unsubscribe(Filter{
+		Types:  []MessageType{EntityAddMessageType, EntityRemoveMessageType},
+		Aspect: []ComponentType{GameStateType},
 	}, s.messages)
 
-	s.buttons = []ecs.Entity{}
+	s.buttons = []Entity{}
 	s.gamestate = -1
 }
 

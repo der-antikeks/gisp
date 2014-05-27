@@ -5,8 +5,6 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/der-antikeks/gisp/ecs"
-
 	"github.com/go-gl/gl"
 	glfw "github.com/go-gl/glfw3"
 )
@@ -32,7 +30,7 @@ func MainThread(f func()) {
 	<-mDone
 }
 
-func InitOpenGL(w, h int, title string, e *ecs.Engine) (*InputManager, *WindowManager) {
+func InitOpenGL(w, h int, title string, e *Engine) (*InputManager, *WindowManager) {
 	im := NewInputManager(e)
 	wm := NewWindowManager(w, h, title, im, e)
 
@@ -40,12 +38,12 @@ func InitOpenGL(w, h int, title string, e *ecs.Engine) (*InputManager, *WindowMa
 }
 
 type WindowManager struct {
-	engine        *ecs.Engine
+	engine        *Engine
 	width, height int
 	window        *glfw.Window
 }
 
-func NewWindowManager(w, h int, title string, im *InputManager, e *ecs.Engine) *WindowManager {
+func NewWindowManager(w, h int, title string, im *InputManager, e *Engine) *WindowManager {
 	m := &WindowManager{
 		engine: e,
 		width:  w,
@@ -199,14 +197,14 @@ const (
 )
 
 type InputManager struct {
-	engine       *ecs.Engine
+	engine       *Engine
 	keyPressed   map[glfw.Key]bool
 	mousePressed map[glfw.MouseButton]bool
 	mouseClicked map[glfw.MouseButton]bool
 	mx, my, zoom float64
 }
 
-func NewInputManager(e *ecs.Engine) *InputManager {
+func NewInputManager(e *Engine) *InputManager {
 	return &InputManager{
 		engine:       e,
 		keyPressed:   map[glfw.Key]bool{},

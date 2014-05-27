@@ -1,11 +1,11 @@
 package game
 
-import (
-	"github.com/der-antikeks/gisp/ecs"
-)
+import ()
+
+type SystemPriority int
 
 const (
-	PriorityBeforeRender ecs.SystemPriority = iota
+	PriorityBeforeRender SystemPriority = iota
 	PriorityRender
 	PriorityAfterRender
 )
