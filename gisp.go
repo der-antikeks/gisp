@@ -20,19 +20,35 @@ func main() {
 	rand.Seed(time.Now().Unix())
 	engine := game.NewEngine()
 
-	// managers
-	em := game.NewEntityManager(engine)
-	im, wm := game.InitOpenGL(w, h, title, engine)
-	defer wm.Cleanup()
+	// new systems
 
-	// systems
-	quit := make(chan struct{})
-	game.NewGameStateSystem(engine, em, im, wm, quit)
-	game.NewMenuSystem(engine, im)
-	game.NewRenderSystem(engine, wm)
-	game.NewOrbitControlSystem(engine, im)
-	game.NewMovementSystem(engine)
-	game.NewSceneSystem(engine)
+	// swap buffers, poll events, manage window
+	context := NewGlContextSystem(title, w, h)
+	defer context.Cleanup()
+
+	// geometry, material, texture, shader
+	loader := NewAssetLoaderSystem("/assets/")
+	defer loader.Cleanup()
+
+	// create, load/save entities, manage components
+	ent := NewEntitySystem(loader)
+
+	// collisions, visibility of spatially aware entities
+	spatial := NewSpatialSystem(ent)
+
+	// move entities with velocity
+	move := NewMovementSystem(ent)
+
+	// change entities based on controller input
+	ctrl := NewControlSystem(context, ent)
+
+	// manage render passes, priorities and render to screen/buffer
+	render := NewRenderSystem(context, ent)
+
+	// handle game-state, start loading/unloading entities, send update messages
+	state := NewGameStateSystem(context, ent, render)
+	quit := make(chan game.Message)
+	state.OnQuit().Subscribe(quit, game.PriorityLast)
 
 	// main loop
 	var (
@@ -62,7 +78,7 @@ func main() {
 			}
 
 			// update
-			engine.Publish(game.MessageUpdate{Delta: delta})
+			state.OnUpdate().Publish(game.MessageUpdate{Delta: delta})
 
 		case <-console:
 			// print fps

@@ -5,6 +5,10 @@ import ()
 // ComponentType identifies a specific Component
 type ComponentType uint
 
+func (t ComponentType) Uint() uint {
+	return uint(t)
+}
+
 // Component is a set of data needed for a specific purpose
 type Component interface {
 	Type() ComponentType
@@ -27,7 +31,7 @@ type aspect struct {
 }
 
 // Slice of ComponentTypes has all components of the aspect
-func (a *aspect) accepts(types []ComponentType) bool {
+func (a *aspect) subset(types []ComponentType) bool {
 	if a == nil && types != nil {
 		return false
 	}

@@ -4,9 +4,19 @@ import (
 	"sort"
 )
 
+type Priority int
+
+const (
+	PriorityFirst Priority = iota
+	PriorityBeforeRender
+	PriorityRender
+	PriorityAfterRender
+	PriorityLast
+)
+
 type subchan struct {
 	c chan<- Message
-	p int
+	p Priority
 }
 
 type msgchan struct {
@@ -20,7 +30,7 @@ type Observer struct {
 	in    chan Message
 
 	subs   []chan<- Message
-	prio   map[chan<- Message]int
+	prio   map[chan<- Message]Priority
 	update bool
 
 	send    chan msgchan
@@ -34,7 +44,7 @@ func NewObserver() *Observer {
 		in:    make(chan Message),
 
 		subs: make([]chan<- Message, 0),
-		prio: make(map[chan<- Message]int),
+		prio: make(map[chan<- Message]Priority),
 
 		send:    make(chan msgchan),
 		pending: make([]msgchan, 0),
@@ -108,8 +118,8 @@ func NewObserver() *Observer {
 	return o
 }
 
-func (o *Observer) Subscribe(c chan<- Message, prio int) {
-	o.sub <- subchan{c, prio}
+func (o *Observer) Subscribe(c chan<- Message, p Priority) {
+	o.sub <- subchan{c, p}
 }
 
 func (o *Observer) Unsubscribe(c chan<- Message) {

@@ -9,7 +9,7 @@ import (
 type OrbitControlSystem struct {
 	engine *Engine
 	im     *InputManager
-	prio   SystemPriority
+	prio   Priority
 
 	messages    chan Message
 	controlable []Entity

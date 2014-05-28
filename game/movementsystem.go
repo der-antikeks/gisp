@@ -9,7 +9,7 @@ import (
 
 type MovementSystem struct {
 	engine *Engine
-	prio   SystemPriority
+	prio   Priority
 
 	messages chan Message
 

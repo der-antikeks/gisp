@@ -10,7 +10,7 @@ import (
 
 type GameStateSystem struct {
 	engine *Engine
-	prio   SystemPriority
+	prio   Priority
 	em     *EntityManager
 	im     *InputManager
 	wm     *WindowManager

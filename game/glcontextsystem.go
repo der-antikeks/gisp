@@ -30,6 +30,8 @@ func MainThread(f func()) {
 	<-mDone
 }
 
+// NewGlContextSystem()
+
 func InitOpenGL(w, h int, title string, e *Engine) (*InputManager, *WindowManager) {
 	im := NewInputManager(e)
 	wm := NewWindowManager(w, h, title, im, e)

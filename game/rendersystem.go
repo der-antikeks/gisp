@@ -13,7 +13,7 @@ import (
 
 type RenderSystem struct {
 	engine *Engine
-	prio   SystemPriority
+	prio   Priority
 	wm     *WindowManager
 
 	drawChan, camChan, updChan chan Message

@@ -7,7 +7,7 @@ import (
 
 type MenuSystem struct {
 	engine *Engine
-	prio   SystemPriority
+	prio   Priority
 	im     *InputManager
 
 	messages chan Message
