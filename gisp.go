@@ -19,30 +19,18 @@ func main() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 	rand.Seed(time.Now().Unix())
 
-	// swap buffers, poll events, manage window
 	context := game.NewGlContextSystem(title, w, h)
 	defer context.Cleanup()
 
-	// geometry, material, texture, shader
 	loader := game.NewAssetLoaderSystem("/assets/", context)
 	defer loader.Cleanup()
 
-	// create, load/save entities, manage components
 	ents := game.NewEntitySystem(loader)
-
-	// handle game-state, start loading/unloading entities, send update messages
 	state := game.NewGameStateSystem(context, ents)
-
-	// collisions, visibility of spatially aware entities
 	spatial := game.NewSpatialSystem(ents, state /* temporary */)
-
-	// manage render passes, priorities and render to screen/buffer
 	game.NewRenderSystem(context, spatial, state, ents /*temporary*/)
 
-	// move entities with velocity
 	game.NewMovementsSystem(ents, state)
-
-	// change entities based on controller input
 	game.NewControlSystem(context, ents, state)
 
 	// main loop
@@ -57,7 +45,7 @@ func main() {
 
 		update  = time.Tick(time.Duration(1000/fps) * time.Millisecond)
 		console = time.Tick(500 * time.Millisecond)
-		quit    = make(chan game.Message)
+		quit    = make(chan interface{})
 	)
 
 	state.OnQuit().Subscribe(quit, game.PriorityLast)

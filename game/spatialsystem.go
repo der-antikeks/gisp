@@ -9,13 +9,18 @@ import (
 	"github.com/der-antikeks/gisp/math"
 )
 
-// NewSpatialSystem()
+/*
+	collisions, visibility of spatially aware entities
 
+	map[string]*Node	//	root node of scenegraph
+	VisibleEntities(scene, frustum) []Entity
+	Collisions, FollowNearby
+*/
 type SpatialSystem struct {
 	ents  *EntitySystem
 	state *GameStateSystem
 
-	messages chan Message
+	messages chan interface{}
 	trees    map[string]*SphereTree
 }
 
@@ -24,7 +29,7 @@ func NewSpatialSystem(ents *EntitySystem, state *GameStateSystem) *SpatialSystem
 		ents:  ents,
 		state: state,
 
-		messages: make(chan Message),
+		messages: make(chan interface{}),
 		trees:    map[string]*SphereTree{},
 	}
 

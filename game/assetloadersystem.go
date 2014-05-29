@@ -17,6 +17,11 @@ import (
 	"github.com/go-gl/glh"
 )
 
+/*
+	geometry, material, texture, shader
+
+	LoadGeometry(name)
+*/
 type AssetLoaderSystem struct {
 	lock    sync.Mutex
 	path    string

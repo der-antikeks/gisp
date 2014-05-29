@@ -7,12 +7,10 @@ import (
 
 type TestMessage int
 
-func (m TestMessage) Type() MessageType { return 815 }
-
 func TestObserver_Block(t *testing.T) {
 	o := NewObserver()
 
-	c := make(chan Message)
+	c := make(chan interface{})
 	o.Subscribe(c, 1)
 
 	o.Publish(TestMessage(1))
@@ -23,7 +21,7 @@ func TestObserver_Block(t *testing.T) {
 func TestObserver_Mux(t *testing.T) {
 	o := NewObserver()
 
-	c := make(chan Message)
+	c := make(chan interface{})
 	o.Subscribe(c, 1)
 
 	o.Publish(TestMessage(1))
@@ -45,9 +43,9 @@ func TestObserver_Mux(t *testing.T) {
 func TestObserver_Broadcast(t *testing.T) {
 	o := NewObserver()
 
-	c1 := make(chan Message)
+	c1 := make(chan interface{})
 	o.Subscribe(c1, 1)
-	c2 := make(chan Message)
+	c2 := make(chan interface{})
 	o.Subscribe(c2, 1)
 
 	o.Publish(TestMessage(1))
@@ -74,7 +72,7 @@ func TestObserver_Broadcast(t *testing.T) {
 func TestObserver_Unsubscribe(t *testing.T) {
 	o := NewObserver()
 
-	c := make(chan Message)
+	c := make(chan interface{})
 	o.Subscribe(c, 1)
 
 	o.Publish(TestMessage(1))
@@ -100,9 +98,9 @@ func TestObserver_Unsubscribe(t *testing.T) {
 func TestObserver_Sort(t *testing.T) {
 	o := NewObserver()
 
-	c1 := make(chan Message)
+	c1 := make(chan interface{})
 	o.Subscribe(c1, 10)
-	c2 := make(chan Message)
+	c2 := make(chan interface{})
 	o.Subscribe(c2, 1)
 
 	o.Publish(TestMessage(1))

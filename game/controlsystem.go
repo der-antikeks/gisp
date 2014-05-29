@@ -6,12 +6,13 @@ import (
 	"github.com/der-antikeks/gisp/math"
 )
 
+// change entities based on controller input
 type OrbitControlSystem struct {
 	context *GlContextSystem
 	ents    *EntitySystem
 	state   *GameStateSystem
 
-	messages    chan Message
+	messages    chan interface{}
 	controlable []Entity
 }
 
@@ -21,7 +22,7 @@ func NewControlSystem(context *GlContextSystem, ents *EntitySystem, state *GameS
 		ents:    ents,
 		state:   state,
 
-		messages:    make(chan Message),
+		messages:    make(chan interface{}),
 		controlable: []Entity{},
 	}
 

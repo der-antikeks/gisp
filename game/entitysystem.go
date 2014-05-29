@@ -15,6 +15,15 @@ var (
 	ErrNoSuchComponent = errors.New("no such component")
 )
 
+/*
+	create, load/save entities, manage components
+
+	old engine / entity manager
+	NewEntity()
+	Delete(Entity)
+	Set/Get/RemoveComponent()
+	SubscribeOnAdd(Aspect(type,...), chan Entity)
+*/
 type EntitySystem struct {
 	lock sync.RWMutex
 

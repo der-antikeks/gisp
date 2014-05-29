@@ -15,22 +15,22 @@ const (
 )
 
 type subchan struct {
-	c chan<- Message
+	c chan<- interface{}
 	p Priority
 }
 
 type msgchan struct {
-	c chan<- Message
-	m Message
+	c chan<- interface{}
+	m interface{}
 }
 
 type Observer struct {
 	sub   chan subchan
-	unsub chan chan<- Message
-	in    chan Message
+	unsub chan chan<- interface{}
+	in    chan interface{}
 
-	subs   []chan<- Message
-	prio   map[chan<- Message]Priority
+	subs   []chan<- interface{}
+	prio   map[chan<- interface{}]Priority
 	update bool
 
 	send    chan msgchan
@@ -40,11 +40,11 @@ type Observer struct {
 func NewObserver() *Observer {
 	o := &Observer{
 		sub:   make(chan subchan),
-		unsub: make(chan chan<- Message),
-		in:    make(chan Message),
+		unsub: make(chan chan<- interface{}),
+		in:    make(chan interface{}),
 
-		subs: make([]chan<- Message, 0),
-		prio: make(map[chan<- Message]Priority),
+		subs: make([]chan<- interface{}, 0),
+		prio: make(map[chan<- interface{}]Priority),
 
 		send:    make(chan msgchan),
 		pending: make([]msgchan, 0),
@@ -54,9 +54,9 @@ func NewObserver() *Observer {
 	go func() {
 		var (
 			sc subchan
-			c  chan<- Message
+			c  chan<- interface{}
 			ok bool
-			m  Message
+			m  interface{}
 		)
 		for {
 			select {
@@ -79,7 +79,7 @@ func NewObserver() *Observer {
 				}
 			case m = <-o.in:
 				if o.update {
-					sort.Sort(o)
+					sort.Sort(byPriority{o.subs, o.prio})
 					o.update = false
 				}
 				for _, c = range o.subs {
@@ -118,15 +118,15 @@ func NewObserver() *Observer {
 	return o
 }
 
-func (o *Observer) Subscribe(c chan<- Message, p Priority) {
+func (o *Observer) Subscribe(c chan<- interface{}, p Priority) {
 	o.sub <- subchan{c, p}
 }
 
-func (o *Observer) Unsubscribe(c chan<- Message) {
+func (o *Observer) Unsubscribe(c chan<- interface{}) {
 	o.unsub <- c
 }
 
-func (o *Observer) Publish(msg Message) {
+func (o *Observer) Publish(msg interface{}) {
 	o.in <- msg
 }
 
@@ -135,12 +135,18 @@ func (o *Observer) Close() {
 	close(o.send)
 }
 
-func (o *Observer) Len() int {
-	return len(o.subs)
+// byPriority attaches the methods of sort.Interface to []subs, sorting in increasing order of map[]prio
+type byPriority struct {
+	subs []chan<- interface{}
+	prio map[chan<- interface{}]Priority
 }
-func (o *Observer) Swap(i, j int) {
-	o.subs[i], o.subs[j] = o.subs[j], o.subs[i]
+
+func (s byPriority) Len() int {
+	return len(s.subs)
 }
-func (o *Observer) Less(i, j int) bool {
-	return o.prio[o.subs[i]] < o.prio[o.subs[j]]
+func (s byPriority) Swap(i, j int) {
+	s.subs[i], s.subs[j] = s.subs[j], s.subs[i]
+}
+func (s byPriority) Less(i, j int) bool {
+	return s.prio[s.subs[i]] < s.prio[s.subs[j]]
 }

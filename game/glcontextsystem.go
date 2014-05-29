@@ -8,6 +8,14 @@ import (
 	glfw "github.com/go-gl/glfw3"
 )
 
+/*
+	SwapBuffers/PollEvents
+	SetSize/onResize
+	set/getTitle
+	onKey/Mouse/Button
+	IsKeyDown/IsMouseClick
+	SubscribeOnMouseScroll(chan x/y float64)
+*/
 type GlContextSystem struct {
 	mChan chan func()
 	mDone chan struct{}

@@ -7,11 +7,12 @@ import (
 	"github.com/der-antikeks/gisp/math"
 )
 
+// move entities with velocity
 type MovementSystem struct {
 	ents  *EntitySystem
 	state *GameStateSystem
 
-	messages chan Message
+	messages chan interface{}
 
 	moveable []Entity
 }
@@ -21,7 +22,7 @@ func NewMovementsSystem(ents *EntitySystem, state *GameStateSystem) *MovementSys
 		ents:  ents,
 		state: state,
 
-		messages: make(chan Message),
+		messages: make(chan interface{}),
 	}
 
 	go func() {

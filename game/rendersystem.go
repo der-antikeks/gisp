@@ -11,13 +11,20 @@ import (
 	"github.com/go-gl/gl"
 )
 
+/*
+	manage render passes, priorities and render to screen/buffer
+
+	AddPass(CameraEntity, priority)
+		render to framebuffer, render to screen
+		render opaque, transparent
+*/
 type RenderSystem struct {
 	context *GlContextSystem
 	spatial *SpatialSystem
 	state   *GameStateSystem
 	ents    *EntitySystem // temporary
 
-	drawChan, camChan, updChan chan Message
+	drawChan, camChan, updChan chan interface{}
 
 	scenes map[string]struct {
 		drawable []Entity
@@ -37,9 +44,9 @@ func NewRenderSystem(context *GlContextSystem, spatial *SpatialSystem, state *Ga
 		state:   state,
 		ents:    ents,
 
-		drawChan: make(chan Message),
-		camChan:  make(chan Message),
-		updChan:  make(chan Message),
+		drawChan: make(chan interface{}),
+		camChan:  make(chan interface{}),
+		updChan:  make(chan interface{}),
 
 		scenes: map[string]struct {
 			drawable []Entity

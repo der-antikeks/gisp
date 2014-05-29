@@ -8,6 +8,13 @@ import (
 	"github.com/der-antikeks/gisp/math"
 )
 
+/*
+	handle game-state, start loading/unloading entities, send update messages
+
+	state string
+	Update(delta time.Duration)
+	SubscribeOnUpdate(chan time.Duration, prio int)
+*/
 type GameStateSystem struct {
 	context *GlContextSystem
 	ents    *EntitySystem
@@ -15,7 +22,7 @@ type GameStateSystem struct {
 	state string
 	since time.Time
 
-	messages chan Message
+	messages chan interface{}
 	timer    *time.Timer
 
 	quit, update *Observer
@@ -26,7 +33,7 @@ func NewGameStateSystem(context *GlContextSystem, ents *EntitySystem) *GameState
 		context: context,
 		ents:    ents,
 
-		messages: make(chan Message),
+		messages: make(chan interface{}),
 
 		quit:   NewObserver(),
 		update: NewObserver(),
