@@ -8,18 +8,18 @@ import (
 )
 
 type MovementSystem struct {
-	engine *Engine
-	prio   Priority
+	ents  *EntitySystem
+	state *GameStateSystem
 
 	messages chan Message
 
 	moveable []Entity
 }
 
-func NewMovementSystem(engine *Engine) *MovementSystem {
+func NewMovementsSystem(ents *EntitySystem, state *GameStateSystem) *MovementSystem {
 	s := &MovementSystem{
-		engine: engine,
-		prio:   PriorityBeforeRender,
+		ents:  ents,
+		state: state,
 
 		messages: make(chan Message),
 	}
@@ -51,38 +51,30 @@ func NewMovementSystem(engine *Engine) *MovementSystem {
 }
 
 func (s *MovementSystem) Restart() {
-	s.engine.Subscribe(Filter{
-		Types: []MessageType{UpdateMessageType},
-	}, s.prio, s.messages)
+	s.state.OnUpdate().Subscribe(s.messages, PriorityBeforeRender)
 
-	s.engine.Subscribe(Filter{
-		Types:  []MessageType{EntityAddMessageType, EntityRemoveMessageType},
-		Aspect: []ComponentType{TransformationType, VelocityType},
-	}, s.prio, s.messages)
+	s.ents.OnAdd(TransformationType, VelocityType).Subscribe(s.messages, PriorityBeforeRender)
+	s.ents.OnRemove(TransformationType, VelocityType).Subscribe(s.messages, PriorityBeforeRender)
 }
 
 func (s *MovementSystem) Stop() {
-	s.engine.Unsubscribe(Filter{
-		Types: []MessageType{UpdateMessageType},
-	}, s.messages)
+	s.state.OnUpdate().Unsubscribe(s.messages)
 
-	s.engine.Unsubscribe(Filter{
-		Types:  []MessageType{EntityAddMessageType, EntityRemoveMessageType},
-		Aspect: []ComponentType{TransformationType, VelocityType},
-	}, s.messages)
+	s.ents.OnAdd(TransformationType, VelocityType).Unsubscribe(s.messages)
+	s.ents.OnRemove(TransformationType, VelocityType).Unsubscribe(s.messages)
 
 	s.moveable = []Entity{}
 }
 
 func (s *MovementSystem) Update(delta time.Duration) error {
 	for _, en := range s.moveable {
-		ec, err := s.engine.Get(en, TransformationType)
+		ec, err := s.ents.Get(en, TransformationType)
 		if err != nil {
 			return err
 		}
 		transform := ec.(Transformation)
 
-		ec, err = s.engine.Get(en, VelocityType)
+		ec, err = s.ents.Get(en, VelocityType)
 		if err != nil {
 			return err
 		}
@@ -109,7 +101,7 @@ func (s *MovementSystem) Update(delta time.Duration) error {
 		if update {
 			transform.updatedMatrix = false // TODO: remove
 
-			if err := s.engine.Set(en, transform); err != nil {
+			if err := s.ents.Set(en, transform); err != nil {
 				return err
 			}
 		}

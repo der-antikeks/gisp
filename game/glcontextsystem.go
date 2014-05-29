@@ -3,56 +3,71 @@ package game
 import (
 	"log"
 	"runtime"
-	"sync"
 
 	"github.com/go-gl/gl"
 	glfw "github.com/go-gl/glfw3"
 )
 
-var (
-	mOnce sync.Once
-	mChan = make(chan func())
-	mDone = make(chan struct{})
-)
+type GlContextSystem struct {
+	mChan chan func()
+	mDone chan struct{}
 
-func MainThread(f func()) {
-	mOnce.Do(func() {
-		go func() {
-			runtime.LockOSThread()
-			for mf := range mChan {
-				mf()
-				mDone <- struct{}{}
-			}
-		}()
-	})
-
-	mChan <- f
-	<-mDone
-}
-
-// NewGlContextSystem()
-
-func InitOpenGL(w, h int, title string, e *Engine) (*InputManager, *WindowManager) {
-	im := NewInputManager(e)
-	wm := NewWindowManager(w, h, title, im, e)
-
-	return im, wm
-}
-
-type WindowManager struct {
-	engine        *Engine
 	width, height int
 	window        *glfw.Window
+
+	keyPressed   map[glfw.Key]bool
+	mousePressed map[glfw.MouseButton]bool
+	mouseClicked map[glfw.MouseButton]bool
+	mx, my, zoom float64
+
+	resize,
+	key,
+	mousebutton,
+	mousemove,
+	mousescroll *Observer
 }
 
-func NewWindowManager(w, h int, title string, im *InputManager, e *Engine) *WindowManager {
-	m := &WindowManager{
-		engine: e,
+func NewGlContextSystem(title string, w, h int) *GlContextSystem {
+	s := &GlContextSystem{
+		mChan: make(chan func()),
+		mDone: make(chan struct{}),
+
 		width:  w,
 		height: h,
+
+		keyPressed:   map[glfw.Key]bool{},
+		mousePressed: map[glfw.MouseButton]bool{},
+		mouseClicked: map[glfw.MouseButton]bool{},
+
+		resize:      NewObserver(),
+		key:         NewObserver(),
+		mousebutton: NewObserver(),
+		mousemove:   NewObserver(),
+		mousescroll: NewObserver(),
 	}
 
-	MainThread(func() {
+	// main thread
+	go func() {
+		runtime.LockOSThread()
+		for mf := range s.mChan {
+			mf()
+			s.mDone <- struct{}{}
+		}
+	}()
+
+	s.initGl(title)
+
+	return s
+}
+
+// run function on main thread
+func (s *GlContextSystem) MainThread(f func()) {
+	s.mChan <- f
+	<-s.mDone
+}
+
+func (s *GlContextSystem) initGl(title string) {
+	s.MainThread(func() {
 		// init glfw
 		glfw.SetErrorCallback(func(err glfw.ErrorCode, desc string) {
 			log.Fatalln("error callback:", err, desc)
@@ -66,23 +81,23 @@ func NewWindowManager(w, h int, title string, im *InputManager, e *Engine) *Wind
 		glfw.WindowHint(glfw.Samples, 4)
 
 		var err error
-		m.window, err = glfw.CreateWindow(w, h, title, nil, nil)
+		s.window, err = glfw.CreateWindow(s.width, s.height, title, nil, nil)
 		if err != nil {
 			log.Fatalf("create window: %v", err)
 		}
 
-		m.window.MakeContextCurrent()
+		s.window.MakeContextCurrent()
 		glfw.SwapInterval(1)
 		gl.Init()
 
 		// callbacks
-		m.window.SetFramebufferSizeCallback(m.onResize)
+		s.window.SetFramebufferSizeCallback(s.onResize)
 
-		m.window.SetKeyCallback(im.onKey)
-		m.window.SetCursorPositionCallback(im.onMouseMove)
-		m.window.SetScrollCallback(im.onMouseScroll)
-		m.window.SetMouseButtonCallback(im.onMouseButton)
-		//m.window.SetInputMode(glfw.Cursor, glfw.CursorNormal /*glfw.CursorDisabled*/)
+		s.window.SetKeyCallback(s.onKey)
+		s.window.SetCursorPositionCallback(s.onMouseMove)
+		s.window.SetScrollCallback(s.onMouseScroll)
+		s.window.SetMouseButtonCallback(s.onMouseButton)
+		//s.window.SetInputMode(glfw.Cursor, glfw.CursorNormal /*glfw.CursorDisabled*/)
 
 		// init gl
 
@@ -109,29 +124,27 @@ func NewWindowManager(w, h int, title string, im *InputManager, e *Engine) *Wind
 		gl.Hint(gl.PERSPECTIVE_CORRECTION_HINT, gl.NICEST)
 
 		// set size
-		w, h = m.window.GetFramebufferSize()
-		m.onResize(m.window, w, h)
+		w, h := s.window.GetFramebufferSize()
+		s.onResize(s.window, w, h)
 	})
-
-	return m
 }
 
-func (m *WindowManager) isRunning() bool {
-	return !m.window.ShouldClose()
+func (s *GlContextSystem) isRunning() bool {
+	return !s.window.ShouldClose()
 }
 
-func (m *WindowManager) Update() {
-	MainThread(func() {
-		m.window.SwapBuffers()
+func (s *GlContextSystem) Update() {
+	s.MainThread(func() {
+		s.window.SwapBuffers()
 		glfw.PollEvents()
 	})
 }
 
-func (m *WindowManager) Cleanup() {
+func (s *GlContextSystem) Cleanup() {
 	glfw.Terminate()
 }
 
-func (m *WindowManager) onResize(w *glfw.Window, width, height int) {
+func (s *GlContextSystem) onResize(w *glfw.Window, width, height int) {
 	//h := float64(height) / float64(width)
 	//znear := 1.0
 	//zfar := 1000.0
@@ -156,24 +169,24 @@ func (m *WindowManager) onResize(w *glfw.Window, width, height int) {
 	//	gl.LoadIdentity()
 	//gl.Translated(0.0, 0.0, -20.0)
 
-	m.width = width
-	m.height = height
+	s.width = width
+	s.height = height
 
-	m.engine.Publish(MessageResize{width, height})
+	s.resize.Publish(MessageResize{width, height})
 }
 
-func (m *WindowManager) SetSize(width, height int) {
-	m.width = width
-	m.height = height
-	m.window.SetSize(width, height) // TODO: Loops to onResize()?
+func (s *GlContextSystem) SetSize(width, height int) {
+	s.width = width
+	s.height = height
+	s.window.SetSize(width, height) // TODO: Loops to onResize()?
 }
 
-func (m *WindowManager) Size() (width, height int) {
-	return m.width, m.height
+func (s *GlContextSystem) Size() (width, height int) {
+	return s.width, s.height
 }
 
-func (m *WindowManager) Close() {
-	m.window.SetShouldClose(true)
+func (s *GlContextSystem) Close() {
+	s.window.SetShouldClose(true)
 }
 
 type Key int
@@ -198,40 +211,23 @@ const (
 	KeyD = Key(glfw.KeyD)
 )
 
-type InputManager struct {
-	engine       *Engine
-	keyPressed   map[glfw.Key]bool
-	mousePressed map[glfw.MouseButton]bool
-	mouseClicked map[glfw.MouseButton]bool
-	mx, my, zoom float64
-}
-
-func NewInputManager(e *Engine) *InputManager {
-	return &InputManager{
-		engine:       e,
-		keyPressed:   map[glfw.Key]bool{},
-		mousePressed: map[glfw.MouseButton]bool{},
-		mouseClicked: map[glfw.MouseButton]bool{},
-	}
-}
-
-func (m *InputManager) onKey(w *glfw.Window, key glfw.Key, scancode int, action glfw.Action, mods glfw.ModifierKey) {
+func (s *GlContextSystem) onKey(w *glfw.Window, key glfw.Key, scancode int, action glfw.Action, mods glfw.ModifierKey) {
 	switch action {
 	case glfw.Press:
-		m.keyPressed[key] = true
+		s.keyPressed[key] = true
 	case glfw.Release:
-		delete(m.keyPressed, key)
+		delete(s.keyPressed, key)
 	}
 
-	m.engine.Publish(MessageKey(key))
+	s.key.Publish(MessageKey(key))
 }
 
-func (m *InputManager) IsKeyDown(key Key) bool {
-	return m.keyPressed[glfw.Key(key)]
+func (s *GlContextSystem) IsKeyDown(key Key) bool {
+	return s.keyPressed[glfw.Key(key)]
 }
 
-func (m *InputManager) AnyKeyDown() bool {
-	for _, d := range m.keyPressed {
+func (s *GlContextSystem) AnyKeyDown() bool {
+	for _, d := range s.keyPressed {
 		if d {
 			return true
 		}
@@ -239,43 +235,43 @@ func (m *InputManager) AnyKeyDown() bool {
 	return false
 }
 
-func (m *InputManager) onMouseMove(window *glfw.Window, xpos float64, ypos float64) {
-	m.mx, m.my = xpos, ypos
+func (s *GlContextSystem) onMouseMove(window *glfw.Window, xpos float64, ypos float64) {
+	s.mx, s.my = xpos, ypos
 
-	for b := range m.mouseClicked {
-		delete(m.mouseClicked, b)
+	for b := range s.mouseClicked {
+		delete(s.mouseClicked, b)
 	}
 
-	m.engine.Publish(MessageMouseMove{xpos, ypos})
+	s.mousemove.Publish(MessageMouseMove{xpos, ypos})
 }
 
-func (m *InputManager) MousePos() (x, y float64) {
-	return m.mx, m.my
+func (s *GlContextSystem) MousePos() (x, y float64) {
+	return s.mx, s.my
 }
 
-func (m *InputManager) onMouseScroll(w *glfw.Window, xoff float64, yoff float64) {
-	m.zoom += yoff
-	m.engine.Publish(MessageMouseScroll(yoff))
+func (s *GlContextSystem) onMouseScroll(w *glfw.Window, xoff float64, yoff float64) {
+	s.zoom += yoff
+	s.mousescroll.Publish(MessageMouseScroll(yoff))
 }
 
-func (m *InputManager) MouseScroll() float64 {
-	return m.zoom
+func (s *GlContextSystem) MouseScroll() float64 {
+	return s.zoom
 }
 
-func (m *InputManager) onMouseButton(w *glfw.Window, b glfw.MouseButton, action glfw.Action, mods glfw.ModifierKey) {
+func (s *GlContextSystem) onMouseButton(w *glfw.Window, b glfw.MouseButton, action glfw.Action, mods glfw.ModifierKey) {
 	switch action {
 	case glfw.Press:
-		m.mousePressed[b] = true
-		delete(m.mouseClicked, b)
+		s.mousePressed[b] = true
+		delete(s.mouseClicked, b)
 	case glfw.Release:
-		delete(m.mousePressed, b)
+		delete(s.mousePressed, b)
 
-		if v, ok := m.mouseClicked[b]; ok && !v {
-			m.mouseClicked[b] = true
+		if v, ok := s.mouseClicked[b]; ok && !v {
+			s.mouseClicked[b] = true
 		}
 	}
 
-	m.engine.Publish(MessageMouseButton(b))
+	s.mousebutton.Publish(MessageMouseButton(b))
 }
 
 type MouseButton int
@@ -285,12 +281,17 @@ const (
 	MouseRight = MouseButton(glfw.MouseButton2)
 )
 
-func (m *InputManager) IsMouseDown(button MouseButton) bool {
-	return m.mousePressed[glfw.MouseButton(button)]
+func (s *GlContextSystem) IsMouseDown(button MouseButton) bool {
+	return s.mousePressed[glfw.MouseButton(button)]
 }
 
 // mouse up after a down without movement
-func (m *InputManager) IsMouseClick(button MouseButton) bool {
-	s := m.mouseClicked[glfw.MouseButton(button)]
-	return s
+func (s *GlContextSystem) IsMouseClick(button MouseButton) bool {
+	return s.mouseClicked[glfw.MouseButton(button)]
 }
+
+func (s *GlContextSystem) OnResize() *Observer      { return s.resize }
+func (s *GlContextSystem) OnKey() *Observer         { return s.key }
+func (s *GlContextSystem) OnMouseButton() *Observer { return s.mousebutton }
+func (s *GlContextSystem) OnMouseMove() *Observer   { return s.mousemove }
+func (s *GlContextSystem) OnMouseScroll() *Observer { return s.mousescroll }

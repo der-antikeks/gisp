@@ -2,15 +2,12 @@ package game
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/der-antikeks/gisp/math"
 )
 
 const (
-	GameStateType ComponentType = 1 << iota
-
-	ProjectionType
+	ProjectionType ComponentType = 1 << iota
 	TransformationType
 	VelocityType
 	GeometryType
@@ -25,15 +22,6 @@ const (
 	MeshType
 	PositionType
 )
-
-type GameStateComponent struct {
-	State string
-	Since time.Time
-}
-
-func (c GameStateComponent) Type() ComponentType {
-	return GameStateType
-}
 
 type Projection struct {
 	Matrix math.Matrix

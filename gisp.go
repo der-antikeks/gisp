@@ -18,37 +18,32 @@ func main() {
 	// init
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 	rand.Seed(time.Now().Unix())
-	engine := game.NewEngine()
-
-	// new systems
 
 	// swap buffers, poll events, manage window
-	context := NewGlContextSystem(title, w, h)
+	context := game.NewGlContextSystem(title, w, h)
 	defer context.Cleanup()
 
 	// geometry, material, texture, shader
-	loader := NewAssetLoaderSystem("/assets/")
+	loader := game.NewAssetLoaderSystem("/assets/", context)
 	defer loader.Cleanup()
 
 	// create, load/save entities, manage components
-	ent := NewEntitySystem(loader)
-
-	// collisions, visibility of spatially aware entities
-	spatial := NewSpatialSystem(ent)
-
-	// move entities with velocity
-	move := NewMovementSystem(ent)
-
-	// change entities based on controller input
-	ctrl := NewControlSystem(context, ent)
-
-	// manage render passes, priorities and render to screen/buffer
-	render := NewRenderSystem(context, ent)
+	ents := game.NewEntitySystem(loader)
 
 	// handle game-state, start loading/unloading entities, send update messages
-	state := NewGameStateSystem(context, ent, render)
-	quit := make(chan game.Message)
-	state.OnQuit().Subscribe(quit, game.PriorityLast)
+	state := game.NewGameStateSystem(context, ents)
+
+	// collisions, visibility of spatially aware entities
+	spatial := game.NewSpatialSystem(ents, state /* temporary */)
+
+	// manage render passes, priorities and render to screen/buffer
+	game.NewRenderSystem(context, spatial, state, ents /*temporary*/)
+
+	// move entities with velocity
+	game.NewMovementsSystem(ents, state)
+
+	// change entities based on controller input
+	game.NewControlSystem(context, ents, state)
 
 	// main loop
 	var (
@@ -62,7 +57,10 @@ func main() {
 
 		update  = time.Tick(time.Duration(1000/fps) * time.Millisecond)
 		console = time.Tick(500 * time.Millisecond)
+		quit    = make(chan game.Message)
 	)
+
+	state.OnQuit().Subscribe(quit, game.PriorityLast)
 
 	for {
 		select {
@@ -78,7 +76,7 @@ func main() {
 			}
 
 			// update
-			state.OnUpdate().Publish(game.MessageUpdate{Delta: delta})
+			state.Update(delta)
 
 		case <-console:
 			// print fps

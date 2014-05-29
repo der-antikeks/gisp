@@ -9,102 +9,71 @@ import (
 )
 
 type GameStateSystem struct {
-	engine *Engine
-	prio   Priority
-	em     *EntityManager
-	im     *InputManager
-	wm     *WindowManager
+	context *GlContextSystem
+	ents    *EntitySystem
 
-	messages    chan Message
-	state       Entity
-	timer       *time.Timer
-	initialized bool
-	quit        chan struct{}
+	state string
+	since time.Time
+
+	messages chan Message
+	timer    *time.Timer
+
+	quit, update *Observer
 }
 
-func NewGameStateSystem(engine *Engine, em *EntityManager, im *InputManager, wm *WindowManager, quit chan struct{}) *GameStateSystem {
+func NewGameStateSystem(context *GlContextSystem, ents *EntitySystem) *GameStateSystem {
 	s := &GameStateSystem{
-		engine:   engine,
-		prio:     PriorityBeforeRender,
-		em:       em,
-		im:       im,
-		wm:       wm,
+		context: context,
+		ents:    ents,
+
 		messages: make(chan Message),
-		state:    NoEntity,
-		quit:     quit,
+
+		quit:   NewObserver(),
+		update: NewObserver(),
 	}
 
-	go func() {
-		s.Restart()
-		s.init()
+	/*
+		go func() {
+			s.Restart()
 
-		for event := range s.messages {
-			switch e := event.(type) {
-			case MessageEntityAdd:
-				s.state = e.Added
+			for event := range s.messages {
+				switch event.(type) {
+				case MessageKey,
+					MessageTimeout:
 
-				if err := s.Update(); err != nil {
-					log.Fatal("could not update game state:", err)
-				}
-			case MessageEntityRemove:
-				if s.state == e.Removed {
-					s.state = NoEntity
-				}
-
-			case MessageEntityUpdate,
-				MessageKey,
-				MessageTimeout:
-
-				if err := s.Update(); err != nil {
-					log.Fatal("could not update game state:", err)
+					if err := s.Update(); err != nil {
+						log.Fatal("could not update game state:", err)
+					}
 				}
 			}
-		}
-	}()
+		}()
+	*/
 
 	return s
 }
 
 func (s *GameStateSystem) Restart() {
-	s.engine.Subscribe(Filter{
-		Types: []MessageType{TimeoutMessageType},
-	}, s.prio, s.messages)
-
-	s.engine.Subscribe(Filter{
-		Types:  []MessageType{EntityAddMessageType, EntityUpdateMessageType, EntityRemoveMessageType},
-		Aspect: []ComponentType{GameStateType},
-	}, s.prio, s.messages)
+	//s.update.Subscribe(s.messages, PriorityBeforeRender)
 }
 
 func (s *GameStateSystem) Stop() {
-	s.engine.Unsubscribe(Filter{
-		Types: []MessageType{KeyMessageType, TimeoutMessageType},
-	}, s.messages)
+	s.context.OnKey().Unsubscribe(s.messages)
+	//s.update.Unsubscribe(s.messages)
 
-	s.engine.Unsubscribe(Filter{
-		Types:  []MessageType{EntityAddMessageType, EntityUpdateMessageType, EntityRemoveMessageType},
-		Aspect: []ComponentType{GameStateType},
-	}, s.messages)
-
-	s.state = NoEntity
+	s.state = ""
 }
 
 func (s *GameStateSystem) init() {
-	if s.initialized || s.state != NoEntity {
-		return
-	}
-
 	log.Println("initialize")
-	s.em.Initalize()
 
-	w, h := s.wm.Size()
+	w, h := s.context.Size()
 	aspect := float64(w) / float64(h) // 4.0 / 3.0
 	// TODO: update aspect after wm.onResize
 
 	size := 10.0
-	c := s.em.CreateOrthographicCamera(-size, size, size/aspect, -size/aspect, 1, 100)
+	c := s.ents.CreateOrthographicCamera(-size, size, size/aspect, -size/aspect, 1, 100)
 
-	ec, err := s.engine.Get(c, TransformationType)
+	ec, err := s.ents.Get(c, TransformationType)
 	if err != nil {
 		log.Fatal("could not get transform of camera:", err)
 	}
@@ -113,76 +82,67 @@ func (s *GameStateSystem) init() {
 	t.Position = math.Vector{0, 10, 0}
 	t.Rotation = math.QuaternionLookAt(t.Position, math.Vector{0, 0, 0}, t.Up)
 
-	if err := s.engine.Set(c, t); err != nil {
+	if err := s.ents.Set(c, t); err != nil {
 		log.Fatal("could not move camera:", err)
 	}
-
-	s.initialized = true
 }
 
-func (s *GameStateSystem) Update() error {
-	if s.im.IsKeyDown(KeyEscape) {
+func (s *GameStateSystem) Update(delta time.Duration) {
+	if s.context.IsKeyDown(KeyEscape) {
 		log.Println("closing")
 
-		s.wm.Close()
-		close(s.quit)
+		s.context.Close()
+		s.quit.Publish(MessageQuit{})
 		// TODO: later replace with quit screen, closing initialized by gui-system
-		return nil
+		return
 	}
 
-	if s.state == NoEntity {
-		return nil
-	}
+	switch s.state {
+	case "":
+		s.init()
+		s.state = "init"
+		s.since = time.Now()
 
-	ec, err := s.engine.Get(s.state, GameStateType)
-	if err != nil {
-		return err
-	}
-	se := ec.(GameStateComponent)
-	var update bool
-
-	switch se.State {
 	case "init":
 		log.Println("create splash screen")
 
-		s.em.CreateSplashScreen()
-		se.State = "splash"
-		se.Since = time.Now()
-		update = true
+		s.ents.CreateSplashScreen()
+		s.state = "splash"
+		s.since = time.Now()
 
-		if s.timer != nil {
-			s.timer.Stop()
-		}
-		s.timer = time.AfterFunc(5*time.Second+1, func() {
-			log.Println("timeout!")
-			s.messages <- MessageTimeout(se.Since)
-		})
+		/*
+			if s.timer != nil {
+				s.timer.Stop()
+			}
+			s.timer = time.AfterFunc(5*time.Second+1, func() {
+				log.Println("timeout!")
+				s.messages <- MessageTimeout(s.since)
+			})
+		*/
 
 	case "splash":
-		if time.Now().After(se.Since.Add(5*time.Second)) || s.im.AnyKeyDown() {
+		if time.Now().After(s.since.Add(5*time.Second)) || s.context.AnyKeyDown() {
 			log.Println("create main menu")
 
-			s.timer.Stop()
+			//s.timer.Stop()
 
 			// late key message subscription
-			s.engine.Subscribe(Filter{
-				Types: []MessageType{KeyMessageType, TimeoutMessageType},
-			}, s.prio, s.messages)
+			s.context.OnKey().Subscribe(s.messages, PriorityBeforeRender)
 
 			/*
-				for _, e := range s.engine.Query() {
+				for _, e := range s.ents.Query() {
 					if e == s.state {
 						continue
 					}
-					s.engine.Delete(e) // ignoring errors
+					s.ents.Delete(e) // ignoring errors
 				}
 			*/
 
-			s.em.CreateMainMenu()
+			s.ents.CreateMainMenu()
 
-			w, h := s.wm.Size()
-			c := s.em.CreatePerspectiveCamera(45.0, float64(w)/float64(h), 0.1, 100.0)
-			s.engine.Set(c,
+			w, h := s.context.Size()
+			c := s.ents.CreatePerspectiveCamera(45.0, float64(w)/float64(h), 0.1, 100.0)
+			s.ents.Set(c,
 				OrbitControl{
 					MovementSpeed: 1.0,
 					RotationSpeed: 0.01,
@@ -194,53 +154,46 @@ func (s *GameStateSystem) Update() error {
 				},
 			)
 
-			se.State = "mainmenu"
-			se.Since = time.Now()
-			update = true
+			s.state = "mainmenu"
+			s.since = time.Now()
 		}
 
 	case "mainmenu":
-		if s.im.IsKeyDown(KeyEnter) {
+		if s.context.IsKeyDown(KeyEnter) {
 			log.Println("starting game")
 
-			se.State = "playing"
-			se.Since = time.Now()
-			update = true
+			s.state = "playing"
+			s.since = time.Now()
 		}
 
 	case "optionsmenu":
-		if s.im.IsKeyDown(KeyEscape) {
+		if s.context.IsKeyDown(KeyEscape) {
 			log.Println("back to main menu")
 
-			se.State = "mainmenu"
-			se.Since = time.Now()
-			update = true
+			s.state = "mainmenu"
+			s.since = time.Now()
 		}
 
 	case "playing":
-		if s.im.IsKeyDown(KeyPause) {
+		if s.context.IsKeyDown(KeyPause) {
 			log.Println("pausing")
 
-			se.State = "pause"
-			se.Since = time.Now()
-			update = true
+			s.state = "pause"
+			s.since = time.Now()
 		}
 
 	case "pause":
-		if !s.im.IsKeyDown(KeyPause) && s.im.AnyKeyDown() {
+		if !s.context.IsKeyDown(KeyPause) && s.context.AnyKeyDown() {
 			log.Println("restarting")
 
-			se.State = "playing"
-			se.Since = time.Now()
-			update = true
+			s.state = "playing"
+			s.since = time.Now()
 		}
 	}
 
-	if update {
-		if err := s.engine.Set(s.state, se); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	s.update.Publish(MessageUpdate{Delta: delta})
+	return
 }
+
+func (s *GameStateSystem) OnQuit() *Observer   { return s.quit }
+func (s *GameStateSystem) OnUpdate() *Observer { return s.update }

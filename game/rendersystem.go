@@ -12,9 +12,10 @@ import (
 )
 
 type RenderSystem struct {
-	engine *Engine
-	prio   Priority
-	wm     *WindowManager
+	context *GlContextSystem
+	spatial *SpatialSystem
+	state   *GameStateSystem
+	ents    *EntitySystem // temporary
 
 	drawChan, camChan, updChan chan Message
 
@@ -29,11 +30,12 @@ type RenderSystem struct {
 	currentTextures []gl.Texture // usedTextureUnits
 }
 
-func NewRenderSystem(engine *Engine, wm *WindowManager) *RenderSystem {
+func NewRenderSystem(context *GlContextSystem, spatial *SpatialSystem, state *GameStateSystem, ents *EntitySystem) *RenderSystem {
 	s := &RenderSystem{
-		engine: engine,
-		prio:   PriorityRender,
-		wm:     wm,
+		context: context,
+		spatial: spatial,
+		state:   state,
+		ents:    ents,
 
 		drawChan: make(chan Message),
 		camChan:  make(chan Message),
@@ -102,35 +104,23 @@ func NewRenderSystem(engine *Engine, wm *WindowManager) *RenderSystem {
 }
 
 func (s *RenderSystem) Restart() {
-	s.engine.Subscribe(Filter{
-		Types: []MessageType{UpdateMessageType},
-	}, s.prio, s.updChan)
+	s.state.OnUpdate().Subscribe(s.updChan, PriorityRender)
 
-	s.engine.Subscribe(Filter{
-		Types:  []MessageType{EntityAddMessageType, EntityRemoveMessageType},
-		Aspect: []ComponentType{TransformationType, GeometryType, MaterialType, SceneTreeType},
-	}, s.prio, s.drawChan)
+	s.ents.OnAdd(TransformationType, GeometryType, MaterialType, SceneTreeType).Subscribe(s.drawChan, PriorityRender)
+	s.ents.OnRemove(TransformationType, GeometryType, MaterialType, SceneTreeType).Subscribe(s.drawChan, PriorityRender)
 
-	s.engine.Subscribe(Filter{
-		Types:  []MessageType{EntityAddMessageType, EntityRemoveMessageType},
-		Aspect: []ComponentType{TransformationType, ProjectionType, SceneTreeType},
-	}, s.prio, s.camChan)
+	s.ents.OnAdd(TransformationType, ProjectionType, SceneTreeType).Subscribe(s.camChan, PriorityRender)
+	s.ents.OnRemove(TransformationType, ProjectionType, SceneTreeType).Subscribe(s.camChan, PriorityRender)
 }
 
 func (s *RenderSystem) Stop() {
-	s.engine.Unsubscribe(Filter{
-		Types: []MessageType{UpdateMessageType},
-	}, s.updChan)
+	s.state.OnUpdate().Unsubscribe(s.updChan)
 
-	s.engine.Unsubscribe(Filter{
-		Types:  []MessageType{EntityAddMessageType, EntityRemoveMessageType},
-		Aspect: []ComponentType{TransformationType, GeometryType, MaterialType, SceneTreeType},
-	}, s.drawChan)
+	s.ents.OnAdd(TransformationType, GeometryType, MaterialType, SceneTreeType).Unsubscribe(s.drawChan)
+	s.ents.OnRemove(TransformationType, GeometryType, MaterialType, SceneTreeType).Unsubscribe(s.drawChan)
 
-	s.engine.Unsubscribe(Filter{
-		Types:  []MessageType{EntityAddMessageType, EntityRemoveMessageType},
-		Aspect: []ComponentType{TransformationType, ProjectionType, SceneTreeType},
-	}, s.camChan)
+	s.ents.OnAdd(TransformationType, ProjectionType, SceneTreeType).Unsubscribe(s.camChan)
+	s.ents.OnRemove(TransformationType, ProjectionType, SceneTreeType).Unsubscribe(s.camChan)
 
 	//s.drawable = []Entity{}
 	//s.camera = NoEntity
@@ -138,7 +128,7 @@ func (s *RenderSystem) Stop() {
 }
 
 func (s *RenderSystem) getScene(e Entity) string {
-	ec, err := s.engine.Get(e, SceneTreeType)
+	ec, err := s.ents.Get(e, SceneTreeType)
 	if err != nil {
 		return ""
 	}
@@ -159,13 +149,13 @@ func (s *RenderSystem) updateScene(delta time.Duration, sc string) error {
 	alpha := 1.0
 	s.setClearColor(color, alpha)
 
-	// w, h := s.wm.Size()
+	// w, h := s.context.Size()
 	// gl.Viewport(0, 0, w, h) TODO: already set in WindowManager onResize(), must be changed with frambuffer?
 
 	// TODO: clearing should depend on rendertarget
 	clear := true
 	if clear {
-		MainThread(func() {
+		s.context.MainThread(func() {
 			gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 		})
 	}
@@ -177,13 +167,13 @@ func (s *RenderSystem) updateScene(delta time.Duration, sc string) error {
 	// update scene matrix (all objects)
 	// update camera matrix if not child of scene
 	// calculate frustum of camera
-	ec, err := s.engine.Get(s.scenes[sc].camera, ProjectionType)
+	ec, err := s.ents.Get(s.scenes[sc].camera, ProjectionType)
 	if err != nil {
 		return err
 	}
 	p := ec.(Projection)
 
-	ec, err = s.engine.Get(s.scenes[sc].camera, TransformationType)
+	ec, err = s.ents.Get(s.scenes[sc].camera, TransformationType)
 	if err != nil {
 		return err
 	}
@@ -195,7 +185,7 @@ func (s *RenderSystem) updateScene(delta time.Duration, sc string) error {
 	opaque, transparent := s.visibleEntities(frustum, t.Position, s.scenes[sc].drawable)
 
 	// opaque pass (front-to-back order)
-	MainThread(func() {
+	s.context.MainThread(func() {
 		gl.Disable(gl.BLEND)
 
 		for _, e := range opaque {
@@ -204,7 +194,7 @@ func (s *RenderSystem) updateScene(delta time.Duration, sc string) error {
 	})
 
 	// transparent pass (back-to-front order)
-	MainThread(func() {
+	s.context.MainThread(func() {
 		gl.Enable(gl.BLEND)
 		gl.BlendEquationSeparate(gl.FUNC_ADD, gl.FUNC_ADD)
 		gl.BlendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
@@ -215,16 +205,17 @@ func (s *RenderSystem) updateScene(delta time.Duration, sc string) error {
 	})
 
 	// swap buffers
-	s.wm.Update()
+	s.context.Update()
 	return nil
 }
 
 func (s *RenderSystem) setClearColor(color math.Color, alpha float64) {
-	MainThread(func() {
+	s.context.MainThread(func() {
 		gl.ClearColor(gl.GLclampf(color.R), gl.GLclampf(color.G), gl.GLclampf(color.B), gl.GLclampf(alpha))
 	})
 }
 
+// TODO: replace with spatial system
 type byZ struct {
 	entities []Entity
 	zorder   map[Entity]float64
@@ -249,19 +240,19 @@ func (s *RenderSystem) visibleEntities(frustum math.Frustum, cp math.Vector, dra
 	zorder := map[Entity]float64{}
 
 	for _, e := range drawable {
-		ec, err = s.engine.Get(e, TransformationType)
+		ec, err = s.ents.Get(e, TransformationType)
 		if err != nil {
 			continue
 		}
 		t := ec.(Transformation)
 
-		ec, err = s.engine.Get(e, GeometryType)
+		ec, err = s.ents.Get(e, GeometryType)
 		if err != nil {
 			continue
 		}
 		g := ec.(Geometry)
 
-		ec, err = s.engine.Get(e, MaterialType)
+		ec, err = s.ents.Get(e, MaterialType)
 		if err != nil {
 			continue
 		}
@@ -298,31 +289,31 @@ func (s *RenderSystem) visibleEntities(frustum math.Frustum, cp math.Vector, dra
 }
 
 func (s *RenderSystem) renderEntity(object, camera Entity) error {
-	ec, err := s.engine.Get(object, MaterialType)
+	ec, err := s.ents.Get(object, MaterialType)
 	if err != nil {
 		return err
 	}
 	material := ec.(Material)
 
-	ec, err = s.engine.Get(object, GeometryType)
+	ec, err = s.ents.Get(object, GeometryType)
 	if err != nil {
 		return err
 	}
 	geometry := ec.(Geometry)
 
-	ec, err = s.engine.Get(camera, ProjectionType)
+	ec, err = s.ents.Get(camera, ProjectionType)
 	if err != nil {
 		return err
 	}
 	projection := ec.(Projection)
 
-	ec, err = s.engine.Get(camera, TransformationType)
+	ec, err = s.ents.Get(camera, TransformationType)
 	if err != nil {
 		return err
 	}
 	cameratransform := ec.(Transformation)
 
-	ec, err = s.engine.Get(object, TransformationType)
+	ec, err = s.ents.Get(object, TransformationType)
 	if err != nil {
 		return err
 	}
@@ -457,7 +448,7 @@ func (s *RenderSystem) UpdateUniform(name string, value interface{}) error {
 	default:
 		return fmt.Errorf("%v has unknown type: %T", name, t)
 
-	case Texture:
+	case *Texture:
 		s.currentProgram.uniforms[name].location.Uniform1i(s.bindTexture(t.buffer))
 
 	case int:

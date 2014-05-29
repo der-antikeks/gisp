@@ -11,18 +11,18 @@ import (
 
 // NewSpatialSystem()
 
-type SceneSystem struct {
-	engine *Engine
-	prio   Priority
+type SpatialSystem struct {
+	ents  *EntitySystem
+	state *GameStateSystem
 
 	messages chan Message
 	trees    map[string]*SphereTree
 }
 
-func NewSceneSystem(engine *Engine) *SceneSystem {
-	s := &SceneSystem{
-		engine: engine,
-		prio:   PriorityBeforeRender,
+func NewSpatialSystem(ents *EntitySystem, state *GameStateSystem) *SpatialSystem {
+	s := &SpatialSystem{
+		ents:  ents,
+		state: state,
 
 		messages: make(chan Message),
 		trees:    map[string]*SphereTree{},
@@ -56,44 +56,38 @@ func NewSceneSystem(engine *Engine) *SceneSystem {
 	return s
 }
 
-func (s *SceneSystem) Restart() {
-	s.engine.Subscribe(Filter{
-		Types: []MessageType{UpdateMessageType},
-	}, s.prio, s.messages)
+func (s *SpatialSystem) Restart() {
+	s.state.OnUpdate().Subscribe(s.messages, PriorityBeforeRender)
 
-	s.engine.Subscribe(Filter{
-		Types:  []MessageType{EntityAddMessageType, EntityRemoveMessageType, EntityUpdateMessageType},
-		Aspect: []ComponentType{TransformationType, SceneTreeType},
-	}, s.prio, s.messages)
+	s.ents.OnAdd(TransformationType, SceneTreeType).Subscribe(s.messages, PriorityBeforeRender)
+	s.ents.OnUpdate(TransformationType, SceneTreeType).Subscribe(s.messages, PriorityBeforeRender)
+	s.ents.OnRemove(TransformationType, SceneTreeType).Subscribe(s.messages, PriorityBeforeRender)
 }
 
-func (s *SceneSystem) Stop() {
-	s.engine.Unsubscribe(Filter{
-		Types: []MessageType{UpdateMessageType},
-	}, s.messages)
+func (s *SpatialSystem) Stop() {
+	s.state.OnUpdate().Unsubscribe(s.messages)
 
-	s.engine.Unsubscribe(Filter{
-		Types:  []MessageType{EntityAddMessageType, EntityRemoveMessageType, EntityUpdateMessageType},
-		Aspect: []ComponentType{TransformationType, SceneTreeType},
-	}, s.messages)
+	s.ents.OnAdd(TransformationType, SceneTreeType).Unsubscribe(s.messages)
+	s.ents.OnUpdate(TransformationType, SceneTreeType).Unsubscribe(s.messages)
+	s.ents.OnRemove(TransformationType, SceneTreeType).Unsubscribe(s.messages)
 
 	// TODO: empty trees?
 }
 
-func (s *SceneSystem) getData(en Entity) (stc SceneTree, pos math.Vector, radius float64, err error) {
-	ec, err := s.engine.Get(en, TransformationType)
+func (s *SpatialSystem) getData(en Entity) (stc SceneTree, pos math.Vector, radius float64, err error) {
+	ec, err := s.ents.Get(en, TransformationType)
 	if err != nil {
 		return
 	}
 	transform := ec.(Transformation)
 
-	ec, err = s.engine.Get(en, SceneTreeType)
+	ec, err = s.ents.Get(en, SceneTreeType)
 	if err != nil {
 		return
 	}
 	stc = ec.(SceneTree)
 
-	ec, err = s.engine.Get(en, GeometryType)
+	ec, err = s.ents.Get(en, GeometryType)
 	if err != nil {
 		pos = transform.Position
 		// TODO: consider parent transformation
@@ -109,7 +103,7 @@ func (s *SceneSystem) getData(en Entity) (stc SceneTree, pos math.Vector, radius
 	return
 }
 
-func (s *SceneSystem) AddEntity(en Entity) error {
+func (s *SpatialSystem) AddEntity(en Entity) error {
 	stc, pos, radius, err := s.getData(en)
 	if err != nil {
 		return err
@@ -126,13 +120,13 @@ func (s *SceneSystem) AddEntity(en Entity) error {
 	}
 
 	stc.leaf = tree.Add(pos, radius)
-	if err := s.engine.Set(en, stc); err != nil {
+	if err := s.ents.Set(en, stc); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (s *SceneSystem) UpdateEntity(en Entity) error {
+func (s *SpatialSystem) UpdateEntity(en Entity) error {
 	stc, pos, radius, err := s.getData(en)
 	if err != nil {
 		return err
@@ -146,8 +140,8 @@ func (s *SceneSystem) UpdateEntity(en Entity) error {
 	return nil
 }
 
-func (s *SceneSystem) RemoveEntity(en Entity) error {
-	ec, err := s.engine.Get(en, SceneTreeType)
+func (s *SpatialSystem) RemoveEntity(en Entity) error {
+	ec, err := s.ents.Get(en, SceneTreeType)
 	if err != nil {
 		return err
 	}
@@ -162,13 +156,13 @@ func (s *SceneSystem) RemoveEntity(en Entity) error {
 	}
 
 	stc.leaf = nil
-	if err := s.engine.Set(en, stc); err != nil {
+	if err := s.ents.Set(en, stc); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (s *SceneSystem) UpdateTrees() error {
+func (s *SpatialSystem) UpdateTrees() error {
 	for _, tree := range s.trees {
 		tree.Update()
 	}

@@ -22,6 +22,7 @@ const (
 
 	PauseMessageType
 	ContinueMessageType
+	QuitMessageType
 )
 
 type Message interface {
@@ -84,6 +85,10 @@ func (e MessagePause) Type() MessageType { return PauseMessageType }
 type MessageContinue struct{}
 
 func (e MessageContinue) Type() MessageType { return ContinueMessageType }
+
+type MessageQuit struct{}
+
+func (e MessageQuit) Type() MessageType { return QuitMessageType }
 
 type MessageMouseButton MouseButton
 

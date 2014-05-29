@@ -17,9 +17,28 @@ import (
 	"github.com/go-gl/glh"
 )
 
-type AssetLoaderSystem struct{}
+type AssetLoaderSystem struct {
+	lock    sync.Mutex
+	path    string
+	context *GlContextSystem
 
-// NewAssetLoaderSystem()
+	meshbuffers    map[string]*meshbuffer
+	shaderPrograms map[string]*shaderprogram
+	textures       map[string]*Texture
+}
+
+func NewAssetLoaderSystem(path string, context *GlContextSystem) *AssetLoaderSystem {
+	s := &AssetLoaderSystem{
+		path:    path,
+		context: context,
+
+		meshbuffers:    map[string]*meshbuffer{},
+		shaderPrograms: map[string]*shaderprogram{},
+		textures:       map[string]*Texture{},
+	}
+
+	return s
+}
 
 /*
 	wavefront obj/mtl importer
@@ -58,18 +77,11 @@ func loadMtl(path string) (err error, found []string) {
 
 */
 
-var meshbufferCache = struct {
-	sync.Mutex
-	meshbuffers map[string]*meshbuffer
-}{
-	meshbuffers: map[string]*meshbuffer{},
-}
+func (ls *AssetLoaderSystem) GetMeshBuffer(name string) *meshbuffer {
+	ls.lock.Lock()
+	defer ls.lock.Unlock()
 
-func GetMeshBuffer(name string) *meshbuffer {
-	meshbufferCache.Lock()
-	defer meshbufferCache.Unlock()
-
-	if mb, found := meshbufferCache.meshbuffers[name]; found {
+	if mb, found := ls.meshbuffers[name]; found {
 		return mb
 	}
 
@@ -409,9 +421,11 @@ func GetMeshBuffer(name string) *meshbuffer {
 	mb.MergeVertices()
 	mb.ComputeBoundary()
 	mb.FaceCount = len(mb.Faces)
-	mb.Init()
+	ls.context.MainThread(func() {
+		mb.Init()
+	})
 
-	meshbufferCache.meshbuffers[name] = mb
+	ls.meshbuffers[name] = mb
 	return mb
 }
 
@@ -512,102 +526,91 @@ func (g *meshbuffer) Init() {
 		return
 	}
 
-	MainThread(func() {
-		// init vertex buffers
-		g.VertexArrayObject = gl.GenVertexArray() // vao
-		g.FaceBuffer = gl.GenBuffer()             // ebo
-		g.PositionBuffer = gl.GenBuffer()         // vbo's
-		g.NormalBuffer = gl.GenBuffer()
-		g.UvBuffer = gl.GenBuffer()
+	// init vertex buffers
+	g.VertexArrayObject = gl.GenVertexArray() // vao
+	g.FaceBuffer = gl.GenBuffer()             // ebo
+	g.PositionBuffer = gl.GenBuffer()         // vbo's
+	g.NormalBuffer = gl.GenBuffer()
+	g.UvBuffer = gl.GenBuffer()
 
-		g.VertexArrayObject.Bind()
+	g.VertexArrayObject.Bind()
 
-		// init mesh buffers
-		faceArray := make([]uint16, len(g.Faces)*3) // uint32 (4 byte) if points > 65535
+	// init mesh buffers
+	faceArray := make([]uint16, len(g.Faces)*3) // uint32 (4 byte) if points > 65535
 
-		nvertices := len(g.Vertices)
-		positionArray := make([]float32, nvertices*3)
-		normalArray := make([]float32, nvertices*3)
-		uvArray := make([]float32, nvertices*2)
+	nvertices := len(g.Vertices)
+	positionArray := make([]float32, nvertices*3)
+	normalArray := make([]float32, nvertices*3)
+	uvArray := make([]float32, nvertices*2)
 
-		// copy values to buffers
-		for i, v := range g.Vertices {
-			// position
-			positionArray[i*3] = float32(v.position[0])
-			positionArray[i*3+1] = float32(v.position[1])
-			positionArray[i*3+2] = float32(v.position[2])
-
-			// normal
-			normalArray[i*3] = float32(v.normal[0])
-			normalArray[i*3+1] = float32(v.normal[1])
-			normalArray[i*3+2] = float32(v.normal[2])
-
-			// uv
-			uvArray[i*2] = float32(v.uv[0])
-			uvArray[i*2+1] = float32(v.uv[1])
-		}
-
-		for i, f := range g.Faces {
-			faceArray[i*3] = uint16(f.A)
-			faceArray[i*3+1] = uint16(f.B)
-			faceArray[i*3+2] = uint16(f.C)
-		}
-
-		// set mesh buffers
-
+	// copy values to buffers
+	for i, v := range g.Vertices {
 		// position
-		g.PositionBuffer.Bind(gl.ARRAY_BUFFER)
-		size := len(positionArray) * int(glh.Sizeof(gl.FLOAT))              // float32 - gl.FLOAT, float64 - gl.DOUBLE
-		gl.BufferData(gl.ARRAY_BUFFER, size, positionArray, gl.STATIC_DRAW) // gl.DYNAMIC_DRAW
+		positionArray[i*3] = float32(v.position[0])
+		positionArray[i*3+1] = float32(v.position[1])
+		positionArray[i*3+2] = float32(v.position[2])
 
 		// normal
-		g.NormalBuffer.Bind(gl.ARRAY_BUFFER)
-		size = len(normalArray) * int(glh.Sizeof(gl.FLOAT))
-		gl.BufferData(gl.ARRAY_BUFFER, size, normalArray, gl.STATIC_DRAW)
+		normalArray[i*3] = float32(v.normal[0])
+		normalArray[i*3+1] = float32(v.normal[1])
+		normalArray[i*3+2] = float32(v.normal[2])
 
 		// uv
-		g.UvBuffer.Bind(gl.ARRAY_BUFFER)
-		size = len(uvArray) * int(glh.Sizeof(gl.FLOAT))
-		gl.BufferData(gl.ARRAY_BUFFER, size, uvArray, gl.STATIC_DRAW)
+		uvArray[i*2] = float32(v.uv[0])
+		uvArray[i*2+1] = float32(v.uv[1])
+	}
 
-		// face
-		g.FaceBuffer.Bind(gl.ELEMENT_ARRAY_BUFFER)
-		size = len(faceArray) * int(glh.Sizeof(gl.UNSIGNED_SHORT)) // gl.UNSIGNED_SHORT 2, gl.UNSIGNED_INT 4
-		gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, size, faceArray, gl.STATIC_DRAW)
-	})
+	for i, f := range g.Faces {
+		faceArray[i*3] = uint16(f.A)
+		faceArray[i*3+1] = uint16(f.B)
+		faceArray[i*3+2] = uint16(f.C)
+	}
+
+	// set mesh buffers
+
+	// position
+	g.PositionBuffer.Bind(gl.ARRAY_BUFFER)
+	size := len(positionArray) * int(glh.Sizeof(gl.FLOAT))              // float32 - gl.FLOAT, float64 - gl.DOUBLE
+	gl.BufferData(gl.ARRAY_BUFFER, size, positionArray, gl.STATIC_DRAW) // gl.DYNAMIC_DRAW
+
+	// normal
+	g.NormalBuffer.Bind(gl.ARRAY_BUFFER)
+	size = len(normalArray) * int(glh.Sizeof(gl.FLOAT))
+	gl.BufferData(gl.ARRAY_BUFFER, size, normalArray, gl.STATIC_DRAW)
+
+	// uv
+	g.UvBuffer.Bind(gl.ARRAY_BUFFER)
+	size = len(uvArray) * int(glh.Sizeof(gl.FLOAT))
+	gl.BufferData(gl.ARRAY_BUFFER, size, uvArray, gl.STATIC_DRAW)
+
+	// face
+	g.FaceBuffer.Bind(gl.ELEMENT_ARRAY_BUFFER)
+	size = len(faceArray) * int(glh.Sizeof(gl.UNSIGNED_SHORT)) // gl.UNSIGNED_SHORT 2, gl.UNSIGNED_INT 4
+	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, size, faceArray, gl.STATIC_DRAW)
 
 	g.initialized = true
 }
 
 func (g *meshbuffer) Cleanup() {
-	MainThread(func() {
-		if g.PositionBuffer != 0 {
-			g.PositionBuffer.Delete()
-		}
+	if g.PositionBuffer != 0 {
+		g.PositionBuffer.Delete()
+	}
 
-		if g.NormalBuffer != 0 {
-			g.NormalBuffer.Delete()
-		}
+	if g.NormalBuffer != 0 {
+		g.NormalBuffer.Delete()
+	}
 
-		if g.UvBuffer != 0 {
-			g.UvBuffer.Delete()
-		}
+	if g.UvBuffer != 0 {
+		g.UvBuffer.Delete()
+	}
 
-		if g.FaceBuffer != 0 {
-			g.FaceBuffer.Delete()
-		}
+	if g.FaceBuffer != 0 {
+		g.FaceBuffer.Delete()
+	}
 
-		if g.VertexArrayObject != 0 {
-			g.VertexArrayObject.Delete()
-		}
-	})
-}
-
-var shaderProgramCache = struct {
-	sync.Mutex
-	shaderPrograms map[string]*shaderprogram
-}{
-	shaderPrograms: map[string]*shaderprogram{},
+	if g.VertexArrayObject != 0 {
+		g.VertexArrayObject.Delete()
+	}
 }
 
 var shaderProgramLib = map[string]struct {
@@ -939,11 +942,11 @@ type shaderprogram struct {
 	}
 }
 
-func GetShader(name string) *shaderprogram {
-	shaderProgramCache.Lock()
-	defer shaderProgramCache.Unlock()
+func (ls *AssetLoaderSystem) GetShader(name string) *shaderprogram {
+	ls.lock.Lock()
+	defer ls.lock.Unlock()
 
-	if s, found := shaderProgramCache.shaderPrograms[name]; found {
+	if s, found := ls.shaderPrograms[name]; found {
 		return s
 	}
 
@@ -964,7 +967,7 @@ func GetShader(name string) *shaderprogram {
 		}{},
 	}
 
-	MainThread(func() {
+	ls.context.MainThread(func() {
 		s.program = gl.CreateProgram()
 
 		// vertex shader
@@ -1017,7 +1020,7 @@ func GetShader(name string) *shaderprogram {
 		}
 	})
 
-	shaderProgramCache.shaderPrograms[name] = s
+	ls.shaderPrograms[name] = s
 	return s
 }
 
@@ -1046,6 +1049,10 @@ func (s *shaderprogram) EnableAttribute(name string) {
 	a.location.AttribPointer(a.size, gl.FLOAT, false, 0, nil)
 }
 
+func (s *shaderprogram) Cleanup() {
+	// TODO: do something
+}
+
 type Texture struct {
 	File string // loading from entitymanager?
 
@@ -1067,24 +1074,31 @@ func (t Texture) Unbind() {
 }
 
 // cleanup
-func (t Texture) Dispose() {
+func (t Texture) Cleanup() {
 	if t.buffer != 0 {
 		t.buffer.Delete()
 	}
 }
 
-func LoadTexture(path string) (Texture, error) {
+func (ls *AssetLoaderSystem) LoadTexture(path string) (*Texture, error) {
+	ls.lock.Lock()
+	defer ls.lock.Unlock()
+
+	if t, found := ls.textures[path]; found {
+		return t, nil
+	}
+
 	// load file
 	file, err := os.Open(path)
 	if err != nil {
-		return Texture{}, err
+		return nil, err
 	}
 	defer file.Close()
 
 	// decode image
 	im, _, err := image.Decode(file)
 	if err != nil {
-		return Texture{}, err
+		return nil, err
 	}
 	bounds := im.Bounds()
 
@@ -1096,13 +1110,13 @@ func LoadTexture(path string) (Texture, error) {
 	}
 
 	// create texture
-	t := Texture{
+	t := &Texture{
 		File: path,
 		w:    bounds.Dx(),
 		h:    bounds.Dy(),
 	}
 
-	MainThread(func() {
+	ls.context.MainThread(func() {
 		t.buffer = gl.GenTexture()
 		t.buffer.Bind(gl.TEXTURE_2D)
 
@@ -1125,12 +1139,13 @@ func LoadTexture(path string) (Texture, error) {
 		t.buffer.Unbind(gl.TEXTURE_2D)
 	})
 
+	ls.textures[path] = t
 	return t, nil
 }
 
 // TODO:
-func NewFramebuffer(w, h int) Texture {
-	t := Texture{
+func (ls *AssetLoaderSystem) NewFramebuffer(w, h int) *Texture {
+	t := &Texture{
 		buffer: gl.GenTexture(),
 		w:      w,
 		h:      h,
@@ -1157,4 +1172,26 @@ func NewFramebuffer(w, h int) Texture {
 	t.buffer.Unbind(gl.TEXTURE_2D)
 
 	return t
+}
+
+func (ls *AssetLoaderSystem) Cleanup() {
+	// TODO: unload textures, buffers, programs and empty caches
+
+	for _, m := range ls.meshbuffers {
+		ls.context.MainThread(func() {
+			m.Cleanup()
+		})
+	}
+
+	for _, s := range ls.shaderPrograms {
+		ls.context.MainThread(func() {
+			s.Cleanup()
+		})
+	}
+
+	for _, t := range ls.textures {
+		ls.context.MainThread(func() {
+			t.Cleanup()
+		})
+	}
 }

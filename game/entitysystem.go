@@ -6,7 +6,6 @@ import (
 	m "math"
 	"math/rand"
 	"sync"
-	"time"
 
 	"github.com/der-antikeks/gisp/math"
 )
@@ -268,16 +267,6 @@ func (s *EntitySystem) OnRemove(ts ...ComponentType) *Observer {
 	return s.observers[s.getAspect(ts)].remove
 }
 
-func (s *EntitySystem) Initalize() {
-	e := s.Entity()
-	if err := s.Set(
-		e,
-		GameStateComponent{"init", time.Now()},
-	); err != nil {
-		log.Fatal("could not initialize:", err)
-	}
-}
-
 func (s *EntitySystem) CreateSplashScreen() {
 	s.createCube()
 	s.createSphere()
@@ -317,7 +306,7 @@ func (s *EntitySystem) createCube() Entity {
 	mat.Set("lightDiffuse", math.Color{1, 0, 0})
 	mat.Set("opacity", 0.8)
 
-	tex, err := LoadTexture("assets/cube/cube.png")
+	tex, err := s.loader.LoadTexture("assets/cube/cube.png")
 	if err != nil {
 		log.Fatal("could not load texture:", err)
 	}
@@ -408,7 +397,7 @@ func (s *EntitySystem) createSphere() Entity {
 	// material
 	mat := s.getMaterial("phong")
 
-	tex, err := LoadTexture("assets/uvtemplate.png")
+	tex, err := s.loader.LoadTexture("assets/uvtemplate.png")
 	if err != nil {
 		log.Fatal("could not load texture:", err)
 	}
@@ -433,7 +422,7 @@ func (s *EntitySystem) getMaterial(e string) Material {
 	mat := Material{
 		Program:  e,
 		uniforms: map[string]interface{}{},
-		program:  GetShader(e),
+		program:  s.loader.GetShader(e),
 	}
 
 	// preset with standard values
@@ -447,7 +436,7 @@ func (s *EntitySystem) getMaterial(e string) Material {
 }
 
 func (s *EntitySystem) getGeometry(e string) Geometry {
-	mb := GetMeshBuffer(e)
+	mb := s.loader.GetMeshBuffer(e)
 
 	geo := Geometry{
 		File:     e,

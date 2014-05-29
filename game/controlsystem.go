@@ -7,19 +7,19 @@ import (
 )
 
 type OrbitControlSystem struct {
-	engine *Engine
-	im     *InputManager
-	prio   Priority
+	context *GlContextSystem
+	ents    *EntitySystem
+	state   *GameStateSystem
 
 	messages    chan Message
 	controlable []Entity
 }
 
-func NewOrbitControlSystem(engine *Engine, im *InputManager) *OrbitControlSystem {
+func NewControlSystem(context *GlContextSystem, ents *EntitySystem, state *GameStateSystem) *OrbitControlSystem {
 	s := &OrbitControlSystem{
-		engine: engine,
-		im:     im,
-		prio:   PriorityBeforeRender,
+		context: context,
+		ents:    ents,
+		state:   state,
 
 		messages:    make(chan Message),
 		controlable: []Entity{},
@@ -34,6 +34,9 @@ func NewOrbitControlSystem(engine *Engine, im *InputManager) *OrbitControlSystem
 		/*
 			TODO: initial value
 			var width, height float64
+
+			s.context.width
+			s.context.height
 		*/
 
 		for event := range s.messages {
@@ -49,10 +52,10 @@ func NewOrbitControlSystem(engine *Engine, im *InputManager) *OrbitControlSystem
 				}
 
 			case MessageMouseButton:
-				if !dragging && s.im.IsMouseDown(MouseRight) {
+				if !dragging && s.context.IsMouseDown(MouseRight) {
 					dragging = true
-					oldx, oldy = s.im.MousePos()
-				} else if dragging && !s.im.IsMouseDown(MouseRight) {
+					oldx, oldy = s.context.MousePos()
+				} else if dragging && !s.context.IsMouseDown(MouseRight) {
 					dragging = false
 					deltax, deltay = 0, 0
 				}
@@ -68,7 +71,7 @@ func NewOrbitControlSystem(engine *Engine, im *InputManager) *OrbitControlSystem
 
 			case MessageUpdate:
 				if dragging {
-					x, y := s.im.MousePos()
+					x, y := s.context.MousePos()
 					deltax, deltay = x-oldx, y-oldy // /width, /height
 					oldx, oldy = x, y
 				}
@@ -87,35 +90,25 @@ func NewOrbitControlSystem(engine *Engine, im *InputManager) *OrbitControlSystem
 }
 
 func (s *OrbitControlSystem) Restart() {
-	s.engine.Subscribe(Filter{
-		Types: []MessageType{
-			UpdateMessageType,
-			MouseButtonMessageType,
-			MouseScrollMessageType,
-			ResizeMessageType,
-		},
-	}, s.prio, s.messages)
+	s.state.OnUpdate().Subscribe(s.messages, PriorityBeforeRender)
 
-	s.engine.Subscribe(Filter{
-		Types:  []MessageType{EntityAddMessageType, EntityRemoveMessageType},
-		Aspect: []ComponentType{TransformationType, OrbitControlType},
-	}, s.prio, s.messages)
+	s.context.OnMouseButton().Subscribe(s.messages, PriorityBeforeRender)
+	s.context.OnMouseScroll().Subscribe(s.messages, PriorityBeforeRender)
+	s.context.OnResize().Subscribe(s.messages, PriorityBeforeRender)
+
+	s.ents.OnAdd(TransformationType, OrbitControlType).Subscribe(s.messages, PriorityBeforeRender)
+	s.ents.OnRemove(TransformationType, OrbitControlType).Subscribe(s.messages, PriorityBeforeRender)
 }
 
 func (s *OrbitControlSystem) Stop() {
-	s.engine.Unsubscribe(Filter{
-		Types: []MessageType{
-			UpdateMessageType,
-			MouseButtonMessageType,
-			MouseScrollMessageType,
-			ResizeMessageType,
-		},
-	}, s.messages)
+	s.state.OnUpdate().Unsubscribe(s.messages)
 
-	s.engine.Unsubscribe(Filter{
-		Types:  []MessageType{EntityAddMessageType, EntityRemoveMessageType},
-		Aspect: []ComponentType{TransformationType, OrbitControlType},
-	}, s.messages)
+	s.context.OnMouseButton().Unsubscribe(s.messages)
+	s.context.OnMouseScroll().Unsubscribe(s.messages)
+	s.context.OnResize().Unsubscribe(s.messages)
+
+	s.ents.OnAdd(TransformationType, OrbitControlType).Unsubscribe(s.messages)
+	s.ents.OnRemove(TransformationType, OrbitControlType).Unsubscribe(s.messages)
 
 	s.controlable = s.controlable[:0]
 }
@@ -123,13 +116,13 @@ func (s *OrbitControlSystem) Stop() {
 func (s *OrbitControlSystem) Update(deltax, deltay, deltaz float64) error {
 	for _, en := range s.controlable {
 
-		ec, err := s.engine.Get(en, TransformationType)
+		ec, err := s.ents.Get(en, TransformationType)
 		if err != nil {
 			return err
 		}
 		transform := ec.(Transformation)
 
-		ec, err = s.engine.Get(en, OrbitControlType)
+		ec, err = s.ents.Get(en, OrbitControlType)
 		if err != nil {
 			return err
 		}
@@ -138,7 +131,7 @@ func (s *OrbitControlSystem) Update(deltax, deltay, deltaz float64) error {
 		var target math.Vector
 		// TODO: if no target is set return error
 		if control.Target != 0 {
-			ec, err = s.engine.Get(control.Target, TransformationType)
+			ec, err = s.ents.Get(control.Target, TransformationType)
 			if err != nil {
 				return err
 			}
@@ -163,7 +156,7 @@ func (s *OrbitControlSystem) Update(deltax, deltay, deltaz float64) error {
 			distance,
 		}).Add(target)
 
-		if err := s.engine.Set(en, transform); err != nil {
+		if err := s.ents.Set(en, transform); err != nil {
 			return err
 		}
 	}
