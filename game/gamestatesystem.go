@@ -2,10 +2,10 @@ package game
 
 import (
 	"log"
-	m "math"
+	"math"
 	"time"
 
-	"github.com/der-antikeks/gisp/math"
+	"github.com/der-antikeks/mathgl/mgl32"
 )
 
 /*
@@ -74,10 +74,10 @@ func (s *GameStateSystem) init() {
 	log.Println("initialize")
 
 	w, h := s.context.Size()
-	aspect := float64(w) / float64(h) // 4.0 / 3.0
+	aspect := float32(w) / float32(h) // 4.0 / 3.0
 	// TODO: update aspect after wm.onResize
 
-	size := 10.0
+	var size float32 = 10.0
 	c := s.ents.CreateOrthographicCamera(-size, size, size/aspect, -size/aspect, 1, 100)
 
 	ec, err := s.ents.Get(c, TransformationType)
@@ -86,8 +86,8 @@ func (s *GameStateSystem) init() {
 	}
 	t := ec.(Transformation)
 
-	t.Position = math.Vector{0, 10, 0}
-	t.Rotation = math.QuaternionLookAt(t.Position, math.Vector{0, 0, 0}, t.Up)
+	t.Position = mgl32.Vec3{0, 10, 0}
+	t.Rotation = mgl32.QuatLookAtV(t.Position, mgl32.Vec3{0, 0, 0}, t.Up)
 
 	if err := s.ents.Set(c, t); err != nil {
 		log.Fatal("could not move camera:", err)
@@ -148,7 +148,7 @@ func (s *GameStateSystem) Update(delta time.Duration) {
 			s.ents.CreateMainMenu()
 
 			w, h := s.context.Size()
-			c := s.ents.CreatePerspectiveCamera(45.0, float64(w)/float64(h), 0.1, 100.0)
+			c := s.ents.CreatePerspectiveCamera(45.0, float32(w)/float32(h), 0.1, 100.0)
 			s.ents.Set(c,
 				OrbitControl{
 					MovementSpeed: 1.0,
@@ -156,7 +156,7 @@ func (s *GameStateSystem) Update(delta time.Duration) {
 					ZoomSpeed:     1.0,
 
 					Min:    5.0,
-					Max:    m.Inf(1),
+					Max:    math.Inf(1),
 					Target: Entity(0), // TODO: proper target setting
 				},
 			)

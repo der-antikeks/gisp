@@ -3,10 +3,10 @@ package game
 import (
 	"fmt" // TODO: for debugging
 	"log"
-	m "math"
+	"math"
 	"strings"
 
-	"github.com/der-antikeks/gisp/math"
+	"github.com/der-antikeks/mathgl/mgl32"
 )
 
 /*
@@ -79,7 +79,7 @@ func (s *SpatialSystem) Stop() {
 	// TODO: empty trees?
 }
 
-func (s *SpatialSystem) getData(en Entity) (stc SceneTree, pos math.Vector, radius float64, err error) {
+func (s *SpatialSystem) getData(en Entity) (stc SceneTree, pos mgl32.Vec3, radius float32, err error) {
 	ec, err := s.ents.Get(en, TransformationType)
 	if err != nil {
 		return
@@ -103,8 +103,9 @@ func (s *SpatialSystem) getData(en Entity) (stc SceneTree, pos math.Vector, radi
 	}
 
 	pos, radius = ec.(Geometry).Bounding.Sphere()
-	pos = transform.MatrixWorld().Transform(pos)
-	radius *= transform.MatrixWorld().MaxScaleOnAxis()
+	pos4 := transform.MatrixWorld().Mul4x1(mgl32.Vec4{pos[0], pos[1], pos[2], 0})
+	pos = mgl32.Vec3{pos4[0], pos4[1], pos4[2]}
+	radius *= transform.MatrixWorld().MaxScale()
 	return
 }
 
@@ -176,11 +177,11 @@ func (s *SpatialSystem) UpdateTrees() error {
 
 type SphereTree struct {
 	root                   *Node
-	restraint              float64
+	restraint              float32
 	pool, sinsert, srecalc []*Node
 }
 
-func NewSphereTree(restraint float64) *SphereTree {
+func NewSphereTree(restraint float32) *SphereTree {
 	return &SphereTree{
 		restraint: restraint,
 	}
@@ -200,7 +201,7 @@ func (t *SphereTree) String() string {
 // add empty node to pool
 func (t *SphereTree) put(n *Node) {
 	n.parent, n.children = nil, nil
-	n.center, n.radius = math.Vector{}, 0.0
+	n.center, n.radius = mgl32.Vec3{}, 0.0
 	t.pool = append(t.pool, n)
 }
 
@@ -215,7 +216,7 @@ func (t *SphereTree) get() *Node {
 }
 
 // creates a new node in the size of the passed bounding sphere
-func (t *SphereTree) Add(p math.Vector, r float64) *Node {
+func (t *SphereTree) Add(p mgl32.Vec3, r float32) *Node {
 	if t.root == nil {
 		t.root = t.get()
 		t.root.typ = LeafNode // BranchNode
@@ -261,9 +262,9 @@ func (t *SphereTree) Update() {
 // add node to root/traverse children
 func (t *SphereTree) insert(n *Node) {
 	var sibling *Node
-	mindist := m.Inf(1)
+	mindist := float32(math.Inf(1))
 	t.root.walk(func(p *Node) bool {
-		dist := p.center.Sub(n.center).Length()
+		dist := p.center.Sub(n.center).Len()
 		if p.radius+n.radius < dist {
 			// Disjoint
 			return false
@@ -360,19 +361,19 @@ func (t *SphereTree) recalc(n *Node) {
 	n.radius = n.children[0].radius
 	for i := 1; i < len(n.children); i++ {
 		diff := n.children[i].center.Sub(n.center)
-		dist := diff.Length()
-		v := diff.MulScalar(1.0 / dist)
-		min := m.Min(-n.radius, dist-n.children[i].radius)
-		max := (m.Max(n.radius, dist+n.children[i].radius) - min) * 0.5
+		dist := diff.Len()
+		v := diff.Mul(1.0 / dist)
+		min := float32(math.Min(float64(-n.radius), float64(dist-n.children[i].radius)))
+		max := (float32(math.Max(float64(n.radius), float64(dist+n.children[i].radius))) - min) * 0.5
 
-		n.center = n.center.Add(v.MulScalar(max + min))
+		n.center = n.center.Add(v.Mul(max + min))
 		n.radius = max + t.restraint
 	}
 }
 
 func (t *SphereTree) mergeNodes(a, b *Node) *Node {
 	diff := b.center.Sub(a.center)
-	dist := diff.Length()
+	dist := diff.Len()
 
 	if a.radius+b.radius >= dist {
 		// intersects
@@ -394,13 +395,13 @@ func (t *SphereTree) mergeNodes(a, b *Node) *Node {
 		}
 	}
 
-	v := diff.MulScalar(1.0 / dist)
-	min := m.Min(-a.radius, dist-b.radius)
-	max := (m.Max(a.radius, dist+b.radius) - min) * 0.5
+	v := diff.Mul(1.0 / dist)
+	min := float32(math.Min(float64(-a.radius), float64(dist-b.radius)))
+	max := (float32(math.Max(float64(a.radius), float64(dist+b.radius))) - min) * 0.5
 
 	n := t.get()
 	n.typ = BranchNode
-	n.center = a.center.Add(v.MulScalar(max + min))
+	n.center = a.center.Add(v.Mul(max + min))
 	n.radius = max
 	return n
 }
@@ -413,8 +414,8 @@ const (
 )
 
 type Node struct {
-	center math.Vector
-	radius float64
+	center mgl32.Vec3
+	radius float32
 
 	typ      NodeType
 	tree     *SphereTree
@@ -464,7 +465,7 @@ func (n *Node) walk(f func(n *Node) bool) {
 	}
 }
 
-func (n *Node) Update(p math.Vector, r float64) error {
+func (n *Node) Update(p mgl32.Vec3, r float32) error {
 	if n.typ != LeafNode {
 		return fmt.Errorf("updating node that is not a leaf: %v", n)
 	}
@@ -476,7 +477,7 @@ func (n *Node) Update(p math.Vector, r float64) error {
 		return nil
 	}
 
-	dist := n.parent.center.Sub(p).Length()
+	dist := n.parent.center.Sub(p).Len()
 	if dist+r > n.parent.radius {
 		// fits no longer into parent
 		// remove from parent
@@ -520,7 +521,7 @@ const (
 )
 
 func (n *Node) Intersects(b *Node) IntersectionType {
-	dist := n.center.Sub(b.center).Length()
+	dist := n.center.Sub(b.center).Len()
 
 	if n.radius+b.radius < dist {
 		return Disjoint
@@ -529,4 +530,114 @@ func (n *Node) Intersects(b *Node) IntersectionType {
 		return Intersects
 	}
 	return Contains
+}
+
+type Boundary struct {
+	Min, Max mgl32.Vec3
+}
+
+func NewBoundary() Boundary {
+	p, m := float32(math.Inf(1)), float32(math.Inf(-1))
+	return Boundary{
+		Min: mgl32.Vec3{p, p, p},
+		Max: mgl32.Vec3{m, m, m},
+	}
+}
+
+func BoundaryFromPoints(pts ...mgl32.Vec3) Boundary {
+	b := NewBoundary()
+	for _, p := range pts {
+		b.AddPoint(p)
+	}
+
+	return b
+}
+
+func (b Boundary) ApproxEqual(e Boundary) bool {
+	return b.Min.ApproxEqual(e.Min) && b.Max.ApproxEqual(e.Max)
+}
+
+func min(a, b float32) float32 { return float32(math.Min(float64(a), float64(b))) }
+func max(a, b float32) float32 { return float32(math.Max(float64(a), float64(b))) }
+
+func (b *Boundary) AddPoint(p mgl32.Vec3) {
+	b.Min[0], b.Max[0] = min(b.Min[0], p[0]), max(b.Max[0], p[0])
+	b.Min[1], b.Max[1] = min(b.Min[1], p[1]), max(b.Max[1], p[1])
+	b.Min[2], b.Max[2] = min(b.Min[2], p[2]), max(b.Max[2], p[2])
+}
+
+func (b *Boundary) AddBoundary(a Boundary) {
+	if b.ApproxEqual(a) {
+		return
+	}
+
+	b.AddPoint(a.Max)
+	b.AddPoint(a.Min)
+}
+
+func (b Boundary) Center() mgl32.Vec3 {
+	return b.Min.Add(b.Max).Mul(0.5)
+}
+
+func (b Boundary) Size() mgl32.Vec3 {
+	return b.Max.Sub(b.Min)
+}
+
+func (b Boundary) Sphere() (center mgl32.Vec3, radius float32) {
+	return b.Center(), b.Size().Len() * 0.5
+}
+
+type Plane struct {
+	normal   mgl32.Vec4
+	distance float32
+}
+
+func (p Plane) Normalize() Plane {
+	magnitude := p.normal.Len()
+
+	return Plane{
+		normal:   p.normal.Mul(1.0 / magnitude),
+		distance: p.distance / magnitude,
+	}
+}
+
+type Frustum [6]Plane
+
+func Mat4ToFrustum(m mgl32.Mat4) Frustum {
+	f := Frustum{
+		Plane{mgl32.Vec4{m[3] - m[0], m[7] - m[4], m[11] - m[8]}, m[15] - m[12]},
+		Plane{mgl32.Vec4{m[3] + m[0], m[7] + m[4], m[11] + m[8]}, m[15] + m[12]},
+		Plane{mgl32.Vec4{m[3] + m[1], m[7] + m[5], m[11] + m[9]}, m[15] + m[13]},
+		Plane{mgl32.Vec4{m[3] - m[1], m[7] - m[5], m[11] - m[9]}, m[15] - m[13]},
+		Plane{mgl32.Vec4{m[3] - m[2], m[7] - m[6], m[11] - m[10]}, m[15] - m[14]},
+		Plane{mgl32.Vec4{m[3] + m[2], m[7] + m[6], m[11] + m[10]}, m[15] + m[14]},
+	}
+
+	for i, p := range f {
+		f[i] = p.Normalize()
+	}
+
+	return f
+}
+
+func (f Frustum) ContainsPoint(point mgl32.Vec3) bool {
+	p4 := mgl32.Vec4{point[0], point[1], point[2], 0}
+	for _, p := range f {
+		if p4.Dot(p.normal)+p.distance <= 0 {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (f Frustum) IntersectsSphere(center mgl32.Vec3, radius float32) bool {
+	c4 := mgl32.Vec4{center[0], center[1], center[2], 0}
+	for _, p := range f {
+		if c4.Dot(p.normal)+p.distance <= -radius {
+			return false
+		}
+	}
+
+	return true
 }

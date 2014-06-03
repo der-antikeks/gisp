@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/der-antikeks/gisp/math"
+	"github.com/der-antikeks/mathgl/mgl32"
 
 	"github.com/go-gl/gl"
 )
@@ -152,7 +152,7 @@ func (s *RenderSystem) Update(delta time.Duration) error {
 }
 
 func (s *RenderSystem) updateScene(delta time.Duration, sc string) error {
-	color := math.Color{0, 0, 0}
+	color := mgl32.Vec3{0, 0, 0}
 	alpha := 1.0
 	s.setClearColor(color, alpha)
 
@@ -186,8 +186,8 @@ func (s *RenderSystem) updateScene(delta time.Duration, sc string) error {
 	}
 	t := ec.(Transformation)
 
-	projScreenMatrix := p.Matrix.Mul(t.MatrixWorld().Inverse())
-	frustum := math.FrustumFromMatrix(projScreenMatrix)
+	projScreenMatrix := p.Matrix.Mul4(t.MatrixWorld().Inv())
+	frustum := Mat4ToFrustum(projScreenMatrix)
 	// fetch all objects visible in frustum
 	opaque, transparent := s.visibleEntities(frustum, t.Position, s.scenes[sc].drawable)
 
@@ -216,16 +216,16 @@ func (s *RenderSystem) updateScene(delta time.Duration, sc string) error {
 	return nil
 }
 
-func (s *RenderSystem) setClearColor(color math.Color, alpha float64) {
+func (s *RenderSystem) setClearColor(color mgl32.Vec3, alpha float64) {
 	s.context.MainThread(func() {
-		gl.ClearColor(gl.GLclampf(color.R), gl.GLclampf(color.G), gl.GLclampf(color.B), gl.GLclampf(alpha))
+		gl.ClearColor(gl.GLclampf(color[0]), gl.GLclampf(color[1]), gl.GLclampf(color[2]), gl.GLclampf(alpha))
 	})
 }
 
 // TODO: replace with spatial system
 type byZ struct {
 	entities []Entity
-	zorder   map[Entity]float64
+	zorder   map[Entity]float32
 }
 
 func (a byZ) Len() int {
@@ -238,13 +238,13 @@ func (a byZ) Less(i, j int) bool {
 	return a.zorder[a.entities[i]] < a.zorder[a.entities[j]]
 }
 
-func (s *RenderSystem) visibleEntities(frustum math.Frustum, cp math.Vector, drawable []Entity) (opaque, transparent []Entity) {
+func (s *RenderSystem) visibleEntities(frustum Frustum, cp mgl32.Vec3, drawable []Entity) (opaque, transparent []Entity) {
 	opaque = make([]Entity, 0)
 	transparent = make([]Entity, 0)
 	var err error
 	var ec Component
 
-	zorder := map[Entity]float64{}
+	zorder := map[Entity]float32{}
 
 	for _, e := range drawable {
 		ec, err = s.ents.Get(e, TransformationType)
@@ -266,11 +266,12 @@ func (s *RenderSystem) visibleEntities(frustum math.Frustum, cp math.Vector, dra
 		m := ec.(Material)
 
 		c, r := g.Bounding.Sphere()
-		c = t.MatrixWorld().Transform(c)
-		r *= t.MatrixWorld().MaxScaleOnAxis()
+		c4 := t.MatrixWorld().Mul4x1(mgl32.Vec4{c[0], c[1], c[2], 0})
+		c = mgl32.Vec3{c4[0], c4[1], c4[2]}
+		r *= t.MatrixWorld().MaxScale()
 
 		if frustum.IntersectsSphere(c, r) {
-			zorder[e] = c.Sub(cp).Length()
+			zorder[e] = c.Sub(cp).Len()
 
 			if m.opaque() {
 				opaque = append(opaque, e)
@@ -385,29 +386,29 @@ func (s *RenderSystem) render(
 
 	// update projection uniform
 
-	s.UpdateUniform("projectionMatrix", projection.Matrix.Float32())
+	s.UpdateUniform("projectionMatrix", projection.Matrix /*.Float32()*/)
 
 	// viewMatrix
 
-	viewMatrix := cameratransform.MatrixWorld().Inverse()
+	viewMatrix := cameratransform.MatrixWorld().Inv()
 	//program.Uniform("viewMatrix").UniformMatrix4fv(false, viewMatrix.Float32())
-	s.UpdateUniform("viewMatrix", viewMatrix.Float32())
+	s.UpdateUniform("viewMatrix", viewMatrix /*.Float32()*/)
 
 	// material update uniforms model/view/normal/projection-matrix
 
 	// Model matrix : an identity matrix (model will be at the origin)
 	//program.Uniform("modelMatrix").UniformMatrix4fv(false, m.MatrixWorld().Float32())
-	s.UpdateUniform("modelMatrix", objecttransform.MatrixWorld().Float32())
+	s.UpdateUniform("modelMatrix", objecttransform.MatrixWorld() /*.Float32()*/)
 
 	// modelViewMatrix
-	modelViewMatrix := viewMatrix.Mul(objecttransform.MatrixWorld())
+	modelViewMatrix := viewMatrix.Mul4(objecttransform.MatrixWorld())
 	//program.Uniform("modelViewMatrix").UniformMatrix4fv(false, modelViewMatrix.Float32())
-	s.UpdateUniform("modelViewMatrix", modelViewMatrix.Float32())
+	s.UpdateUniform("modelViewMatrix", modelViewMatrix /*.Float32()*/)
 
 	// normalMatrix
 	normalMatrix := modelViewMatrix.Normal()
 	//program.Uniform("normalMatrix").UniformMatrix3fv(false, normalMatrix.Matrix3Float32())
-	s.UpdateUniform("normalMatrix", normalMatrix.Matrix3Float32())
+	s.UpdateUniform("normalMatrix", normalMatrix /*.Matrix3Float32()*/)
 
 	// update material uniforms
 	for n, v := range material.uniforms {
@@ -465,16 +466,17 @@ func (s *RenderSystem) UpdateUniform(name string, value interface{}) error {
 	case float32:
 		s.currentProgram.uniforms[name].location.Uniform1f(t)
 
-	case [16]float32:
-		s.currentProgram.uniforms[name].location.UniformMatrix4fv(false, t)
-	case [9]float32:
+	case mgl32.Mat3 /*[9]float32*/ :
 		s.currentProgram.uniforms[name].location.UniformMatrix3fv(false, t)
+	case mgl32.Mat4 /*[16]float32*/ :
+		s.currentProgram.uniforms[name].location.UniformMatrix4fv(false, t)
 
-	case math.Color:
-		s.currentProgram.uniforms[name].location.Uniform3f(float32(t.R), float32(t.G), float32(t.B))
-
-	case math.Vector:
-		s.currentProgram.uniforms[name].location.Uniform3f(float32(t[0]), float32(t[1]), float32(t[2]))
+	case mgl32.Vec2:
+		s.currentProgram.uniforms[name].location.Uniform2f(t[0], t[1])
+	case mgl32.Vec3:
+		s.currentProgram.uniforms[name].location.Uniform3f(t[0], t[1], t[2])
+	case mgl32.Vec4:
+		s.currentProgram.uniforms[name].location.Uniform4f(t[0], t[1], t[2], t[3])
 
 	case bool:
 		if t {

@@ -3,7 +3,7 @@ package game
 import (
 	"fmt"
 
-	"github.com/der-antikeks/gisp/math"
+	"github.com/der-antikeks/mathgl/mgl32"
 )
 
 const (
@@ -24,7 +24,7 @@ const (
 )
 
 type Projection struct {
-	Matrix math.Matrix
+	Matrix mgl32.Mat4
 	// Width, Height float64		-> update Projection via RenderSystem hooked to MessageResize
 	// Rendertarget *Framebuffer	-> nil for screen
 }
@@ -52,12 +52,12 @@ func (c Projection) Type() ComponentType {
 */
 
 type Transformation struct {
-	Position math.Vector
-	Rotation math.Quaternion
-	Scale    math.Vector
-	Up       math.Vector
+	Position mgl32.Vec3 // TODO: Vec4?
+	Rotation mgl32.Quat
+	Scale    mgl32.Vec3
+	Up       mgl32.Vec3
 
-	matrix        math.Matrix
+	matrix        mgl32.Mat4
 	updatedMatrix bool
 
 	Parent   *Transformation // TODO: replace with Entity/engine.Get(parent, TransformationType)
@@ -68,24 +68,30 @@ func (c Transformation) Type() ComponentType {
 	return TransformationType
 }
 
-func (c *Transformation) Matrix() math.Matrix {
+func Compose(position mgl32.Vec3, rotation mgl32.Quat, scale mgl32.Vec3) mgl32.Mat4 {
+	return mgl32.Translate3D(position[0], position[1], position[2]).
+		Mul4(rotation.Mat4()).
+		Mul4(mgl32.Scale3D(scale[0], scale[1], scale[2]))
+}
+
+func (c *Transformation) Matrix() mgl32.Mat4 {
 	if !c.updatedMatrix {
-		c.matrix = math.ComposeMatrix(c.Position, c.Rotation, c.Scale)
+		c.matrix = Compose(c.Position, c.Rotation, c.Scale)
 		c.updatedMatrix = true
 	}
 	return c.matrix
 }
 
-func (c *Transformation) MatrixWorld() math.Matrix {
+func (c *Transformation) MatrixWorld() mgl32.Mat4 {
 	if c.Parent != nil {
-		c.Parent.MatrixWorld().Mul(c.Matrix())
+		c.Parent.MatrixWorld().Mul4(c.Matrix())
 	}
 	return c.Matrix()
 }
 
 type Velocity struct {
-	Velocity math.Vector // distance units(?)/sec
-	Angular  math.Vector // euler angles in radian/sec
+	Velocity mgl32.Vec3 // distance units(?)/sec
+	Angular  mgl32.Vec3 // euler angles in radian/sec
 }
 
 func (c Velocity) Type() ComponentType {
@@ -96,7 +102,7 @@ type Geometry struct {
 	File string
 	mesh *meshbuffer
 
-	Bounding math.Boundary
+	Bounding Boundary
 }
 
 func (c Geometry) Type() ComponentType {
