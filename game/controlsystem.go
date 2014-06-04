@@ -3,27 +3,27 @@ package game
 import (
 	"log"
 
-	"github.com/der-antikeks/gisp/ecs"
-	"github.com/der-antikeks/gisp/math"
+	"github.com/der-antikeks/mathgl/mgl32"
 )
 
+// change entities based on controller input
 type OrbitControlSystem struct {
-	engine *ecs.Engine
-	im     *InputManager
-	prio   ecs.SystemPriority
+	context *GlContextSystem
+	ents    *EntitySystem
+	state   *GameStateSystem
 
-	messages    chan ecs.Message
-	controlable []ecs.Entity
+	messages    chan interface{}
+	controlable []Entity
 }
 
-func NewOrbitControlSystem(engine *ecs.Engine, im *InputManager) *OrbitControlSystem {
+func NewControlSystem(context *GlContextSystem, ents *EntitySystem, state *GameStateSystem) *OrbitControlSystem {
 	s := &OrbitControlSystem{
-		engine: engine,
-		im:     im,
-		prio:   PriorityBeforeRender,
+		context: context,
+		ents:    ents,
+		state:   state,
 
-		messages:    make(chan ecs.Message),
-		controlable: []ecs.Entity{},
+		messages:    make(chan interface{}),
+		controlable: []Entity{},
 	}
 
 	go func() {
@@ -35,13 +35,16 @@ func NewOrbitControlSystem(engine *ecs.Engine, im *InputManager) *OrbitControlSy
 		/*
 			TODO: initial value
 			var width, height float64
+
+			s.context.width
+			s.context.height
 		*/
 
 		for event := range s.messages {
 			switch e := event.(type) {
-			case ecs.MessageEntityAdd:
+			case MessageEntityAdd:
 				s.controlable = append(s.controlable, e.Added)
-			case ecs.MessageEntityRemove:
+			case MessageEntityRemove:
 				for i, f := range s.controlable {
 					if f == e.Removed {
 						s.controlable = append(s.controlable[:i], s.controlable[i+1:]...)
@@ -50,10 +53,10 @@ func NewOrbitControlSystem(engine *ecs.Engine, im *InputManager) *OrbitControlSy
 				}
 
 			case MessageMouseButton:
-				if !dragging && s.im.IsMouseDown(MouseRight) {
+				if !dragging && s.context.IsMouseDown(MouseRight) {
 					dragging = true
-					oldx, oldy = s.im.MousePos()
-				} else if dragging && !s.im.IsMouseDown(MouseRight) {
+					oldx, oldy = s.context.MousePos()
+				} else if dragging && !s.context.IsMouseDown(MouseRight) {
 					dragging = false
 					deltax, deltay = 0, 0
 				}
@@ -67,9 +70,9 @@ func NewOrbitControlSystem(engine *ecs.Engine, im *InputManager) *OrbitControlSy
 					height = float64(e.Height)
 				*/
 
-			case ecs.MessageUpdate:
+			case MessageUpdate:
 				if dragging {
-					x, y := s.im.MousePos()
+					x, y := s.context.MousePos()
 					deltax, deltay = x-oldx, y-oldy // /width, /height
 					oldx, oldy = x, y
 				}
@@ -88,35 +91,25 @@ func NewOrbitControlSystem(engine *ecs.Engine, im *InputManager) *OrbitControlSy
 }
 
 func (s *OrbitControlSystem) Restart() {
-	s.engine.Subscribe(ecs.Filter{
-		Types: []ecs.MessageType{
-			ecs.UpdateMessageType,
-			MouseButtonMessageType,
-			MouseScrollMessageType,
-			ResizeMessageType,
-		},
-	}, s.prio, s.messages)
+	s.state.OnUpdate().Subscribe(s.messages, PriorityBeforeRender)
 
-	s.engine.Subscribe(ecs.Filter{
-		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
-		Aspect: []ecs.ComponentType{TransformationType, OrbitControlType},
-	}, s.prio, s.messages)
+	s.context.OnMouseButton().Subscribe(s.messages, PriorityBeforeRender)
+	s.context.OnMouseScroll().Subscribe(s.messages, PriorityBeforeRender)
+	s.context.OnResize().Subscribe(s.messages, PriorityBeforeRender)
+
+	s.ents.OnAdd(TransformationType, OrbitControlType).Subscribe(s.messages, PriorityBeforeRender)
+	s.ents.OnRemove(TransformationType, OrbitControlType).Subscribe(s.messages, PriorityBeforeRender)
 }
 
 func (s *OrbitControlSystem) Stop() {
-	s.engine.Unsubscribe(ecs.Filter{
-		Types: []ecs.MessageType{
-			ecs.UpdateMessageType,
-			MouseButtonMessageType,
-			MouseScrollMessageType,
-			ResizeMessageType,
-		},
-	}, s.messages)
+	s.state.OnUpdate().Unsubscribe(s.messages)
 
-	s.engine.Unsubscribe(ecs.Filter{
-		Types:  []ecs.MessageType{ecs.EntityAddMessageType, ecs.EntityRemoveMessageType},
-		Aspect: []ecs.ComponentType{TransformationType, OrbitControlType},
-	}, s.messages)
+	s.context.OnMouseButton().Unsubscribe(s.messages)
+	s.context.OnMouseScroll().Unsubscribe(s.messages)
+	s.context.OnResize().Unsubscribe(s.messages)
+
+	s.ents.OnAdd(TransformationType, OrbitControlType).Unsubscribe(s.messages)
+	s.ents.OnRemove(TransformationType, OrbitControlType).Unsubscribe(s.messages)
 
 	s.controlable = s.controlable[:0]
 }
@@ -124,22 +117,22 @@ func (s *OrbitControlSystem) Stop() {
 func (s *OrbitControlSystem) Update(deltax, deltay, deltaz float64) error {
 	for _, en := range s.controlable {
 
-		ec, err := s.engine.Get(en, TransformationType)
+		ec, err := s.ents.Get(en, TransformationType)
 		if err != nil {
 			return err
 		}
 		transform := ec.(Transformation)
 
-		ec, err = s.engine.Get(en, OrbitControlType)
+		ec, err = s.ents.Get(en, OrbitControlType)
 		if err != nil {
 			return err
 		}
 		control := ec.(OrbitControl)
 
-		var target math.Vector
+		var target mgl32.Vec3
 		// TODO: if no target is set return error
 		if control.Target != 0 {
-			ec, err = s.engine.Get(control.Target, TransformationType)
+			ec, err = s.ents.Get(control.Target, TransformationType)
 			if err != nil {
 				return err
 			}
@@ -147,24 +140,24 @@ func (s *OrbitControlSystem) Update(deltax, deltay, deltaz float64) error {
 		}
 
 		// TODO: exponential zoom?
-		distance := math.Limit(
-			transform.Position.Sub(target).Length()+(deltaz*control.ZoomSpeed),
-			control.Min, control.Max)
+		distance := mgl32.Clamp(
+			transform.Position.Sub(target).Len()+float32(deltaz*control.ZoomSpeed),
+			float32(control.Min), float32(control.Max))
 
-		delta := math.QuaternionFromEuler(math.Vector{
-			deltay * control.RotationSpeed,
-			deltax * control.RotationSpeed,
+		delta := mgl32.AnglesToQuat(
+			float32(deltay*control.RotationSpeed),
+			float32(deltax*control.RotationSpeed),
 			0,
-		}, math.RotateXYZ).Inverse()
+			mgl32.XYZ).Inverse()
 
 		transform.Rotation = transform.Rotation.Mul(delta)
-		transform.Position = transform.Rotation.Rotate(math.Vector{
+		transform.Position = transform.Rotation.Rotate(mgl32.Vec3{
 			0,
 			0,
 			distance,
 		}).Add(target)
 
-		if err := s.engine.Set(en, transform); err != nil {
+		if err := s.ents.Set(en, transform); err != nil {
 			return err
 		}
 	}

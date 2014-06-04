@@ -2,16 +2,12 @@ package game
 
 import (
 	"fmt"
-	"time"
 
-	"github.com/der-antikeks/gisp/ecs"
-	"github.com/der-antikeks/gisp/math"
+	"github.com/der-antikeks/mathgl/mgl32"
 )
 
 const (
-	GameStateType ecs.ComponentType = iota
-
-	ProjectionType
+	ProjectionType ComponentType = 1 << iota
 	TransformationType
 	VelocityType
 	GeometryType
@@ -19,7 +15,8 @@ const (
 
 	OrbitControlType
 
-	SceneTreeType
+	SceneType
+	LightType
 
 	// old
 	MenuType
@@ -27,22 +24,20 @@ const (
 	PositionType
 )
 
-type GameStateComponent struct {
-	State string
-	Since time.Time
-}
-
-func (c GameStateComponent) Type() ecs.ComponentType {
-	return GameStateType
-}
-
 type Projection struct {
-	Matrix math.Matrix
-	// Width, Height float64		-> update Projection via RenderSystem hooked to MessageResize
-	// Rendertarget *Framebuffer	-> nil for screen
+	Matrix        mgl32.Mat4
+	Width, Height float64 // update Projection via RenderSystem hooked to MessageResize
+
+	rendertarget *Framebuffer // nil for screen
+	priority     int
 }
 
-func (c Projection) Type() ecs.ComponentType {
+type Framebuffer struct {
+	Color mgl32.Vec3
+	Alpha float64
+}
+
+func (c Projection) Type() ComponentType {
 	return ProjectionType
 }
 
@@ -65,43 +60,49 @@ func (c Projection) Type() ecs.ComponentType {
 */
 
 type Transformation struct {
-	Position math.Vector
-	Rotation math.Quaternion
-	Scale    math.Vector
-	Up       math.Vector
+	Position mgl32.Vec3
+	Rotation mgl32.Quat
+	Scale    mgl32.Vec3
+	Up       mgl32.Vec3
 
-	matrix        math.Matrix
+	matrix        mgl32.Mat4
 	updatedMatrix bool
 
-	Parent   *Transformation // TODO: replace with ecs.Entity/engine.Get(parent, TransformationType)
+	Parent   *Transformation // TODO: replace with Entity/engine.Get(parent, TransformationType)
 	Children []*Transformation
 }
 
-func (c Transformation) Type() ecs.ComponentType {
+func (c Transformation) Type() ComponentType {
 	return TransformationType
 }
 
-func (c *Transformation) Matrix() math.Matrix {
+func Compose(position mgl32.Vec3, rotation mgl32.Quat, scale mgl32.Vec3) mgl32.Mat4 {
+	return mgl32.Translate3D(position[0], position[1], position[2]).
+		Mul4(rotation.Mat4()).
+		Mul4(mgl32.Scale3D(scale[0], scale[1], scale[2]))
+}
+
+func (c *Transformation) Matrix() mgl32.Mat4 {
 	if !c.updatedMatrix {
-		c.matrix = math.ComposeMatrix(c.Position, c.Rotation, c.Scale)
+		c.matrix = Compose(c.Position, c.Rotation, c.Scale)
 		c.updatedMatrix = true
 	}
 	return c.matrix
 }
 
-func (c *Transformation) MatrixWorld() math.Matrix {
+func (c *Transformation) MatrixWorld() mgl32.Mat4 {
 	if c.Parent != nil {
-		c.Parent.MatrixWorld().Mul(c.Matrix())
+		c.Parent.MatrixWorld().Mul4(c.Matrix())
 	}
 	return c.Matrix()
 }
 
 type Velocity struct {
-	Velocity math.Vector // distance units(?)/sec
-	Angular  math.Vector // euler angles in radian/sec
+	Velocity mgl32.Vec3 // distance units(?)/sec
+	Angular  mgl32.Vec3 // euler angles in radian/sec
 }
 
-func (c Velocity) Type() ecs.ComponentType {
+func (c Velocity) Type() ComponentType {
 	return VelocityType
 }
 
@@ -109,10 +110,10 @@ type Geometry struct {
 	File string
 	mesh *meshbuffer
 
-	Bounding math.Boundary
+	Bounding Boundary
 }
 
-func (c Geometry) Type() ecs.ComponentType {
+func (c Geometry) Type() ComponentType {
 	return GeometryType
 }
 
@@ -123,7 +124,7 @@ type Material struct {
 	uniforms map[string]interface{}
 }
 
-func (m Material) Type() ecs.ComponentType {
+func (m Material) Type() ComponentType {
 	return MaterialType
 }
 
@@ -158,18 +159,27 @@ type OrbitControl struct {
 	ZoomSpeed float64
 
 	Min, Max float64
-	Target   ecs.Entity
+	Target   Entity
 }
 
-func (c OrbitControl) Type() ecs.ComponentType {
+func (c OrbitControl) Type() ComponentType {
 	return OrbitControlType
 }
 
-type SceneTree struct {
+type Scene struct {
 	Name string
 	leaf *Node
 }
 
-func (c SceneTree) Type() ecs.ComponentType {
-	return SceneTreeType
+func (c Scene) Type() ComponentType {
+	return SceneType
+}
+
+type Light struct {
+	Diffuse mgl32.Vec3
+	Power   float64
+}
+
+func (c Light) Type() ComponentType {
+	return LightType
 }
