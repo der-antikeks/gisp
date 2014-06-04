@@ -379,7 +379,7 @@ func (s *EntitySystem) createRndCube() Entity {
 		r(0.5, 1),
 		r(0.5, 1),
 	})
-	mat.Set("opacity", r(0.2, 1))
+	mat.Set("opacity", float64(r(0.2, 1)))
 
 	// scene
 	stc := SceneTree{Name: "mainscene"}
