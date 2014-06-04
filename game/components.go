@@ -15,7 +15,8 @@ const (
 
 	OrbitControlType
 
-	SceneTreeType
+	SceneType
+	LightType
 
 	// old
 	MenuType
@@ -24,9 +25,16 @@ const (
 )
 
 type Projection struct {
-	Matrix math.Matrix
-	// Width, Height float64		-> update Projection via RenderSystem hooked to MessageResize
-	// Rendertarget *Framebuffer	-> nil for screen
+	Matrix        math.Matrix
+	Width, Height float64 // update Projection via RenderSystem hooked to MessageResize
+
+	rendertarget *Framebuffer // nil for screen
+	priority     int
+}
+
+type Framebuffer struct {
+	Color math.Color
+	Alpha float64
 }
 
 func (c Projection) Type() ComponentType {
@@ -152,11 +160,20 @@ func (c OrbitControl) Type() ComponentType {
 	return OrbitControlType
 }
 
-type SceneTree struct {
+type Scene struct {
 	Name string
 	leaf *Node
 }
 
-func (c SceneTree) Type() ComponentType {
-	return SceneTreeType
+func (c Scene) Type() ComponentType {
+	return SceneType
+}
+
+type Light struct {
+	Diffuse math.Color
+	Power   float64
+}
+
+func (c Light) Type() ComponentType {
+	return LightType
 }

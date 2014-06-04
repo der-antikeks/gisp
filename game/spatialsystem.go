@@ -17,43 +17,45 @@ import (
 	Collisions, FollowNearby
 */
 type SpatialSystem struct {
-	ents  *EntitySystem
-	state *GameStateSystem
+	ents *EntitySystem
 
 	messages chan interface{}
+	doConc   chan func()
 	trees    map[string]*SphereTree
+	update   bool
 }
 
-func NewSpatialSystem(ents *EntitySystem, state *GameStateSystem) *SpatialSystem {
+func NewSpatialSystem(ents *EntitySystem) *SpatialSystem {
 	s := &SpatialSystem{
-		ents:  ents,
-		state: state,
+		ents: ents,
 
 		messages: make(chan interface{}),
+		doConc:   make(chan func()),
 		trees:    map[string]*SphereTree{},
 	}
 
 	go func() {
 		s.Restart()
 
-		for event := range s.messages {
-			switch e := event.(type) {
-			case MessageEntityAdd:
-				if err := s.AddEntity(e.Added); err != nil {
-					log.Fatal("could not add entity to scene:", err)
+		for {
+			select {
+			case event := <-s.messages:
+				switch e := event.(type) {
+				case MessageEntityAdd:
+					if err := s.addEntity(e.Added); err != nil {
+						log.Fatal("could not add entity to scene:", err)
+					}
+				case MessageEntityUpdate:
+					if err := s.updateEntity(e.Updated); err != nil {
+						log.Fatal("could not update entity:", err)
+					}
+				case MessageEntityRemove:
+					if err := s.removeEntity(e.Removed); err != nil {
+						log.Fatal("could not remove entity from scene:", err)
+					}
 				}
-			case MessageEntityUpdate:
-				if err := s.UpdateEntity(e.Updated); err != nil {
-					log.Fatal("could not update entity:", err)
-				}
-			case MessageEntityRemove:
-				if err := s.RemoveEntity(e.Removed); err != nil {
-					log.Fatal("could not remove entity from scene:", err)
-				}
-			case MessageUpdate:
-				if err := s.UpdateTrees(); err != nil {
-					log.Fatal("could not update scene tree:", err)
-				}
+			case f := <-s.doConc:
+				f()
 			}
 		}
 	}()
@@ -62,53 +64,57 @@ func NewSpatialSystem(ents *EntitySystem, state *GameStateSystem) *SpatialSystem
 }
 
 func (s *SpatialSystem) Restart() {
-	s.state.OnUpdate().Subscribe(s.messages, PriorityBeforeRender)
-
-	s.ents.OnAdd(TransformationType, SceneTreeType).Subscribe(s.messages, PriorityBeforeRender)
-	s.ents.OnUpdate(TransformationType, SceneTreeType).Subscribe(s.messages, PriorityBeforeRender)
-	s.ents.OnRemove(TransformationType, SceneTreeType).Subscribe(s.messages, PriorityBeforeRender)
+	s.ents.OnAdd(TransformationType, SceneType).Subscribe(s.messages, PriorityBeforeRender)
+	s.ents.OnUpdate(TransformationType, SceneType).Subscribe(s.messages, PriorityBeforeRender)
+	s.ents.OnRemove(TransformationType, SceneType).Subscribe(s.messages, PriorityBeforeRender)
 }
 
 func (s *SpatialSystem) Stop() {
-	s.state.OnUpdate().Unsubscribe(s.messages)
-
-	s.ents.OnAdd(TransformationType, SceneTreeType).Unsubscribe(s.messages)
-	s.ents.OnUpdate(TransformationType, SceneTreeType).Unsubscribe(s.messages)
-	s.ents.OnRemove(TransformationType, SceneTreeType).Unsubscribe(s.messages)
+	s.ents.OnAdd(TransformationType, SceneType).Unsubscribe(s.messages)
+	s.ents.OnUpdate(TransformationType, SceneType).Unsubscribe(s.messages)
+	s.ents.OnRemove(TransformationType, SceneType).Unsubscribe(s.messages)
 
 	// TODO: empty trees?
 }
 
-func (s *SpatialSystem) getData(en Entity) (stc SceneTree, pos math.Vector, radius float64, err error) {
+func (s *SpatialSystem) getData(en Entity) (stc Scene, pos math.Vector, radius float64, err error) {
 	ec, err := s.ents.Get(en, TransformationType)
 	if err != nil {
 		return
 	}
 	transform := ec.(Transformation)
 
-	ec, err = s.ents.Get(en, SceneTreeType)
+	ec, err = s.ents.Get(en, SceneType)
 	if err != nil {
 		return
 	}
-	stc = ec.(SceneTree)
+	stc = ec.(Scene)
 
-	ec, err = s.ents.Get(en, GeometryType)
-	if err != nil {
+	if ec, err = s.ents.Get(en, GeometryType); err == nil {
+		// drawable entity
+
+		pos, radius = ec.(Geometry).Bounding.Sphere()
+		pos = transform.MatrixWorld().Transform(pos)
+		radius *= transform.MatrixWorld().MaxScaleOnAxis()
+	} else if ec, err = s.ents.Get(en, LightType); err == nil {
+		// light
+
+		pos = transform.Position
+		radius = ec.(Light).Power * 1.0 // TODO: test
+	} else {
+		// point object...
+
 		pos = transform.Position
 		// TODO: consider parent transformation
 		// transform.Parent.MatrixWorld().Transform(pos)
 
 		err = nil
-		return
 	}
 
-	pos, radius = ec.(Geometry).Bounding.Sphere()
-	pos = transform.MatrixWorld().Transform(pos)
-	radius *= transform.MatrixWorld().MaxScaleOnAxis()
 	return
 }
 
-func (s *SpatialSystem) AddEntity(en Entity) error {
+func (s *SpatialSystem) addEntity(en Entity) error {
 	stc, pos, radius, err := s.getData(en)
 	if err != nil {
 		return err
@@ -128,10 +134,12 @@ func (s *SpatialSystem) AddEntity(en Entity) error {
 	if err := s.ents.Set(en, stc); err != nil {
 		return err
 	}
+
+	s.update = true
 	return nil
 }
 
-func (s *SpatialSystem) UpdateEntity(en Entity) error {
+func (s *SpatialSystem) updateEntity(en Entity) error {
 	stc, pos, radius, err := s.getData(en)
 	if err != nil {
 		return err
@@ -142,16 +150,18 @@ func (s *SpatialSystem) UpdateEntity(en Entity) error {
 	if err := stc.leaf.Update(pos, radius); err != nil {
 		return err
 	}
+
+	s.update = true
 	return nil
 }
 
-func (s *SpatialSystem) RemoveEntity(en Entity) error {
-	ec, err := s.ents.Get(en, SceneTreeType)
+func (s *SpatialSystem) removeEntity(en Entity) error {
+	ec, err := s.ents.Get(en, SceneType)
 	if err != nil {
 		return err
 	}
 
-	stc := ec.(SceneTree)
+	stc := ec.(Scene)
 	if stc.leaf == nil {
 		return fmt.Errorf("removing entity without leaf node")
 	}
@@ -164,14 +174,28 @@ func (s *SpatialSystem) RemoveEntity(en Entity) error {
 	if err := s.ents.Set(en, stc); err != nil {
 		return err
 	}
+
+	s.update = true
 	return nil
 }
 
-func (s *SpatialSystem) UpdateTrees() error {
+func (s *SpatialSystem) updateIfNeeded() {
+	if !s.update {
+		return
+	}
 	for _, tree := range s.trees {
 		tree.Update()
 	}
-	return nil
+	s.update = true
+}
+
+func (s *SpatialSystem) Contains(p math.Vector, r float64) []Entity {
+	return nil // TODO
+}
+
+func (s *SpatialSystem) VisibleEntities(sene string, p math.Vector, frustum math.Frustum) (opaque, transparent, light []Entity) {
+	s.updateIfNeeded()
+	return nil, nil, nil // TODO
 }
 
 type SphereTree struct {
@@ -214,7 +238,7 @@ func (t *SphereTree) get() *Node {
 	return &Node{tree: t}
 }
 
-// creates a new node in the size of the passed bounding sphere
+// creates a new node with the size of the passed bounding sphere
 func (t *SphereTree) Add(p math.Vector, r float64) *Node {
 	if t.root == nil {
 		t.root = t.get()

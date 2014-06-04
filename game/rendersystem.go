@@ -113,33 +113,29 @@ func NewRenderSystem(context *GlContextSystem, spatial *SpatialSystem, state *Ga
 func (s *RenderSystem) Restart() {
 	s.state.OnUpdate().Subscribe(s.updChan, PriorityRender)
 
-	s.ents.OnAdd(TransformationType, GeometryType, MaterialType, SceneTreeType).Subscribe(s.drawChan, PriorityRender)
-	s.ents.OnRemove(TransformationType, GeometryType, MaterialType, SceneTreeType).Subscribe(s.drawChan, PriorityRender)
+	s.ents.OnAdd(TransformationType, GeometryType, MaterialType, SceneType).Subscribe(s.drawChan, PriorityRender)
+	s.ents.OnRemove(TransformationType, GeometryType, MaterialType, SceneType).Subscribe(s.drawChan, PriorityRender)
 
-	s.ents.OnAdd(TransformationType, ProjectionType, SceneTreeType).Subscribe(s.camChan, PriorityRender)
-	s.ents.OnRemove(TransformationType, ProjectionType, SceneTreeType).Subscribe(s.camChan, PriorityRender)
+	s.ents.OnAdd(TransformationType, ProjectionType, SceneType).Subscribe(s.camChan, PriorityRender)
+	s.ents.OnRemove(TransformationType, ProjectionType, SceneType).Subscribe(s.camChan, PriorityRender)
 }
 
 func (s *RenderSystem) Stop() {
 	s.state.OnUpdate().Unsubscribe(s.updChan)
 
-	s.ents.OnAdd(TransformationType, GeometryType, MaterialType, SceneTreeType).Unsubscribe(s.drawChan)
-	s.ents.OnRemove(TransformationType, GeometryType, MaterialType, SceneTreeType).Unsubscribe(s.drawChan)
+	s.ents.OnAdd(TransformationType, GeometryType, MaterialType, SceneType).Unsubscribe(s.drawChan)
+	s.ents.OnRemove(TransformationType, GeometryType, MaterialType, SceneType).Unsubscribe(s.drawChan)
 
-	s.ents.OnAdd(TransformationType, ProjectionType, SceneTreeType).Unsubscribe(s.camChan)
-	s.ents.OnRemove(TransformationType, ProjectionType, SceneTreeType).Unsubscribe(s.camChan)
+	s.ents.OnAdd(TransformationType, ProjectionType, SceneType).Unsubscribe(s.camChan)
+	s.ents.OnRemove(TransformationType, ProjectionType, SceneType).Unsubscribe(s.camChan)
 
 	//s.drawable = []Entity{}
 	//s.camera = NoEntity
 	// TODO: empty scenes?
 }
 
-func (s *RenderSystem) getScene(e Entity) string {
-	ec, err := s.ents.Get(e, SceneTreeType)
-	if err != nil {
-		return ""
-	}
-	return ec.(SceneTree).Name
+func (s *RenderSystem) AddRenderPass(camera Entity, priority int) {
+	// TODO
 }
 
 func (s *RenderSystem) Update(delta time.Duration) error {
@@ -149,6 +145,14 @@ func (s *RenderSystem) Update(delta time.Duration) error {
 		}
 	}
 	return nil
+}
+
+func (s *RenderSystem) getScene(e Entity) string {
+	ec, err := s.ents.Get(e, SceneType)
+	if err != nil {
+		return ""
+	}
+	return ec.(Scene).Name
 }
 
 func (s *RenderSystem) updateScene(delta time.Duration, sc string) error {

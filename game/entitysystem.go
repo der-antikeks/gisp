@@ -322,7 +322,7 @@ func (s *EntitySystem) createCube() Entity {
 	mat.Set("diffuseMap", tex)
 
 	// scene
-	stc := SceneTree{Name: "mainscene"}
+	stc := Scene{Name: "mainscene"}
 
 	// Entity
 	cube := s.Entity()
@@ -377,7 +377,7 @@ func (s *EntitySystem) createRndCube() Entity {
 	mat.Set("opacity", r(0.2, 1))
 
 	// scene
-	stc := SceneTree{Name: "mainscene"}
+	stc := Scene{Name: "mainscene"}
 
 	// Entity
 	cube := s.Entity()
@@ -413,7 +413,7 @@ func (s *EntitySystem) createSphere() Entity {
 	mat.Set("diffuseMap", tex)
 
 	// scene
-	stc := SceneTree{Name: "mainscene"}
+	stc := Scene{Name: "mainscene"}
 
 	// Entity
 	sphere := s.Entity()
@@ -472,7 +472,7 @@ func (s *EntitySystem) CreatePerspectiveCamera(fov, aspect, near, far float64) E
 			Matrix: math.NewPerspectiveMatrix(fov, aspect, near, far),
 		},
 		t,
-		SceneTree{Name: "mainscene"},
+		Scene{Name: "mainscene"},
 	); err != nil {
 		log.Fatal("could not create camera:", err)
 	}
@@ -496,7 +496,7 @@ func (s *EntitySystem) CreateOrthographicCamera(left, right, top, bottom, near, 
 			Matrix: math.NewOrthoMatrix(left, right, bottom, top, near, far),
 		},
 		t,
-		SceneTree{Name: "mainscene"},
+		Scene{Name: "mainscene"},
 	); err != nil {
 		log.Fatal("could not create camera:", err)
 	}

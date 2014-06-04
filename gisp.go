@@ -27,7 +27,7 @@ func main() {
 
 	ents := game.NewEntitySystem(loader)
 	state := game.NewGameStateSystem(context, ents)
-	spatial := game.NewSpatialSystem(ents, state /* temporary */)
+	spatial := game.NewSpatialSystem(ents)
 	game.NewRenderSystem(context, spatial, state, ents /*temporary*/)
 
 	game.NewMovementsSystem(ents, state)
