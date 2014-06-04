@@ -140,7 +140,7 @@ func (s *OrbitControlSystem) Update(deltax, deltay, deltaz float64) error {
 		}
 
 		// TODO: exponential zoom?
-		distance := mgl32.Clampf(
+		distance := mgl32.Clamp(
 			transform.Position.Sub(target).Len()+float32(deltaz*control.ZoomSpeed),
 			float32(control.Min), float32(control.Max))
 

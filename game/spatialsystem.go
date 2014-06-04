@@ -102,11 +102,11 @@ func (s *SpatialSystem) getData(en Entity) (stc SceneTree, pos mgl32.Vec3, radiu
 		return
 	}
 
-	pos, radius = ec.(Geometry).Bounding.Sphere()
-	pos4 := transform.MatrixWorld().Mul4x1(mgl32.Vec4{pos[0], pos[1], pos[2], 0})
-	pos = mgl32.Vec3{pos4[0], pos4[1], pos4[2]}
+	pos4, radius := ec.(Geometry).Bounding.Sphere()
+	pos4 = transform.MatrixWorld().Mul4x1(pos4)
+	pos = mgl32.Vec3{pos4[0], pos4[1], pos4[2]} // TODO
 	radius *= transform.MatrixWorld().MaxScale()
-	return
+	return stc, pos, radius, nil
 }
 
 func (s *SpatialSystem) AddEntity(en Entity) error {
@@ -533,14 +533,14 @@ func (n *Node) Intersects(b *Node) IntersectionType {
 }
 
 type Boundary struct {
-	Min, Max mgl32.Vec3
+	Min, Max mgl32.Vec4
 }
 
 func NewBoundary() Boundary {
 	p, m := float32(math.Inf(1)), float32(math.Inf(-1))
 	return Boundary{
-		Min: mgl32.Vec3{p, p, p},
-		Max: mgl32.Vec3{m, m, m},
+		Min: mgl32.Vec4{p, p, p, 1},
+		Max: mgl32.Vec4{m, m, m, 1},
 	}
 }
 
@@ -571,19 +571,19 @@ func (b *Boundary) AddBoundary(a Boundary) {
 		return
 	}
 
-	b.AddPoint(a.Max)
-	b.AddPoint(a.Min)
+	b.AddPoint(mgl32.Vec3{a.Max[0], a.Max[1], a.Max[2]})
+	b.AddPoint(mgl32.Vec3{a.Min[0], a.Min[1], a.Min[2]})
 }
 
-func (b Boundary) Center() mgl32.Vec3 {
+func (b Boundary) Center() mgl32.Vec4 {
 	return b.Min.Add(b.Max).Mul(0.5)
 }
 
-func (b Boundary) Size() mgl32.Vec3 {
+func (b Boundary) Size() mgl32.Vec4 {
 	return b.Max.Sub(b.Min)
 }
 
-func (b Boundary) Sphere() (center mgl32.Vec3, radius float32) {
+func (b Boundary) Sphere() (center mgl32.Vec4, radius float32) {
 	return b.Center(), b.Size().Len() * 0.5
 }
 
@@ -620,24 +620,20 @@ func Mat4ToFrustum(m mgl32.Mat4) Frustum {
 	return f
 }
 
-func (f Frustum) ContainsPoint(point mgl32.Vec3) bool {
-	p4 := mgl32.Vec4{point[0], point[1], point[2], 0}
+func (f Frustum) ContainsPoint(point mgl32.Vec4) bool {
 	for _, p := range f {
-		if p4.Dot(p.normal)+p.distance <= 0 {
+		if point.Dot(p.normal)+p.distance <= 0 {
 			return false
 		}
 	}
-
 	return true
 }
 
-func (f Frustum) IntersectsSphere(center mgl32.Vec3, radius float32) bool {
-	c4 := mgl32.Vec4{center[0], center[1], center[2], 0}
+func (f Frustum) IntersectsSphere(center mgl32.Vec4, radius float32) bool {
 	for _, p := range f {
-		if c4.Dot(p.normal)+p.distance <= -radius {
+		if center.Dot(p.normal)+p.distance <= -radius {
 			return false
 		}
 	}
-
 	return true
 }

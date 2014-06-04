@@ -245,6 +245,7 @@ func (s *RenderSystem) visibleEntities(frustum Frustum, cp mgl32.Vec3, drawable 
 	var ec Component
 
 	zorder := map[Entity]float32{}
+	cp4 := mgl32.Vec4{cp[0], cp[1], cp[2], 0} // TODO
 
 	for _, e := range drawable {
 		ec, err = s.ents.Get(e, TransformationType)
@@ -266,12 +267,11 @@ func (s *RenderSystem) visibleEntities(frustum Frustum, cp mgl32.Vec3, drawable 
 		m := ec.(Material)
 
 		c, r := g.Bounding.Sphere()
-		c4 := t.MatrixWorld().Mul4x1(mgl32.Vec4{c[0], c[1], c[2], 0})
-		c = mgl32.Vec3{c4[0], c4[1], c4[2]}
+		c = t.MatrixWorld().Mul4x1(c)
 		r *= t.MatrixWorld().MaxScale()
 
 		if frustum.IntersectsSphere(c, r) {
-			zorder[e] = c.Sub(cp).Len()
+			zorder[e] = c.Sub(cp4).Len()
 
 			if m.opaque() {
 				opaque = append(opaque, e)

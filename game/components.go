@@ -52,7 +52,7 @@ func (c Projection) Type() ComponentType {
 */
 
 type Transformation struct {
-	Position mgl32.Vec3 // TODO: Vec4?
+	Position mgl32.Vec3
 	Rotation mgl32.Quat
 	Scale    mgl32.Vec3
 	Up       mgl32.Vec3

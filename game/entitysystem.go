@@ -316,7 +316,7 @@ func (s *EntitySystem) createCube() Entity {
 
 	// material
 	mat := s.getMaterial("flat")
-	mat.Set("lightPosition", mgl32.Vec4{5, 5, 0, 1}) // TODO: Vec3?
+	mat.Set("lightPosition", mgl32.Vec3{5, 5, 0})
 	mat.Set("lightDiffuse", mgl32.Vec3{1, 0, 0})
 	mat.Set("opacity", 0.8)
 
