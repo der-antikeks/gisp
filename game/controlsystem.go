@@ -3,7 +3,7 @@ package game
 import (
 	"log"
 
-	"github.com/der-antikeks/gisp/math"
+	"github.com/der-antikeks/mathgl/mgl32"
 )
 
 // change entities based on controller input
@@ -129,7 +129,7 @@ func (s *OrbitControlSystem) Update(deltax, deltay, deltaz float64) error {
 		}
 		control := ec.(OrbitControl)
 
-		var target math.Vector
+		var target mgl32.Vec3
 		// TODO: if no target is set return error
 		if control.Target != 0 {
 			ec, err = s.ents.Get(control.Target, TransformationType)
@@ -140,18 +140,18 @@ func (s *OrbitControlSystem) Update(deltax, deltay, deltaz float64) error {
 		}
 
 		// TODO: exponential zoom?
-		distance := math.Limit(
-			transform.Position.Sub(target).Length()+(deltaz*control.ZoomSpeed),
-			control.Min, control.Max)
+		distance := mgl32.Clamp(
+			transform.Position.Sub(target).Len()+float32(deltaz*control.ZoomSpeed),
+			float32(control.Min), float32(control.Max))
 
-		delta := math.QuaternionFromEuler(math.Vector{
-			deltay * control.RotationSpeed,
-			deltax * control.RotationSpeed,
+		delta := mgl32.AnglesToQuat(
+			float32(deltay*control.RotationSpeed),
+			float32(deltax*control.RotationSpeed),
 			0,
-		}, math.RotateXYZ).Inverse()
+			mgl32.XYZ).Inverse()
 
 		transform.Rotation = transform.Rotation.Mul(delta)
-		transform.Position = transform.Rotation.Rotate(math.Vector{
+		transform.Position = transform.Rotation.Rotate(mgl32.Vec3{
 			0,
 			0,
 			distance,

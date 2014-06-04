@@ -7,11 +7,11 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"log"
-	m "math"
+	"math"
 	"os"
 	"sync"
 
-	"github.com/der-antikeks/gisp/math"
+	"github.com/der-antikeks/mathgl/mgl32"
 
 	"github.com/go-gl/gl"
 	"github.com/go-gl/glh"
@@ -97,29 +97,29 @@ func (ls *AssetLoaderSystem) GetMeshBuffer(name string) *meshbuffer {
 		log.Fatal("unknown geometry name: ", name)
 	case "cube":
 		// dimensions
-		size := 2.0
-		halfSize := size / 2.0
+		var size float32 = 2.0
+		var halfSize float32 = size / 2.0
 
 		// vertices
-		a := math.Vector{halfSize, halfSize, halfSize}
-		b := math.Vector{-halfSize, halfSize, halfSize}
-		c := math.Vector{-halfSize, -halfSize, halfSize}
-		d := math.Vector{halfSize, -halfSize, halfSize}
-		e := math.Vector{halfSize, halfSize, -halfSize}
-		f := math.Vector{halfSize, -halfSize, -halfSize}
-		g := math.Vector{-halfSize, -halfSize, -halfSize}
-		h := math.Vector{-halfSize, halfSize, -halfSize}
+		a := mgl32.Vec3{halfSize, halfSize, halfSize}
+		b := mgl32.Vec3{-halfSize, halfSize, halfSize}
+		c := mgl32.Vec3{-halfSize, -halfSize, halfSize}
+		d := mgl32.Vec3{halfSize, -halfSize, halfSize}
+		e := mgl32.Vec3{halfSize, halfSize, -halfSize}
+		f := mgl32.Vec3{halfSize, -halfSize, -halfSize}
+		g := mgl32.Vec3{-halfSize, -halfSize, -halfSize}
+		h := mgl32.Vec3{-halfSize, halfSize, -halfSize}
 
 		// uvs
-		tl := math.Vector{0, 1}
-		tr := math.Vector{1, 1}
-		bl := math.Vector{0, 0}
-		br := math.Vector{1, 0}
+		tl := mgl32.Vec3{0, 1}
+		tr := mgl32.Vec3{1, 1}
+		bl := mgl32.Vec3{0, 0}
+		br := mgl32.Vec3{1, 0}
 
-		var normal math.Vector
+		var normal mgl32.Vec3
 
 		// front
-		normal = math.Vector{0, 0, 1}
+		normal = mgl32.Vec3{0, 0, 1}
 		mb.AddFace(
 			Vertex{ // a
 				position: a,
@@ -150,7 +150,7 @@ func (ls *AssetLoaderSystem) GetMeshBuffer(name string) *meshbuffer {
 			})
 
 		// back
-		normal = math.Vector{0, 0, -1}
+		normal = mgl32.Vec3{0, 0, -1}
 		mb.AddFace(
 			Vertex{
 				position: e,
@@ -181,7 +181,7 @@ func (ls *AssetLoaderSystem) GetMeshBuffer(name string) *meshbuffer {
 			})
 
 		// top
-		normal = math.Vector{0, 1, 0}
+		normal = mgl32.Vec3{0, 1, 0}
 		mb.AddFace(
 			Vertex{
 				position: e,
@@ -212,7 +212,7 @@ func (ls *AssetLoaderSystem) GetMeshBuffer(name string) *meshbuffer {
 			})
 
 		// bottom
-		normal = math.Vector{0, -1, 0}
+		normal = mgl32.Vec3{0, -1, 0}
 		mb.AddFace(
 			Vertex{
 				position: f,
@@ -243,7 +243,7 @@ func (ls *AssetLoaderSystem) GetMeshBuffer(name string) *meshbuffer {
 			})
 
 		// left
-		normal = math.Vector{-1, 0, 0}
+		normal = mgl32.Vec3{-1, 0, 0}
 		mb.AddFace(
 			Vertex{
 				position: b,
@@ -274,7 +274,7 @@ func (ls *AssetLoaderSystem) GetMeshBuffer(name string) *meshbuffer {
 			})
 
 		// right
-		normal = math.Vector{1, 0, 0}
+		normal = mgl32.Vec3{1, 0, 0}
 		mb.AddFace(
 			Vertex{
 				position: e,
@@ -315,23 +315,23 @@ func (ls *AssetLoaderSystem) GetMeshBuffer(name string) *meshbuffer {
 		phiStart, phiLength := 0.0, math.Pi*2
 		thetaStart, thetaLength := 0.0, math.Pi
 
-		var vertices, uvs [][]math.Vector
+		var vertices, uvs [][]mgl32.Vec3
 
 		for y := 0; y <= heightSegments; y++ {
-			var verticesRow, uvsRow []math.Vector
+			var verticesRow, uvsRow []mgl32.Vec3
 
 			for x := 0; x <= widthSegments; x++ {
-				u := float64(x) / float64(widthSegments)
-				v := float64(y) / float64(heightSegments)
+				u := float32(x) / float32(widthSegments)
+				v := float32(y) / float32(heightSegments)
 
-				vertex := math.Vector{
-					-radius * m.Cos(phiStart+u*phiLength) * m.Sin(thetaStart+v*thetaLength),
-					radius * m.Cos(thetaStart+v*thetaLength),
-					radius * m.Sin(phiStart+u*phiLength) * m.Sin(thetaStart+v*thetaLength),
+				vertex := mgl32.Vec3{
+					float32(-radius * math.Cos(phiStart+float64(u)*phiLength) * math.Sin(thetaStart+float64(v)*thetaLength)),
+					float32(radius * math.Cos(thetaStart+float64(v)*thetaLength)),
+					float32(radius * math.Sin(phiStart+float64(u)*phiLength) * math.Sin(thetaStart+float64(v)*thetaLength)),
 				}
 
 				verticesRow = append(verticesRow, vertex)
-				uvsRow = append(uvsRow, math.Vector{u, 1.0 - v})
+				uvsRow = append(uvsRow, mgl32.Vec3{u, 1.0 - v})
 			}
 
 			vertices = append(vertices, verticesRow)
@@ -358,7 +358,7 @@ func (ls *AssetLoaderSystem) GetMeshBuffer(name string) *meshbuffer {
 				uv3 := uvs[y+1][x]
 				uv4 := uvs[y+1][x+1]
 
-				if m.Abs(v1[1]) == radius {
+				if math.Abs(float64(v1[1])) == radius {
 					mb.AddFace(
 						Vertex{
 							position: v1,
@@ -373,7 +373,7 @@ func (ls *AssetLoaderSystem) GetMeshBuffer(name string) *meshbuffer {
 							normal:   n4,
 							uv:       uv4,
 						})
-				} else if m.Abs(v3[1]) == radius {
+				} else if math.Abs(float64(v3[1])) == radius {
 					mb.AddFace(
 						Vertex{
 							position: v1,
@@ -435,23 +435,23 @@ func (ls *AssetLoaderSystem) GetMeshBuffer(name string) *meshbuffer {
 }
 
 type Vertex struct {
-	position math.Vector
-	normal   math.Vector
-	uv       math.Vector
+	position mgl32.Vec3
+	normal   mgl32.Vec3
+	uv       mgl32.Vec3
 }
 
 func (v Vertex) Key(precision int) string {
 	return fmt.Sprintf("%v_%v_%v_%v_%v_%v_%v_%v_%v_%v_%v",
-		math.Round(v.position[0], precision),
-		math.Round(v.position[1], precision),
-		math.Round(v.position[2], precision),
+		mgl32.Round(v.position[0], precision),
+		mgl32.Round(v.position[1], precision),
+		mgl32.Round(v.position[2], precision),
 
-		math.Round(v.normal[0], precision),
-		math.Round(v.normal[1], precision),
-		math.Round(v.normal[2], precision),
+		mgl32.Round(v.normal[0], precision),
+		mgl32.Round(v.normal[1], precision),
+		mgl32.Round(v.normal[2], precision),
 
-		math.Round(v.uv[0], precision),
-		math.Round(v.uv[1], precision),
+		mgl32.Round(v.uv[0], precision),
+		mgl32.Round(v.uv[1], precision),
 	)
 }
 
@@ -470,7 +470,7 @@ type meshbuffer struct {
 	NormalBuffer      gl.Buffer
 	UvBuffer          gl.Buffer
 
-	Bounding  math.Boundary
+	Bounding  Boundary
 	FaceCount int
 }
 
@@ -520,7 +520,7 @@ func (g *meshbuffer) MergeVertices() {
 }
 
 func (g *meshbuffer) ComputeBoundary() {
-	g.Bounding = math.NewBoundary()
+	g.Bounding = NewBoundary()
 	for _, v := range g.Vertices {
 		g.Bounding.AddPoint(v.position)
 	}
@@ -665,7 +665,7 @@ var shaderProgramLib = map[string]struct {
 			"modelViewMatrix":  nil, //[16]float32{},
 			"normalMatrix":     nil, //[9]float32{}, // matrix.Matrix3Float32()
 
-			"diffuse": math.Color{1, 1, 1},
+			"diffuse": mgl32.Vec3{1, 1, 1},
 			"opacity": 1.0,
 		},
 		Attributes: map[string]uint{ // name, size
@@ -792,11 +792,11 @@ var shaderProgramLib = map[string]struct {
 
 			"diffuseMap": nil, // texture
 			"opacity":    1.0,
-			"diffuse":    math.Color{1, 1, 1},
+			"diffuse":    mgl32.Vec3{1, 1, 1},
 
-			"ambient":  math.Color{1, 1, 1},
-			"emissive": math.Color{1, 1, 1},
-			"specular": math.Color{1, 1, 1},
+			"ambient":  mgl32.Vec3{1, 1, 1},
+			"emissive": mgl32.Vec3{1, 1, 1},
+			"specular": mgl32.Vec3{1, 1, 1},
 		},
 		Attributes: map[string]uint{
 			"vertexPosition": 3,
@@ -915,11 +915,11 @@ var shaderProgramLib = map[string]struct {
 			"modelViewMatrix":  nil, //[16]float32{},
 			"normalMatrix":     nil, //[9]float32{}, // matrix.Matrix3Float32()
 
-			"lightPosition": math.Vector{0, 0, 0},
-			"lightDiffuse":  math.Color{1, 1, 1}, //
+			"lightPosition": mgl32.Vec3{0, 0, 0},
+			"lightDiffuse":  mgl32.Vec3{1, 1, 1}, //
 			"lightPower":    50.0,
 
-			"ambientColor": math.Color{1, 1, 1},
+			"ambientColor": mgl32.Vec3{1, 1, 1},
 
 			"diffuseMap": nil, // texture
 			"opacity":    1.0,

@@ -4,7 +4,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/der-antikeks/gisp/math"
+	"github.com/der-antikeks/mathgl/mgl32"
 )
 
 // move entities with velocity
@@ -82,21 +82,21 @@ func (s *MovementSystem) Update(delta time.Duration) error {
 		velocity := ec.(Velocity)
 
 		var update bool
-		if v := velocity.Velocity; !v.Equals(math.Vector{}, 6) {
+		if v := velocity.Velocity; !v.ApproxEqual(mgl32.Vec3{}) {
 			update = true
-			transform.Position = transform.Position.Add(v.MulScalar(delta.Seconds()))
+			transform.Position = transform.Position.Add(v.Mul(float32(delta.Seconds())))
 		}
 
-		if a := velocity.Angular; !a.Equals(math.Vector{}, 6) {
+		if a := velocity.Angular; !a.ApproxEqual(mgl32.Vec3{}) {
 			update = true
 
 			// http://www.euclideanspace.com/physics/kinematics/angularvelocity/#quaternion
 			// dq/dt = 1/2 w(t) q(t)
 
 			q := transform.Rotation.Normalize()
-			a = a.MulScalar(delta.Seconds())
-			w := math.Quaternion{a[0], a[1], a[2], 0}
-			transform.Rotation = transform.Rotation.Add(w.Mul(q).MulScalar(0.5)).Normalize()
+			a = a.Mul(float32(delta.Seconds()))
+			w := mgl32.Quat{0, mgl32.Vec3{a[0], a[1], a[2]}}
+			transform.Rotation = transform.Rotation.Add(w.Mul(q).Scale(0.5)).Normalize()
 		}
 
 		if update {

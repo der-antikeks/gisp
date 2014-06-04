@@ -3,11 +3,16 @@ package game
 import (
 	"errors"
 	"log"
-	m "math"
+	"math"
 	"math/rand"
 	"sync"
 
-	"github.com/der-antikeks/gisp/math"
+	"github.com/der-antikeks/mathgl/mgl32"
+)
+
+const (
+	DEG2RAD = math.Pi / 180
+	RAD2DEG = 180 / math.Pi
 )
 
 var (
@@ -290,18 +295,18 @@ func (s *EntitySystem) CreateMainMenu() {
 func (s *EntitySystem) createCube() Entity {
 	// Transformation
 	trans := Transformation{
-		Position: math.Vector{0, 0, 0},
-		Rotation: math.QuaternionFromAxisAngle(math.Vector{1, 0.5, 0}, m.Pi/4.0),
-		Scale:    math.Vector{1, 1, 1},
-		Up:       math.Vector{0, 1, 0},
+		Position: mgl32.Vec3{0, 0, 0},
+		Rotation: mgl32.QuatRotate(math.Pi/4.0, mgl32.Vec3{1, 0.5, 0}),
+		Scale:    mgl32.Vec3{1, 1, 1},
+		Up:       mgl32.Vec3{0, 1, 0},
 	}
 
 	// velocity, rate of change per second
 	vel := Velocity{
-		Velocity: math.Vector{0, 0, 0},
-		Angular: math.Vector{
-			45.0 * math.DEG2RAD,
-			5.0 * math.DEG2RAD,
+		Velocity: mgl32.Vec3{0, 0, 0},
+		Angular: mgl32.Vec3{
+			45.0 * DEG2RAD,
+			5.0 * DEG2RAD,
 			0,
 		},
 	}
@@ -311,8 +316,8 @@ func (s *EntitySystem) createCube() Entity {
 
 	// material
 	mat := s.getMaterial("flat")
-	mat.Set("lightPosition", math.Vector{5, 5, 0, 1})
-	mat.Set("lightDiffuse", math.Color{1, 0, 0})
+	mat.Set("lightPosition", mgl32.Vec3{5, 5, 0})
+	mat.Set("lightDiffuse", mgl32.Vec3{1, 0, 0})
 	mat.Set("opacity", 0.8)
 
 	tex, err := s.loader.LoadTexture("assets/cube/cube.png")
@@ -338,10 +343,10 @@ func (s *EntitySystem) createCube() Entity {
 
 func (s *EntitySystem) createRndCube() Entity {
 	// helper
-	r := func(min, max float64) float64 {
-		return rand.Float64()*(max-min) + min
+	r := func(min, max float32) float32 {
+		return rand.Float32()*(max-min) + min
 	}
-	d := func() float64 {
+	d := func() float32 {
 		if rand.Intn(2) == 0 {
 			return -1
 		}
@@ -350,18 +355,18 @@ func (s *EntitySystem) createRndCube() Entity {
 
 	// transformation
 	trans := Transformation{
-		Position: math.Vector{
+		Position: mgl32.Vec3{
 			r(1, 100) * d(),
 			r(1, 100) * d(),
 			r(1, 100) * d(),
 		},
-		Rotation: math.QuaternionFromAxisAngle((math.Vector{
-			rand.Float64(),
-			rand.Float64(),
-			rand.Float64(),
-		}).Normalize(), r(0, m.Pi*2)),
-		Scale: math.Vector{1, 1, 1},
-		Up:    math.Vector{0, 1, 0},
+		Rotation: mgl32.QuatRotate(r(0, math.Pi*2), (mgl32.Vec3{
+			rand.Float32(),
+			rand.Float32(),
+			rand.Float32(),
+		}).Normalize()),
+		Scale: mgl32.Vec3{1, 1, 1},
+		Up:    mgl32.Vec3{0, 1, 0},
 	}
 
 	// geometry
@@ -369,12 +374,12 @@ func (s *EntitySystem) createRndCube() Entity {
 
 	// material
 	mat := s.getMaterial("basic")
-	mat.Set("diffuse", math.Color{
+	mat.Set("diffuse", mgl32.Vec3{
 		r(0.5, 1),
 		r(0.5, 1),
 		r(0.5, 1),
 	})
-	mat.Set("opacity", r(0.2, 1))
+	mat.Set("opacity", float64(r(0.2, 1)))
 
 	// scene
 	stc := Scene{Name: "mainscene"}
@@ -394,10 +399,10 @@ func (s *EntitySystem) createRndCube() Entity {
 func (s *EntitySystem) createSphere() Entity {
 	// Transformation
 	trans := Transformation{
-		Position: math.Vector{5, 0, 0},
-		Rotation: math.Quaternion{0, 0, 0, 1},
-		Scale:    math.Vector{1, 1, 1},
-		Up:       math.Vector{0, 1, 0},
+		Position: mgl32.Vec3{5, 0, 0},
+		Rotation: mgl32.Quat{1, mgl32.Vec3{0, 0, 0}},
+		Scale:    mgl32.Vec3{1, 1, 1},
+		Up:       mgl32.Vec3{0, 1, 0},
 	}
 
 	// geometry
@@ -456,20 +461,20 @@ func (s *EntitySystem) getGeometry(e string) Geometry {
 	return geo
 }
 
-func (s *EntitySystem) CreatePerspectiveCamera(fov, aspect, near, far float64) Entity {
+func (s *EntitySystem) CreatePerspectiveCamera(fov, aspect, near, far float32) Entity {
 	t := Transformation{
-		Position: math.Vector{0, 0, -10},
-		//Rotation: math.Quaternion{},
-		Scale: math.Vector{1, 1, 1},
-		Up:    math.Vector{0, 1, 0},
+		Position: mgl32.Vec3{0, 0, -10},
+		//Rotation: mgl32.Quat{},
+		Scale: mgl32.Vec3{1, 1, 1},
+		Up:    mgl32.Vec3{0, 1, 0},
 	}
-	t.Rotation = math.QuaternionLookAt(t.Position, math.Vector{0, 0, 0}, t.Up)
+	t.Rotation = mgl32.QuatLookAtV(t.Position, mgl32.Vec3{0, 0, 0}, t.Up)
 
 	c := s.Entity()
 	if err := s.Set(
 		c,
 		Projection{
-			Matrix: math.NewPerspectiveMatrix(fov, aspect, near, far),
+			Matrix: mgl32.Perspective(fov, aspect, near, far),
 		},
 		t,
 		Scene{Name: "mainscene"},
@@ -480,20 +485,20 @@ func (s *EntitySystem) CreatePerspectiveCamera(fov, aspect, near, far float64) E
 	return c
 }
 
-func (s *EntitySystem) CreateOrthographicCamera(left, right, top, bottom, near, far float64) Entity {
+func (s *EntitySystem) CreateOrthographicCamera(left, right, top, bottom, near, far float32) Entity {
 	t := Transformation{
-		Position: math.Vector{0, 0, -10},
-		//Rotation: math.Quaternion{},
-		Scale: math.Vector{1, 1, 1},
-		Up:    math.Vector{0, 1, 0},
+		Position: mgl32.Vec3{0, 0, -10},
+		//Rotation: mgl32.Quat{},
+		Scale: mgl32.Vec3{1, 1, 1},
+		Up:    mgl32.Vec3{0, 1, 0},
 	}
-	t.Rotation = math.QuaternionLookAt(t.Position, math.Vector{0, 0, 0}, t.Up)
+	t.Rotation = mgl32.QuatLookAtV(t.Position, mgl32.Vec3{0, 0, 0}, t.Up)
 
 	c := s.Entity()
 	if err := s.Set(
 		c,
 		Projection{ // TODO: top/bottom switched?
-			Matrix: math.NewOrthoMatrix(left, right, bottom, top, near, far),
+			Matrix: mgl32.Ortho(left, right, bottom, top, near, far),
 		},
 		t,
 		Scene{Name: "mainscene"},
