@@ -1,0 +1,12 @@
+#version 330 core
+
+// Values that stay constant for the whole mesh.
+uniform vec3  diffuse;
+uniform float opacity;
+
+// Output data
+out vec4 fragmentColor;
+
+void main() {
+	fragmentColor = vec4(diffuse, opacity);
+}

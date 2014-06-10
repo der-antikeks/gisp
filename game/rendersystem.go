@@ -348,6 +348,7 @@ func (s *RenderSystem) render(
 	var updateAttributes bool
 	if material.program != s.currentProgram {
 		// unbind old material (Textures)
+		s.unbindTextures()
 
 		s.currentProgram = material.program
 		s.currentProgram.program.Use()
@@ -355,66 +356,53 @@ func (s *RenderSystem) render(
 		updateAttributes = true
 	}
 
-	// TODO: caching, unbind only if not needed by new material
-	s.unbindTextures()
-
 	// ### bind geometry
 	if geometry.mesh != s.currentGeometry || updateAttributes {
-		s.currentGeometry = geometry.mesh
-
 		// disable old attributes
 		s.currentProgram.DisableAttributes()
+
+		// bind new buffers
+		s.currentGeometry = geometry.mesh
 		s.currentGeometry.VertexArrayObject.Bind()
+		//defer s.currentGeometry.VertexArrayObject.Unbind()
 
 		// vertices
 		s.currentGeometry.PositionBuffer.Bind(gl.ARRAY_BUFFER)
-		//program.EnableAttribute("vertexPosition")
-		//program.Attribute("vertexPosition").AttribPointer(3, gl.FLOAT, false, 0, nil)
+		defer s.currentGeometry.PositionBuffer.Unbind(gl.ARRAY_BUFFER)
 		s.currentProgram.EnableAttribute("vertexPosition")
-		//geometry.positionBuffer.Unbind(gl.ARRAY_BUFFER)
 
 		// normal
 		s.currentGeometry.NormalBuffer.Bind(gl.ARRAY_BUFFER)
-		//program.EnableAttribute("vertexNormal")
-		//program.Attribute("vertexNormal").AttribPointer(3, gl.FLOAT, false, 0, nil)
+		defer s.currentGeometry.NormalBuffer.Unbind(gl.ARRAY_BUFFER)
 		s.currentProgram.EnableAttribute("vertexNormal")
 
 		// uv
 		s.currentGeometry.UvBuffer.Bind(gl.ARRAY_BUFFER)
-		//program.EnableAttribute("vertexUV")
-		//program.Attribute("vertexUV").AttribPointer(2, gl.FLOAT, false, 0, nil)
+		defer s.currentGeometry.UvBuffer.Unbind(gl.ARRAY_BUFFER)
 		s.currentProgram.EnableAttribute("vertexUV")
 	}
 
-	// ### set matrices
+	// ### update uniforms
 
 	// update projection uniform
-
 	s.UpdateUniform("projectionMatrix", projection.Matrix /*.Float32()*/)
 
 	// viewMatrix
-
 	viewMatrix := cameratransform.MatrixWorld().Inv()
-	//program.Uniform("viewMatrix").UniformMatrix4fv(false, viewMatrix.Float32())
 	s.UpdateUniform("viewMatrix", viewMatrix /*.Float32()*/)
 
-	// material update uniforms model/view/normal/projection-matrix
-
 	// Model matrix : an identity matrix (model will be at the origin)
-	//program.Uniform("modelMatrix").UniformMatrix4fv(false, m.MatrixWorld().Float32())
 	s.UpdateUniform("modelMatrix", objecttransform.MatrixWorld() /*.Float32()*/)
 
 	// modelViewMatrix
 	modelViewMatrix := viewMatrix.Mul4(objecttransform.MatrixWorld())
-	//program.Uniform("modelViewMatrix").UniformMatrix4fv(false, modelViewMatrix.Float32())
 	s.UpdateUniform("modelViewMatrix", modelViewMatrix /*.Float32()*/)
 
 	// normalMatrix
 	normalMatrix := mgl32.Mat4Normal(modelViewMatrix)
-	//program.Uniform("normalMatrix").UniformMatrix3fv(false, normalMatrix.Matrix3Float32())
 	s.UpdateUniform("normalMatrix", normalMatrix /*.Matrix3Float32()*/)
 
-	// update material uniforms
+	// update material values
 	for n, v := range material.uniforms {
 		if err := s.UpdateUniform(n, v); err != nil {
 			return err
@@ -423,6 +411,7 @@ func (s *RenderSystem) render(
 
 	// ### draw
 	s.currentGeometry.FaceBuffer.Bind(gl.ELEMENT_ARRAY_BUFFER)
+	defer s.currentGeometry.FaceBuffer.Unbind(gl.ELEMENT_ARRAY_BUFFER)
 	gl.DrawElements(gl.TRIANGLES, s.currentGeometry.FaceCount*3, gl.UNSIGNED_SHORT, nil /* uintptr(start) */) // gl.UNSIGNED_INT, UNSIGNED_SHORT
 
 	return nil
@@ -453,12 +442,14 @@ func (s *RenderSystem) unbindTextures() {
 
 func (s *RenderSystem) UpdateUniform(name string, value interface{}) error {
 	if _, found := s.currentProgram.uniforms[name]; !found {
-		return fmt.Errorf("unsupported uniform: %v", name)
+		log.Fatalf("unsupported uniform: %v", name)
+		//return fmt.Errorf("unsupported uniform: %v", name)
 	}
 
 	switch t := value.(type) {
 	default:
-		return fmt.Errorf("%v has unknown type: %T", name, t)
+		log.Fatalf("%v has unknown type: %T", name, t)
+		//return fmt.Errorf("%v has unknown type: %T", name, t)
 
 	case *Texture:
 		s.currentProgram.uniforms[name].location.Uniform1i(s.bindTexture(t.buffer))

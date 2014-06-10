@@ -1,0 +1,57 @@
+#version 330 core
+
+// Interpolated values from the vertex shaders
+in vec2 UV;
+
+in vec3 Position; //Position_worldspace
+//in vec3 eyeDir;   //EyeDirection_cameraspace 
+in vec3 lightDir; //LightDirection_cameraspace 
+in vec3 Normal;   //Normal_cameraspace 
+
+// Values that stay constant for the whole mesh.
+uniform mat4 viewMatrix;
+uniform vec3 diffuse;
+uniform float opacity;
+uniform sampler2D diffuseMap;
+
+// Output data
+out vec4 fragmentColor;
+
+void main() {
+	// Light properties
+	vec3 lightColor = vec3(1.0, 1.0, 1.0);
+	float lightPower = 50.0f;
+
+	// Distance to the light
+	//LightPosition_worldspace
+	vec3 lightPosition = vec3(0.0, 0.0, 0.0);
+	float distance = length(lightPosition - Position);
+
+	// Normal of the computed fragment, in camera space
+	vec3 n = normalize(Normal);
+
+	// Direction of the light (from the fragment to the light)
+	vec3 l = normalize(lightDir);
+
+	// Cosine of the angle between the normal and the light direction
+	float cosTheta = clamp(dot(n, l), 0, 1);
+	
+	// Cosine of the angle between the Eye vector and the Reflect vector,
+	//float cosAlpha = clamp(dot(normalize(eyeDir), reflect(-l, n)), 0, 1);
+
+	// Material properties
+	vec3 materialDiffuseColor = texture(diffuseMap, UV).rgb;
+	vec3 materialAmbientColor = vec3(0.5, 0.5, 0.5) * materialDiffuseColor;
+	//vec3 materialSpecularColor = vec3(0.3, 0.3, 0.3);
+
+	// Combine colors
+	//fragmentColor = vec4(diffuse, opacity);
+	//fragmentColor = fragmentColor * materialDiffuseColor;
+	//fragmentColor = fragmentColor * vec4( Color, opacity );
+
+	fragmentColor = vec4( 
+			materialAmbientColor +
+			materialDiffuseColor * lightColor * lightPower * cosTheta / (distance * distance) /*+
+			materialSpecularColor * lightColor * lightPower * pow(cosAlpha, 5.0) / (distance * distance)*/,
+		opacity);
+}

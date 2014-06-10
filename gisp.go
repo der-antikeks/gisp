@@ -22,7 +22,7 @@ func main() {
 	context := game.NewGlContextSystem(title, w, h)
 	defer context.Cleanup()
 
-	loader := game.NewAssetLoaderSystem("/assets/", context)
+	loader := game.NewAssetLoaderSystem("assets/", context)
 	defer loader.Cleanup()
 
 	ents := game.NewEntitySystem(loader)

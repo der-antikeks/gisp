@@ -1,0 +1,19 @@
+#version 330 core
+
+// Input vertex data, different for all executions of this shader.
+in vec3 vertexPosition;
+in vec3 vertexNormal;
+in vec2 vertexUV;
+
+// Values that stay constant for the whole mesh.
+uniform mat4 projectionMatrix;
+uniform mat4 viewMatrix;
+uniform mat4 modelMatrix;
+uniform mat4 modelViewMatrix;
+uniform mat3 normalMatrix;
+
+void main() {
+	// Output position of the vertex
+	//gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(vertexPosition, 1.0);
+	gl_Position = projectionMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
+}
