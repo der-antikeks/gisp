@@ -272,7 +272,7 @@ func (s *RenderSystem) visibleEntities(frustum Frustum, cp mgl32.Vec3, drawable 
 
 		c, r := g.Bounding.Sphere()
 		c = t.MatrixWorld().Mul4x1(c)
-		r *= t.MatrixWorld().MaxScale()
+		r *= mgl32.ExtractMaxScale(t.MatrixWorld())
 
 		if frustum.IntersectsSphere(c, r) {
 			zorder[e] = c.Sub(cp4).Len()
@@ -410,7 +410,7 @@ func (s *RenderSystem) render(
 	s.UpdateUniform("modelViewMatrix", modelViewMatrix /*.Float32()*/)
 
 	// normalMatrix
-	normalMatrix := modelViewMatrix.Normal()
+	normalMatrix := mgl32.Mat4Normal(modelViewMatrix)
 	//program.Uniform("normalMatrix").UniformMatrix3fv(false, normalMatrix.Matrix3Float32())
 	s.UpdateUniform("normalMatrix", normalMatrix /*.Matrix3Float32()*/)
 
