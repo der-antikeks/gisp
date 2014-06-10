@@ -111,10 +111,10 @@ func (ls *AssetLoaderSystem) GetMeshBuffer(name string) *meshbuffer {
 		h := mgl32.Vec3{-halfSize, halfSize, -halfSize}
 
 		// uvs
-		tl := mgl32.Vec3{0, 1}
-		tr := mgl32.Vec3{1, 1}
-		bl := mgl32.Vec3{0, 0}
-		br := mgl32.Vec3{1, 0}
+		tl := mgl32.Vec2{0, 1}
+		tr := mgl32.Vec2{1, 1}
+		bl := mgl32.Vec2{0, 0}
+		br := mgl32.Vec2{1, 0}
 
 		var normal mgl32.Vec3
 
@@ -315,10 +315,12 @@ func (ls *AssetLoaderSystem) GetMeshBuffer(name string) *meshbuffer {
 		phiStart, phiLength := 0.0, math.Pi*2
 		thetaStart, thetaLength := 0.0, math.Pi
 
-		var vertices, uvs [][]mgl32.Vec3
+		var vertices [][]mgl32.Vec3
+		var uvs [][]mgl32.Vec2
 
 		for y := 0; y <= heightSegments; y++ {
-			var verticesRow, uvsRow []mgl32.Vec3
+			var verticesRow []mgl32.Vec3
+			var uvsRow []mgl32.Vec2
 
 			for x := 0; x <= widthSegments; x++ {
 				u := float32(x) / float32(widthSegments)
@@ -331,7 +333,7 @@ func (ls *AssetLoaderSystem) GetMeshBuffer(name string) *meshbuffer {
 				}
 
 				verticesRow = append(verticesRow, vertex)
-				uvsRow = append(uvsRow, mgl32.Vec3{u, 1.0 - v})
+				uvsRow = append(uvsRow, mgl32.Vec2{u, 1.0 - v})
 			}
 
 			vertices = append(vertices, verticesRow)
@@ -437,7 +439,7 @@ func (ls *AssetLoaderSystem) GetMeshBuffer(name string) *meshbuffer {
 type Vertex struct {
 	position mgl32.Vec3
 	normal   mgl32.Vec3
-	uv       mgl32.Vec3
+	uv       mgl32.Vec2
 }
 
 func (v Vertex) Key(precision int) string {
