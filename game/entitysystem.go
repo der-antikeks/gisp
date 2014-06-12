@@ -312,7 +312,7 @@ func (s *EntitySystem) createCube() Entity {
 	}
 
 	// geometry
-	geo := s.getGeometry("cube")
+	geo := s.getGeometry("fighter/fighter.obj")
 
 	// material
 	mat := s.getMaterial("flat")
@@ -320,7 +320,7 @@ func (s *EntitySystem) createCube() Entity {
 	mat.Set("lightDiffuse", mgl32.Vec3{1, 0, 0})
 	mat.Set("opacity", 0.8)
 
-	tex, err := s.loader.LoadTexture("assets/cube/cube.png")
+	tex, err := s.loader.LoadTexture("fighter/fighter.png")
 	if err != nil {
 		log.Fatal("could not load texture:", err)
 	}
@@ -411,7 +411,7 @@ func (s *EntitySystem) createSphere() Entity {
 	// material
 	mat := s.getMaterial("phong")
 
-	tex, err := s.loader.LoadTexture("assets/uvtemplate.png")
+	tex, err := s.loader.LoadTexture("uvtemplate.png")
 	if err != nil {
 		log.Fatal("could not load texture:", err)
 	}
@@ -436,7 +436,7 @@ func (s *EntitySystem) getMaterial(e string) Material {
 	mat := Material{
 		Program:  e,
 		uniforms: map[string]interface{}{},
-		program:  s.loader.GetShader(e),
+		program:  s.loader.LoadShader(e),
 	}
 
 	// preset with standard values
@@ -450,12 +450,24 @@ func (s *EntitySystem) getMaterial(e string) Material {
 }
 
 func (s *EntitySystem) getGeometry(e string) Geometry {
-	mb := s.loader.GetMeshBuffer(e)
+	var m *meshbuffer
+	var b Boundary
+
+	switch e {
+	default:
+		m, b = s.loader.LoadOBJ(e)
+	case "sphere":
+		m, b = s.loader.SpherePrimitive(2, 100, 50)
+	case "cube":
+		m, b = s.loader.CubePrimitive(2)
+	case "plane":
+		m, b = s.loader.PlanePrimitive(1, 1)
+	}
 
 	geo := Geometry{
 		File:     e,
-		mesh:     mb,
-		Bounding: mb.Bounding,
+		mesh:     m,
+		Bounding: b,
 	}
 
 	return geo

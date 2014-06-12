@@ -96,7 +96,7 @@ func (s *SpatialSystem) getData(en Entity) (stc Scene, pos mgl32.Vec3, radius fl
 		pos4, radius := ec.(Geometry).Bounding.Sphere()
 		pos4 = transform.MatrixWorld().Mul4x1(pos4)
 		pos = mgl32.Vec3{pos4[0], pos4[1], pos4[2]} // TODO
-		radius *= transform.MatrixWorld().MaxScale()
+		radius *= mgl32.ExtractMaxScale(transform.MatrixWorld())
 	} else if ec, err = s.ents.Get(en, LightType); err == nil {
 		// light
 

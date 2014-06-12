@@ -1,14 +1,19 @@
 package game
 
 import (
+	"bufio"
 	"fmt"
 	"image"
 	"image/draw"
 	_ "image/jpeg"
 	_ "image/png"
+	"io"
+	"io/ioutil"
 	"log"
 	"math"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/der-antikeks/mathgl/mgl32"
@@ -45,382 +50,191 @@ func NewAssetLoaderSystem(path string, context *GlContextSystem) *AssetLoaderSys
 	return s
 }
 
-/*
-	wavefront obj/mtl importer
-	http://en.wikipedia.org/wiki/Wavefront_OBJ
-
-	object format
-	http://paulbourke.net/dataformats/obj/
-
-	material format
-	http://paulbourke.net/dataformats/mtl/
-
-	obj
-		o - named object (ignored)
-			g - group of polygons
-
-	mtl
-		material
-		...
-
-var objCache = struct {
-	sync.RWMutex
-	geometry map[string]Geometry
-	material map[string]Material
-}{
-	geometry: map[string]Geometry{},
-	material: map[string]Material{},
-}
-
-func LoadObj(path string) (err error, found []string) {
-	return nil, nil
-}
-
-func loadMtl(path string) (err error, found []string) {
-	return nil, nil
-}
-
-*/
-
-func (ls *AssetLoaderSystem) GetMeshBuffer(name string) *meshbuffer {
+func (ls *AssetLoaderSystem) LoadOBJ(name string) (*meshbuffer, Boundary) {
 	ls.lock.Lock()
 	defer ls.lock.Unlock()
 
 	if mb, found := ls.meshbuffers[name]; found {
-		return mb
+		return mb, mb.Bounding
 	}
 
+	// open object file, init reader
+	path := ls.path + "/" + name
+
+	file, err := os.Open(path)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
+	reader := bufio.NewReader(file)
+
+	// starting mesh
 	mb := &meshbuffer{}
 
-	switch name {
-	default:
-		log.Fatal("unknown geometry name: ", name)
-	case "cube":
-		// dimensions
-		var size float32 = 2.0
-		var halfSize float32 = size / 2.0
+	// cache
+	var (
+		vertices []mgl32.Vec3
+		normals  []mgl32.Vec3
+		uvs      []mgl32.Vec2
+	)
 
-		// vertices
-		a := mgl32.Vec3{halfSize, halfSize, halfSize}
-		b := mgl32.Vec3{-halfSize, halfSize, halfSize}
-		c := mgl32.Vec3{-halfSize, -halfSize, halfSize}
-		d := mgl32.Vec3{halfSize, -halfSize, halfSize}
-		e := mgl32.Vec3{halfSize, halfSize, -halfSize}
-		f := mgl32.Vec3{halfSize, -halfSize, -halfSize}
-		g := mgl32.Vec3{-halfSize, -halfSize, -halfSize}
-		h := mgl32.Vec3{-halfSize, halfSize, -halfSize}
+	/*
+		wavefront obj/mtl importer
+		http://en.wikipedia.org/wiki/Wavefront_OBJ
 
-		// uvs
-		tl := mgl32.Vec3{0, 1}
-		tr := mgl32.Vec3{1, 1}
-		bl := mgl32.Vec3{0, 0}
-		br := mgl32.Vec3{1, 0}
+		object format
+		http://paulbourke.net/dataformats/obj/
 
-		var normal mgl32.Vec3
+		material format
+		http://paulbourke.net/dataformats/mtl/
+	*/
 
-		// front
-		normal = mgl32.Vec3{0, 0, 1}
-		mb.AddFace(
-			Vertex{ // a
-				position: a,
-				normal:   normal,
-				uv:       tr,
-			}, Vertex{ // b
-				position: b,
-				normal:   normal,
-				uv:       tl,
-			}, Vertex{ // c
-				position: c,
-				normal:   normal,
-				uv:       bl,
-			})
-		mb.AddFace(
-			Vertex{
-				position: c,
-				normal:   normal,
-				uv:       bl,
-			}, Vertex{
-				position: d,
-				normal:   normal,
-				uv:       br,
-			}, Vertex{
-				position: a,
-				normal:   normal,
-				uv:       tr,
-			})
+	for {
+		if line, err := reader.ReadString('\n'); err == nil {
+			fields := strings.Split(strings.TrimSpace(line), " ")
 
-		// back
-		normal = mgl32.Vec3{0, 0, -1}
-		mb.AddFace(
-			Vertex{
-				position: e,
-				normal:   normal,
-				uv:       tl,
-			}, Vertex{
-				position: f,
-				normal:   normal,
-				uv:       bl,
-			}, Vertex{
-				position: g,
-				normal:   normal,
-				uv:       br,
-			})
-		mb.AddFace(
-			Vertex{
-				position: g,
-				normal:   normal,
-				uv:       br,
-			}, Vertex{
-				position: h,
-				normal:   normal,
-				uv:       tr,
-			}, Vertex{
-				position: e,
-				normal:   normal,
-				uv:       tl,
-			})
+			switch strings.ToLower(fields[0]) {
 
-		// top
-		normal = mgl32.Vec3{0, 1, 0}
-		mb.AddFace(
-			Vertex{
-				position: e,
-				normal:   normal,
-				uv:       tr,
-			}, Vertex{
-				position: h,
-				normal:   normal,
-				uv:       tl,
-			}, Vertex{
-				position: b,
-				normal:   normal,
-				uv:       bl,
-			})
-		mb.AddFace(
-			Vertex{
-				position: b,
-				normal:   normal,
-				uv:       bl,
-			}, Vertex{
-				position: a,
-				normal:   normal,
-				uv:       br,
-			}, Vertex{
-				position: e,
-				normal:   normal,
-				uv:       tr,
-			})
+			// Vertex data
 
-		// bottom
-		normal = mgl32.Vec3{0, -1, 0}
-		mb.AddFace(
-			Vertex{
-				position: f,
-				normal:   normal,
-				uv:       br,
-			}, Vertex{
-				position: d,
-				normal:   normal,
-				uv:       tr,
-			}, Vertex{
-				position: c,
-				normal:   normal,
-				uv:       tl,
-			})
-		mb.AddFace(
-			Vertex{
-				position: c,
-				normal:   normal,
-				uv:       tl,
-			}, Vertex{
-				position: g,
-				normal:   normal,
-				uv:       bl,
-			}, Vertex{
-				position: f,
-				normal:   normal,
-				uv:       br,
-			})
-
-		// left
-		normal = mgl32.Vec3{-1, 0, 0}
-		mb.AddFace(
-			Vertex{
-				position: b,
-				normal:   normal,
-				uv:       tr,
-			}, Vertex{
-				position: h,
-				normal:   normal,
-				uv:       tl,
-			}, Vertex{
-				position: g,
-				normal:   normal,
-				uv:       bl,
-			})
-		mb.AddFace(
-			Vertex{
-				position: g,
-				normal:   normal,
-				uv:       bl,
-			}, Vertex{
-				position: c,
-				normal:   normal,
-				uv:       br,
-			}, Vertex{
-				position: b,
-				normal:   normal,
-				uv:       tr,
-			})
-
-		// right
-		normal = mgl32.Vec3{1, 0, 0}
-		mb.AddFace(
-			Vertex{
-				position: e,
-				normal:   normal,
-				uv:       tr,
-			}, Vertex{
-				position: a,
-				normal:   normal,
-				uv:       tl,
-			}, Vertex{
-				position: d,
-				normal:   normal,
-				uv:       bl,
-			})
-		mb.AddFace(
-			Vertex{
-				position: d,
-				normal:   normal,
-				uv:       bl,
-			}, Vertex{
-				position: f,
-				normal:   normal,
-				uv:       br,
-			}, Vertex{
-				position: e,
-				normal:   normal,
-				uv:       tr,
-			})
-
-	case "sphere":
-		// dimensions
-		radius := 2.0
-		widthSegments, heightSegments := 100, 50
-
-		// if widthSegments < 3 {widthSegments = 3}
-		// if heightSegments < 2 {heightSegments = 2}
-
-		phiStart, phiLength := 0.0, math.Pi*2
-		thetaStart, thetaLength := 0.0, math.Pi
-
-		var vertices, uvs [][]mgl32.Vec3
-
-		for y := 0; y <= heightSegments; y++ {
-			var verticesRow, uvsRow []mgl32.Vec3
-
-			for x := 0; x <= widthSegments; x++ {
-				u := float32(x) / float32(widthSegments)
-				v := float32(y) / float32(heightSegments)
-
-				vertex := mgl32.Vec3{
-					float32(-radius * math.Cos(phiStart+float64(u)*phiLength) * math.Sin(thetaStart+float64(v)*thetaLength)),
-					float32(radius * math.Cos(thetaStart+float64(v)*thetaLength)),
-					float32(radius * math.Sin(phiStart+float64(u)*phiLength) * math.Sin(thetaStart+float64(v)*thetaLength)),
+			case "v": // geometric vertices: x, y, z, [w]
+				x, err := strconv.ParseFloat(fields[1], 32)
+				if err != nil {
+					log.Fatal(err)
 				}
 
-				verticesRow = append(verticesRow, vertex)
-				uvsRow = append(uvsRow, mgl32.Vec3{u, 1.0 - v})
-			}
+				y, err := strconv.ParseFloat(fields[2], 32)
+				if err != nil {
+					log.Fatal(err)
+				}
 
-			vertices = append(vertices, verticesRow)
-			uvs = append(uvs, uvsRow)
-		}
+				z, err := strconv.ParseFloat(fields[3], 32)
+				if err != nil {
+					log.Fatal(err)
+				}
 
-		for y := 0; y < heightSegments; y++ {
-			for x := 0; x < widthSegments; x++ {
-				// vertex id
-				v1 := vertices[y][x+1]
-				v2 := vertices[y][x]
-				v3 := vertices[y+1][x]
-				v4 := vertices[y+1][x+1]
+				vertices = append(vertices, mgl32.Vec3{float32(x), float32(y), float32(z)})
 
-				// normals
-				n1 := v1.Normalize()
-				n2 := v2.Normalize()
-				n3 := v3.Normalize()
-				n4 := v4.Normalize()
+			case "vt": // texture vertices: u, v, [w]
+				u, err := strconv.ParseFloat(fields[1], 32)
+				if err != nil {
+					log.Fatal(err)
+				}
 
-				// uvs
-				uv1 := uvs[y][x+1]
-				uv2 := uvs[y][x]
-				uv3 := uvs[y+1][x]
-				uv4 := uvs[y+1][x+1]
+				v, err := strconv.ParseFloat(fields[2], 32)
+				if err != nil {
+					log.Fatal(err)
+				}
 
-				if math.Abs(float64(v1[1])) == radius {
-					mb.AddFace(
-						Vertex{
-							position: v1,
-							normal:   n1,
-							uv:       uv1,
-						}, Vertex{
-							position: v3,
-							normal:   n3,
-							uv:       uv3,
-						}, Vertex{
-							position: v4,
-							normal:   n4,
-							uv:       uv4,
-						})
-				} else if math.Abs(float64(v3[1])) == radius {
-					mb.AddFace(
-						Vertex{
-							position: v1,
-							normal:   n1,
-							uv:       uv1,
-						}, Vertex{
-							position: v2,
-							normal:   n2,
-							uv:       uv2,
-						}, Vertex{
-							position: v3,
-							normal:   n3,
-							uv:       uv3,
-						})
+				uvs = append(uvs, mgl32.Vec2{float32(u), 1.0 - float32(v)})
+
+			case "vn": // vertex normals: i, j, k
+				x, err := strconv.ParseFloat(fields[1], 32)
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				y, err := strconv.ParseFloat(fields[2], 32)
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				z, err := strconv.ParseFloat(fields[3], 32)
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				normals = append(normals, mgl32.Vec3{float32(x), float32(y), float32(z)})
+
+			case "vp": // parameter space vertices
+			case "cstype": // curve or surface type
+			case "deg": // degree
+			case "bmat": // basis matrix
+			case "step": // step size
+
+			// Elements
+
+			case "f": // face: v/vt/vn v/vt/vn v/vt/vn
+
+				// quad instead of tri, split up
+				// f v/vt/vn v/vt/vn v/vt/vn v/vt/vn
+				var faces [][]string
+				if len(fields) == 5 {
+					faces = [][]string{
+						[]string{"f", fields[1], fields[2], fields[4]},
+						[]string{"f", fields[2], fields[3], fields[4]},
+					}
 				} else {
-					mb.AddFace(
-						Vertex{
-							position: v1,
-							normal:   n1,
-							uv:       uv1,
-						}, Vertex{
-							position: v2,
-							normal:   n2,
-							uv:       uv2,
-						}, Vertex{
-							position: v4,
-							normal:   n4,
-							uv:       uv4,
-						})
-					mb.AddFace(
-						Vertex{
-							position: v2,
-							normal:   n2,
-							uv:       uv2,
-						}, Vertex{
-							position: v3,
-							normal:   n3,
-							uv:       uv3,
-						}, Vertex{
-							position: v4,
-							normal:   n4,
-							uv:       uv4,
-						})
+					faces = [][]string{fields}
 				}
-			}
-		}
 
+				for _, fields := range faces {
+					var face [3]Vertex
+					var v uint64
+
+					for i, f := range fields[1:4] {
+						a := strings.Split(f, "/")
+
+						// vertex
+						if v, err = strconv.ParseUint(a[0], 10, 64); err != nil {
+							log.Fatal(err)
+						}
+						face[i].position = vertices[v-1]
+
+						// uv
+						if len(a) > 1 && a[1] != "" {
+							if v, err = strconv.ParseUint(a[1], 10, 64); err != nil {
+								log.Fatal(err)
+							}
+							face[i].uv = uvs[v-1]
+						}
+
+						// normal
+						if len(a) == 3 {
+							if v, err = strconv.ParseUint(a[2], 10, 64); err != nil {
+								log.Fatal(err)
+							}
+							face[i].normal = normals[v-1]
+						}
+					}
+
+					mb.AddFace(face[0], face[1], face[2])
+				}
+
+			case "p": // point
+			case "l": // line
+			case "curv": // curve
+			case "curv2": // 2d curve
+			case "surf": // surface
+
+			// Free-form curve/surface body statements
+
+			case "parm", "trim", "hole", "scrv", "sp", "end", "con":
+
+			// Grouping
+
+			case "g": // group name
+			case "s": // smoothing group
+			case "mg": // merging group
+			case "o": // object name
+
+			// Display/render attributes
+
+			case "usemtl": // material name
+			case "mtllib": // material library
+			case "bevel", "c_interp", "d_interp", "lod",
+				"shadow_obj", "trace_obj", "ctech", "stech":
+
+			case "#": // comment
+			case "": // empty line
+			default:
+				log.Fatalf("unknown object line type: %s", line)
+			}
+		} else if err == io.EOF {
+			break
+		} else {
+			log.Fatal(err)
+		}
 	}
 
 	mb.MergeVertices()
@@ -431,13 +245,452 @@ func (ls *AssetLoaderSystem) GetMeshBuffer(name string) *meshbuffer {
 	})
 
 	ls.meshbuffers[name] = mb
-	return mb
+	return mb, mb.Bounding
+}
+
+func (ls *AssetLoaderSystem) SpherePrimitive(radius float64, widthSegments, heightSegments int) (*meshbuffer, Boundary) {
+	ls.lock.Lock()
+	defer ls.lock.Unlock()
+
+	name := "sphere"
+	if mb, found := ls.meshbuffers[name]; found {
+		return mb, mb.Bounding
+	}
+
+	mb := &meshbuffer{}
+
+	// dimensions
+	if widthSegments < 3 {
+		widthSegments = 3
+	}
+	if heightSegments < 2 {
+		heightSegments = 2
+	}
+
+	phiStart, phiLength := 0.0, math.Pi*2
+	thetaStart, thetaLength := 0.0, math.Pi
+
+	var vertices [][]mgl32.Vec3
+	var uvs [][]mgl32.Vec2
+
+	for y := 0; y <= heightSegments; y++ {
+		var verticesRow []mgl32.Vec3
+		var uvsRow []mgl32.Vec2
+
+		for x := 0; x <= widthSegments; x++ {
+			u := float32(x) / float32(widthSegments)
+			v := float32(y) / float32(heightSegments)
+
+			vertex := mgl32.Vec3{
+				float32(-radius * math.Cos(phiStart+float64(u)*phiLength) * math.Sin(thetaStart+float64(v)*thetaLength)),
+				float32(radius * math.Cos(thetaStart+float64(v)*thetaLength)),
+				float32(radius * math.Sin(phiStart+float64(u)*phiLength) * math.Sin(thetaStart+float64(v)*thetaLength)),
+			}
+
+			verticesRow = append(verticesRow, vertex)
+			uvsRow = append(uvsRow, mgl32.Vec2{u, 1.0 - v})
+		}
+
+		vertices = append(vertices, verticesRow)
+		uvs = append(uvs, uvsRow)
+	}
+
+	for y := 0; y < heightSegments; y++ {
+		for x := 0; x < widthSegments; x++ {
+			// vertex id
+			v1 := vertices[y][x+1]
+			v2 := vertices[y][x]
+			v3 := vertices[y+1][x]
+			v4 := vertices[y+1][x+1]
+
+			// normals
+			n1 := v1.Normalize()
+			n2 := v2.Normalize()
+			n3 := v3.Normalize()
+			n4 := v4.Normalize()
+
+			// uvs
+			uv1 := uvs[y][x+1]
+			uv2 := uvs[y][x]
+			uv3 := uvs[y+1][x]
+			uv4 := uvs[y+1][x+1]
+
+			if math.Abs(float64(v1[1])) == radius {
+				mb.AddFace(
+					Vertex{
+						position: v1,
+						normal:   n1,
+						uv:       uv1,
+					}, Vertex{
+						position: v3,
+						normal:   n3,
+						uv:       uv3,
+					}, Vertex{
+						position: v4,
+						normal:   n4,
+						uv:       uv4,
+					})
+			} else if math.Abs(float64(v3[1])) == radius {
+				mb.AddFace(
+					Vertex{
+						position: v1,
+						normal:   n1,
+						uv:       uv1,
+					}, Vertex{
+						position: v2,
+						normal:   n2,
+						uv:       uv2,
+					}, Vertex{
+						position: v3,
+						normal:   n3,
+						uv:       uv3,
+					})
+			} else {
+				mb.AddFace(
+					Vertex{
+						position: v1,
+						normal:   n1,
+						uv:       uv1,
+					}, Vertex{
+						position: v2,
+						normal:   n2,
+						uv:       uv2,
+					}, Vertex{
+						position: v4,
+						normal:   n4,
+						uv:       uv4,
+					})
+				mb.AddFace(
+					Vertex{
+						position: v2,
+						normal:   n2,
+						uv:       uv2,
+					}, Vertex{
+						position: v3,
+						normal:   n3,
+						uv:       uv3,
+					}, Vertex{
+						position: v4,
+						normal:   n4,
+						uv:       uv4,
+					})
+			}
+		}
+	}
+
+	mb.MergeVertices()
+	mb.ComputeBoundary()
+	mb.FaceCount = len(mb.Faces)
+	ls.context.MainThread(func() {
+		mb.Init()
+	})
+
+	ls.meshbuffers[name] = mb
+	return mb, mb.Bounding
+}
+
+func (ls *AssetLoaderSystem) CubePrimitive(size float32) (*meshbuffer, Boundary) {
+	ls.lock.Lock()
+	defer ls.lock.Unlock()
+
+	name := "cube"
+	if mb, found := ls.meshbuffers[name]; found {
+		return mb, mb.Bounding
+	}
+
+	mb := &meshbuffer{}
+
+	// dimensions
+	halfSize := size / 2.0
+
+	// vertices
+	a := mgl32.Vec3{halfSize, halfSize, halfSize}
+	b := mgl32.Vec3{-halfSize, halfSize, halfSize}
+	c := mgl32.Vec3{-halfSize, -halfSize, halfSize}
+	d := mgl32.Vec3{halfSize, -halfSize, halfSize}
+	e := mgl32.Vec3{halfSize, halfSize, -halfSize}
+	f := mgl32.Vec3{halfSize, -halfSize, -halfSize}
+	g := mgl32.Vec3{-halfSize, -halfSize, -halfSize}
+	h := mgl32.Vec3{-halfSize, halfSize, -halfSize}
+
+	// uvs
+	tl := mgl32.Vec2{0, 1}
+	tr := mgl32.Vec2{1, 1}
+	bl := mgl32.Vec2{0, 0}
+	br := mgl32.Vec2{1, 0}
+
+	var normal mgl32.Vec3
+
+	// front
+	normal = mgl32.Vec3{0, 0, 1}
+	mb.AddFace(
+		Vertex{ // a
+			position: a,
+			normal:   normal,
+			uv:       tr,
+		}, Vertex{ // b
+			position: b,
+			normal:   normal,
+			uv:       tl,
+		}, Vertex{ // c
+			position: c,
+			normal:   normal,
+			uv:       bl,
+		})
+	mb.AddFace(
+		Vertex{
+			position: c,
+			normal:   normal,
+			uv:       bl,
+		}, Vertex{
+			position: d,
+			normal:   normal,
+			uv:       br,
+		}, Vertex{
+			position: a,
+			normal:   normal,
+			uv:       tr,
+		})
+
+	// back
+	normal = mgl32.Vec3{0, 0, -1}
+	mb.AddFace(
+		Vertex{
+			position: e,
+			normal:   normal,
+			uv:       tl,
+		}, Vertex{
+			position: f,
+			normal:   normal,
+			uv:       bl,
+		}, Vertex{
+			position: g,
+			normal:   normal,
+			uv:       br,
+		})
+	mb.AddFace(
+		Vertex{
+			position: g,
+			normal:   normal,
+			uv:       br,
+		}, Vertex{
+			position: h,
+			normal:   normal,
+			uv:       tr,
+		}, Vertex{
+			position: e,
+			normal:   normal,
+			uv:       tl,
+		})
+
+	// top
+	normal = mgl32.Vec3{0, 1, 0}
+	mb.AddFace(
+		Vertex{
+			position: e,
+			normal:   normal,
+			uv:       tr,
+		}, Vertex{
+			position: h,
+			normal:   normal,
+			uv:       tl,
+		}, Vertex{
+			position: b,
+			normal:   normal,
+			uv:       bl,
+		})
+	mb.AddFace(
+		Vertex{
+			position: b,
+			normal:   normal,
+			uv:       bl,
+		}, Vertex{
+			position: a,
+			normal:   normal,
+			uv:       br,
+		}, Vertex{
+			position: e,
+			normal:   normal,
+			uv:       tr,
+		})
+
+	// bottom
+	normal = mgl32.Vec3{0, -1, 0}
+	mb.AddFace(
+		Vertex{
+			position: f,
+			normal:   normal,
+			uv:       br,
+		}, Vertex{
+			position: d,
+			normal:   normal,
+			uv:       tr,
+		}, Vertex{
+			position: c,
+			normal:   normal,
+			uv:       tl,
+		})
+	mb.AddFace(
+		Vertex{
+			position: c,
+			normal:   normal,
+			uv:       tl,
+		}, Vertex{
+			position: g,
+			normal:   normal,
+			uv:       bl,
+		}, Vertex{
+			position: f,
+			normal:   normal,
+			uv:       br,
+		})
+
+	// left
+	normal = mgl32.Vec3{-1, 0, 0}
+	mb.AddFace(
+		Vertex{
+			position: b,
+			normal:   normal,
+			uv:       tr,
+		}, Vertex{
+			position: h,
+			normal:   normal,
+			uv:       tl,
+		}, Vertex{
+			position: g,
+			normal:   normal,
+			uv:       bl,
+		})
+	mb.AddFace(
+		Vertex{
+			position: g,
+			normal:   normal,
+			uv:       bl,
+		}, Vertex{
+			position: c,
+			normal:   normal,
+			uv:       br,
+		}, Vertex{
+			position: b,
+			normal:   normal,
+			uv:       tr,
+		})
+
+	// right
+	normal = mgl32.Vec3{1, 0, 0}
+	mb.AddFace(
+		Vertex{
+			position: e,
+			normal:   normal,
+			uv:       tr,
+		}, Vertex{
+			position: a,
+			normal:   normal,
+			uv:       tl,
+		}, Vertex{
+			position: d,
+			normal:   normal,
+			uv:       bl,
+		})
+	mb.AddFace(
+		Vertex{
+			position: d,
+			normal:   normal,
+			uv:       bl,
+		}, Vertex{
+			position: f,
+			normal:   normal,
+			uv:       br,
+		}, Vertex{
+			position: e,
+			normal:   normal,
+			uv:       tr,
+		})
+
+	mb.MergeVertices()
+	mb.ComputeBoundary()
+	mb.FaceCount = len(mb.Faces)
+	ls.context.MainThread(func() {
+		mb.Init()
+	})
+
+	ls.meshbuffers[name] = mb
+	return mb, mb.Bounding
+}
+
+func (ls *AssetLoaderSystem) PlanePrimitive(width, height float32) (*meshbuffer, Boundary) {
+	ls.lock.Lock()
+	defer ls.lock.Unlock()
+
+	name := "plane"
+	if mb, found := ls.meshbuffers[name]; found {
+		return mb, mb.Bounding
+	}
+
+	mb := &meshbuffer{}
+
+	// dimensions
+	halfWidth := width / 2.0
+	halfHeight := height / 2.0
+
+	// vertices
+	a := mgl32.Vec3{halfWidth, halfHeight, 0}
+	b := mgl32.Vec3{-halfWidth, halfHeight, 0}
+	c := mgl32.Vec3{-halfWidth, -halfHeight, 0}
+	d := mgl32.Vec3{halfWidth, -halfHeight, 0}
+
+	// uvs
+	tl := mgl32.Vec2{0, 1}
+	tr := mgl32.Vec2{1, 1}
+	bl := mgl32.Vec2{0, 0}
+	br := mgl32.Vec2{1, 0}
+
+	normal := mgl32.Vec3{0, 0, 1}
+
+	mb.AddFace(
+		Vertex{
+			position: a,
+			normal:   normal,
+			uv:       tr,
+		}, Vertex{
+			position: b,
+			normal:   normal,
+			uv:       tl,
+		}, Vertex{
+			position: c,
+			normal:   normal,
+			uv:       bl,
+		})
+	mb.AddFace(
+		Vertex{
+			position: c,
+			normal:   normal,
+			uv:       bl,
+		}, Vertex{
+			position: d,
+			normal:   normal,
+			uv:       br,
+		}, Vertex{
+			position: a,
+			normal:   normal,
+			uv:       tr,
+		})
+
+	mb.MergeVertices()
+	mb.ComputeBoundary()
+	mb.FaceCount = len(mb.Faces)
+	ls.context.MainThread(func() {
+		mb.Init()
+	})
+
+	ls.meshbuffers[name] = mb
+	return mb, mb.Bounding
 }
 
 type Vertex struct {
 	position mgl32.Vec3
 	normal   mgl32.Vec3
-	uv       mgl32.Vec3
+	uv       mgl32.Vec2
 }
 
 func (v Vertex) Key(precision int) string {
@@ -593,6 +846,8 @@ func (g *meshbuffer) Init() {
 	size = len(faceArray) * int(glh.Sizeof(gl.UNSIGNED_SHORT)) // gl.UNSIGNED_SHORT 2, gl.UNSIGNED_INT 4
 	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, size, faceArray, gl.STATIC_DRAW)
 
+	g.Vertices = nil
+	g.Faces = nil
 	g.initialized = true
 }
 
@@ -618,320 +873,6 @@ func (g *meshbuffer) Cleanup() {
 	}
 }
 
-var shaderProgramLib = map[string]struct {
-	Vertex, Fragment string
-	Uniforms         map[string]interface{} // name, default value
-	Attributes       map[string]uint        // name, size
-}{
-	"basic": {
-		Vertex: `
-				#version 330 core
-
-				// Input vertex data, different for all executions of this shader.
-				in vec3 vertexPosition;
-				in vec3 vertexNormal;
-				in vec2 vertexUV;
-
-				// Values that stay constant for the whole mesh.
-				uniform mat4 projectionMatrix;
-				uniform mat4 viewMatrix;
-				uniform mat4 modelMatrix;
-				uniform mat4 modelViewMatrix;
-				uniform mat3 normalMatrix;
-
-				void main(){
-					// Output position of the vertex
-					//gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(vertexPosition, 1.0);
-					gl_Position = projectionMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
-				}`,
-		Fragment: `
-				#version 330 core
-
-				// Values that stay constant for the whole mesh.
-				uniform vec3  diffuse;
-				uniform float opacity;
-
-				// Output data
-				out vec4 fragmentColor;
-
-				void main()
-				{
-					fragmentColor = vec4(diffuse, opacity);
-				}`,
-		Uniforms: map[string]interface{}{ // name, default value
-			"projectionMatrix": nil, //[16]float32{}, // matrix.Float32()
-			"viewMatrix":       nil, //[16]float32{},
-			"modelMatrix":      nil, //[16]float32{},
-			"modelViewMatrix":  nil, //[16]float32{},
-			"normalMatrix":     nil, //[9]float32{}, // matrix.Matrix3Float32()
-
-			"diffuse": mgl32.Vec3{1, 1, 1},
-			"opacity": 1.0,
-		},
-		Attributes: map[string]uint{ // name, size
-			"vertexPosition": 3,
-			"vertexNormal":   3,
-			"vertexUV":       2,
-		},
-	},
-	"phong": {
-		Vertex: `
-				#version 330 core
-
-				// Input vertex data, different for all executions of this shader.
-				in vec3 vertexPosition;
-				in vec3 vertexNormal;
-				in vec2 vertexUV;
-				in vec2 vertexUV2;
-
-				// Values that stay constant for the whole mesh.
-				uniform mat4 projectionMatrix;
-				uniform mat4 viewMatrix;
-				uniform mat4 modelMatrix;
-				uniform mat4 modelViewMatrix;
-				uniform mat3 normalMatrix;
-
-				// Output data, will be interpolated for each fragment.
-				out vec2 UV;
-
-				out vec3 Position; //Position_worldspace
-				//out vec3 eyeDir;   //EyeDirection_cameraspace 
-				out vec3 lightDir; //LightDirection_cameraspace 
-				out vec3 Normal;   //Normal_cameraspace 
-
-				void main(){
-					// Output position of the vertex, clipspace
-					gl_Position = projectionMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
-
-					// Position of the vertex, worldspace
-					//Position_worldspace
-					Position = (modelMatrix * vec4(vertexPosition, 1.0)).xyz;
-
-					// Direction from vertex to camera, cameraspace
-					//EyeDirection_cameraspace 
-					vec3 eyeDir = vec3(0.0, 0.0, 0.0) - (viewMatrix * modelMatrix * vec4(vertexPosition, 1.0)).xyz;
-
-					// Direction from vertex to light, cameraspace
-					//LightPosition_worldspace
-					vec3 lightPosition = vec3(0.0, 0.0, 0.0);
-					//LightDirection_cameraspace 
-					lightDir = (viewMatrix * vec4(lightPosition, 1.0)).xyz + eyeDir;
-
-					// Normal of the the vertex, cameraspace
-					//Normal_cameraspace 
-					Normal = (viewMatrix * modelMatrix * vec4(vertexNormal, 0.0)).xyz;
-					
-					// UV of the vertex
-					UV = vertexUV;
-				}`,
-		Fragment: `
-				#version 330 core
-
-				// Interpolated values from the vertex shaders
-				in vec2 UV;
-
-				in vec3 Position; //Position_worldspace
-				//in vec3 eyeDir;   //EyeDirection_cameraspace 
-				in vec3 lightDir; //LightDirection_cameraspace 
-				in vec3 Normal;   //Normal_cameraspace 
-
-				// Values that stay constant for the whole mesh.
-				uniform mat4 viewMatrix;
-				uniform vec3 diffuse;
-				uniform float opacity;
-				uniform sampler2D diffuseMap;
-
-				// Output data
-				out vec4 fragmentColor;
-
-				void main()
-				{
-					// Light properties
-					vec3 lightColor = vec3(1.0, 1.0, 1.0);
-					float lightPower = 50.0f;
-
-					// Distance to the light
-					//LightPosition_worldspace
-					vec3 lightPosition = vec3(0.0, 0.0, 0.0);
-					float distance = length(lightPosition - Position);
-
-					// Normal of the computed fragment, in camera space
-					vec3 n = normalize(Normal);
-
-					// Direction of the light (from the fragment to the light)
-					vec3 l = normalize(lightDir);
-
-					// Cosine of the angle between the normal and the light direction
-					float cosTheta = clamp(dot(n, l), 0, 1);
-					
-					// Cosine of the angle between the Eye vector and the Reflect vector,
-					//float cosAlpha = clamp(dot(normalize(eyeDir), reflect(-l, n)), 0, 1);
-
-					// Material properties
-					vec3 materialDiffuseColor = texture(diffuseMap, UV).rgb;
-					vec3 materialAmbientColor = vec3(0.5, 0.5, 0.5) * materialDiffuseColor;
-					//vec3 materialSpecularColor = vec3(0.3, 0.3, 0.3);
-
-					// Combine colors
-					//fragmentColor = vec4(diffuse, opacity);
-					//fragmentColor = fragmentColor * materialDiffuseColor;
-					//fragmentColor = fragmentColor * vec4( Color, opacity );
-
-					fragmentColor = vec4( 
-							materialAmbientColor +
-							materialDiffuseColor * lightColor * lightPower * cosTheta / (distance * distance) /*+
-							materialSpecularColor * lightColor * lightPower * pow(cosAlpha, 5.0) / (distance * distance)*/,
-						opacity);
-				}`,
-		Uniforms: map[string]interface{}{
-			"projectionMatrix": nil, //[16]float32{}, // matrix.Float32()
-			"viewMatrix":       nil, //[16]float32{},
-			"modelMatrix":      nil, //[16]float32{},
-			"modelViewMatrix":  nil, //[16]float32{},
-			"normalMatrix":     nil, //[9]float32{}, // matrix.Matrix3Float32()
-
-			"diffuseMap": nil, // texture
-			"opacity":    1.0,
-			"diffuse":    mgl32.Vec3{1, 1, 1},
-
-			"ambient":  mgl32.Vec3{1, 1, 1},
-			"emissive": mgl32.Vec3{1, 1, 1},
-			"specular": mgl32.Vec3{1, 1, 1},
-		},
-		Attributes: map[string]uint{
-			"vertexPosition": 3,
-			"vertexNormal":   3,
-			"vertexUV":       2,
-		},
-	},
-
-	"flat": {
-		Vertex: `
-				#version 330 core
-
-				//#define MAX_LIGHTS 10
-
-				// Input vertex data, different for all executions of this shader
-				in vec3 vertexPosition;			// modelspace
-				in vec3 vertexNormal;
-				in vec2 vertexUV;
-
-				// Values that stay constant for the whole mesh
-				uniform mat4 projectionMatrix;	// camera projection
-				uniform mat4 viewMatrix;		// camera matrix
-				uniform mat4 modelMatrix;		// model matrix
-				uniform mat4 modelViewMatrix;	// view * model matrix
-				uniform mat3 normalMatrix;		// model-view normal
-
-				//struct LightInfo {
-					uniform vec3 lightPosition; // worldspace
-					uniform vec3 lightDiffuse;
-					uniform float lightPower;
-				//};
-				//uniform int lightCount;
-				//uniform LightInfo Lights[MAX_LIGHTS];
-
-				uniform vec3 ambientColor;		// indirect light
-
-				/*
-				struct MaterialInfo {
-					vec3 Ka; // Ambient reflectivity
-					vec3 Kd; // Diffuse reflectivity
-					vec3 Ks; // Specular reflectivity
-					float Shininess; // Specular shininess factor
-				};
-				uniform MaterialInfo Material;
-				*/
-
-				// Output data, will be interpolated for each fragment
-				 out vec3 lightColor;
-				out vec2 UV;
-
-				vec3 adsShading(vec4 position, vec3 norm /*, int idx*/)
-				{
-					vec4 lightPosCam = viewMatrix * vec4(lightPosition, 1.0); // cameraspace
-					vec3 lightDir = normalize(vec3(lightPosCam - position));
-					vec3 viewDir = normalize(-position.xyz);
-					vec3 reflectDir = reflect(-lightDir, norm);
-					float distance = length(lightPosition - (modelMatrix * vec4(vertexPosition,1)).xyz);
-
-					// ambient, simulates indirect lighting
-					vec3 amb = ambientColor * vec3(0.1, 0.1, 0.1);
-
-					// diffuse, direct lightning
-					float cosTheta = clamp(dot(norm, lightDir), 0.0, 1.0);
-					vec3 diff = lightDiffuse * lightPower * cosTheta / (distance * distance);
-
-					// specular, reflective highlight, like a mirror
-					float cosAlpha = clamp(dot(viewDir, reflectDir), 0.0, 1.0);
-					vec3 spec = vec3(0.3, 0.3, 0.3) * lightDiffuse * lightPower * pow(cosAlpha, 5.0) / (distance * distance);
-
-					return amb + diff + spec;
-				}
-
-				void main(){
-					// Get the position and normal in camera space
-					//vec3 camNorm = normalize(normalMatrix * vertexNormal);
-					vec3 camNorm = normalize((viewMatrix * modelMatrix * vec4(vertexNormal, 0.0)).xyz);
-					vec4 camPosition = modelViewMatrix * vec4(vertexPosition, 1.0);
-					
-					// Evaluate the lighting equation
-					lightColor = adsShading(camPosition, camNorm);
-					/*
-					lightColor = vec3(0.0);
-					for (int idx = 0; idx < lightCount; idx++)
-					{
-						lightColor += adsShading(camPosition, camNorm, idx);
-					}
-					*/
-					UV = vertexUV;
-
-					// Output position of the vertex, clipspace
-					gl_Position = projectionMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
-				}`,
-		Fragment: `
-				#version 330 core
-
-				// Interpolated values from the vertex shaders
-				 in vec3 lightColor;
-				in vec2 UV;
-
-				// Values that stay constant for the whole mesh
-				uniform float opacity;
-				uniform sampler2D diffuseMap;
-
-				// Output data
-				out vec4 fragmentColor;
-
-				void main()
-				{
-					vec3 materialColor = texture(diffuseMap, UV).rgb;
-					fragmentColor = vec4(lightColor * materialColor, opacity);
-				}`,
-		Uniforms: map[string]interface{}{
-			"projectionMatrix": nil, //[16]float32{}, // matrix.Float32()
-			"viewMatrix":       nil, //[16]float32{},
-			"modelMatrix":      nil, //[16]float32{},
-			"modelViewMatrix":  nil, //[16]float32{},
-			"normalMatrix":     nil, //[9]float32{}, // matrix.Matrix3Float32()
-
-			"lightPosition": mgl32.Vec3{0, 0, 0},
-			"lightDiffuse":  mgl32.Vec3{1, 1, 1}, //
-			"lightPower":    50.0,
-
-			"ambientColor": mgl32.Vec3{1, 1, 1},
-
-			"diffuseMap": nil, // texture
-			"opacity":    1.0,
-		},
-		Attributes: map[string]uint{
-			"vertexPosition": 3,
-			"vertexNormal":   3,
-			"vertexUV":       2,
-		},
-	},
-}
-
 type shaderprogram struct {
 	program gl.Program
 	enabled bool
@@ -947,7 +888,7 @@ type shaderprogram struct {
 	}
 }
 
-func (ls *AssetLoaderSystem) GetShader(name string) *shaderprogram {
+func (ls *AssetLoaderSystem) LoadShader(name string) *shaderprogram {
 	ls.lock.Lock()
 	defer ls.lock.Unlock()
 
@@ -955,9 +896,59 @@ func (ls *AssetLoaderSystem) GetShader(name string) *shaderprogram {
 		return s
 	}
 
-	data, found := shaderProgramLib[name]
-	if !found {
+	path := ls.path + "/shaders/" + name
+
+	// load vertex shader
+	vdata, err := ioutil.ReadFile(path + ".vertex")
+	if err != nil {
 		log.Fatal("unknown shader program: ", name)
+	}
+
+	// load fragment shader
+	fdata, err := ioutil.ReadFile(path + ".fragment")
+	if err != nil {
+		log.Fatal("unknown shader program: ", name)
+	}
+
+	// standard shader uniforms and attributes
+	uniforms := map[string]interface{}{
+		"projectionMatrix": nil, //[16]float32{}, // matrix.Float32()
+		"viewMatrix":       nil, //[16]float32{},
+		"modelMatrix":      nil, //[16]float32{},
+		"modelViewMatrix":  nil, //[16]float32{},
+		"normalMatrix":     nil, //[9]float32{}, // matrix.Matrix3Float32()
+	}
+	attributes := map[string]uint{
+		"vertexPosition": 3,
+		"vertexNormal":   3,
+		"vertexUV":       2,
+	}
+
+	// material specific uniforms
+	switch name {
+	default:
+		log.Fatal("unknown shader program: ", name)
+	case "basic":
+		uniforms["opacity"] = 1.0
+		uniforms["diffuse"] = mgl32.Vec3{1, 1, 1}
+
+	case "phong":
+		uniforms["diffuseMap"] = nil // *Texture
+		uniforms["opacity"] = 1.0
+		uniforms["diffuse"] = mgl32.Vec3{1, 1, 1}
+
+		uniforms["ambient"] = mgl32.Vec3{1, 1, 1}
+		uniforms["emissive"] = mgl32.Vec3{1, 1, 1}
+		uniforms["specular"] = mgl32.Vec3{1, 1, 1}
+	case "flat":
+		uniforms["lightDiffuse"] = mgl32.Vec3{1, 1, 1}
+		uniforms["lightPosition"] = mgl32.Vec3{0, 0, 0}
+		uniforms["lightPower"] = 50.0
+
+		uniforms["ambientColor"] = mgl32.Vec3{1, 1, 1}
+
+		uniforms["diffuseMap"] = nil // *Texture
+		uniforms["opacity"] = 1.0
 	}
 
 	s := &shaderprogram{
@@ -977,7 +968,7 @@ func (ls *AssetLoaderSystem) GetShader(name string) *shaderprogram {
 
 		// vertex shader
 		vshader := gl.CreateShader(gl.VERTEX_SHADER)
-		vshader.Source(data.Vertex)
+		vshader.Source(string(vdata))
 		vshader.Compile()
 		if vshader.Get(gl.COMPILE_STATUS) != gl.TRUE {
 			log.Fatalf("vertex shader error: %v", vshader.GetInfoLog())
@@ -986,7 +977,7 @@ func (ls *AssetLoaderSystem) GetShader(name string) *shaderprogram {
 
 		// fragment shader
 		fshader := gl.CreateShader(gl.FRAGMENT_SHADER)
-		fshader.Source(data.Fragment)
+		fshader.Source(string(fdata))
 		fshader.Compile()
 		if fshader.Get(gl.COMPILE_STATUS) != gl.TRUE {
 			log.Fatalf("fragment shader error: %v", fshader.GetInfoLog())
@@ -1001,8 +992,14 @@ func (ls *AssetLoaderSystem) GetShader(name string) *shaderprogram {
 			log.Fatalf("linker error: %v", s.program.GetInfoLog())
 		}
 
+		defer func() {
+			if err := recover(); err != nil {
+				log.Fatal("Recovered: ", err)
+			}
+		}()
+
 		// locations
-		for n, v := range data.Uniforms {
+		for n, v := range uniforms {
 			s.uniforms[n] = struct {
 				location gl.UniformLocation
 				standard interface{}
@@ -1012,7 +1009,7 @@ func (ls *AssetLoaderSystem) GetShader(name string) *shaderprogram {
 			}
 		}
 
-		for n, v := range data.Attributes {
+		for n, v := range attributes {
 			s.attributes[n] = struct {
 				location gl.AttribLocation
 				size     uint
@@ -1085,13 +1082,15 @@ func (t Texture) Cleanup() {
 	}
 }
 
-func (ls *AssetLoaderSystem) LoadTexture(path string) (*Texture, error) {
+func (ls *AssetLoaderSystem) LoadTexture(name string) (*Texture, error) {
 	ls.lock.Lock()
 	defer ls.lock.Unlock()
 
-	if t, found := ls.textures[path]; found {
+	if t, found := ls.textures[name]; found {
 		return t, nil
 	}
+
+	path := ls.path + "/" + name
 
 	// load file
 	file, err := os.Open(path)
@@ -1144,7 +1143,7 @@ func (ls *AssetLoaderSystem) LoadTexture(path string) (*Texture, error) {
 		t.buffer.Unbind(gl.TEXTURE_2D)
 	})
 
-	ls.textures[path] = t
+	ls.textures[name] = t
 	return t, nil
 }
 

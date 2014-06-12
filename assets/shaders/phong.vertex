@@ -1,0 +1,48 @@
+#version 330 core
+
+// Input vertex data, different for all executions of this shader.
+in vec3 vertexPosition;
+in vec3 vertexNormal;
+in vec2 vertexUV;
+in vec2 vertexUV2;
+
+// Values that stay constant for the whole mesh.
+uniform mat4 projectionMatrix;
+uniform mat4 viewMatrix;
+uniform mat4 modelMatrix;
+uniform mat4 modelViewMatrix;
+uniform mat3 normalMatrix;
+
+// Output data, will be interpolated for each fragment.
+out vec2 UV;
+
+out vec3 Position; //Position_worldspace
+//out vec3 eyeDir;   //EyeDirection_cameraspace 
+out vec3 lightDir; //LightDirection_cameraspace 
+out vec3 Normal;   //Normal_cameraspace 
+
+void main() {
+	// Output position of the vertex, clipspace
+	gl_Position = projectionMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
+
+	// Position of the vertex, worldspace
+	//Position_worldspace
+	Position = (modelMatrix * vec4(vertexPosition, 1.0)).xyz;
+
+	// Direction from vertex to camera, cameraspace
+	//EyeDirection_cameraspace 
+	vec3 eyeDir = vec3(0.0, 0.0, 0.0) - (viewMatrix * modelMatrix * vec4(vertexPosition, 1.0)).xyz;
+
+	// Direction from vertex to light, cameraspace
+	//LightPosition_worldspace
+	vec3 lightPosition = vec3(0.0, 0.0, 0.0);
+	//LightDirection_cameraspace 
+	lightDir = (viewMatrix * vec4(lightPosition, 1.0)).xyz + eyeDir;
+
+	// Normal of the the vertex, cameraspace
+	//Normal_cameraspace 
+	Normal = (viewMatrix * modelMatrix * vec4(vertexNormal, 0.0)).xyz;
+	
+	// UV of the vertex
+	UV = vertexUV;
+}
