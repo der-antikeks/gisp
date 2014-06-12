@@ -50,186 +50,141 @@ func NewAssetLoaderSystem(path string, context *GlContextSystem) *AssetLoaderSys
 	return s
 }
 
-/*
-	wavefront obj/mtl importer
-	http://en.wikipedia.org/wiki/Wavefront_OBJ
+func (ls *AssetLoaderSystem) LoadOBJ(name string) (*meshbuffer, Boundary) {
+	ls.lock.Lock()
+	defer ls.lock.Unlock()
 
-	object format
-	http://paulbourke.net/dataformats/obj/
-
-	material format
-	http://paulbourke.net/dataformats/mtl/
-
-	obj
-		o - named object (ignored)
-			g - group of polygons
-
-	mtl
-		material
-		...
-
-var objCache = struct {
-	sync.RWMutex
-	geometry map[string]Geometry
-	material map[string]Material
-}{
-	geometry: map[string]Geometry{},
-	material: map[string]Material{},
-}
-
-func LoadObj(path string) (err error, found []string) {
-	return nil, nil
-}
-
-func loadMtl(path string) (err error, found []string) {
-	return nil, nil
-}
-
-*/
-
-func (ls *AssetLoaderSystem) LoadOBJ(name string) (*meshbuffer, Boundary, error) {
-	/*
-		// load materials
-		materials := map[string]Material{}
-		if mtl != "" {
-			var err error
-			materials, err = loadMTL(mtl)
-			if err != nil {
-				return nil, err
-			}
-		}
-	*/
+	if mb, found := ls.meshbuffers[name]; found {
+		return mb, mb.Bounding
+	}
 
 	// open object file, init reader
 	path := ls.path + "/" + name
 
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, Boundary{}, err
+		log.Fatal(err)
 	}
 	defer file.Close()
 	reader := bufio.NewReader(file)
-	//basePath := filepath.Dir(obj) + string(filepath.Separator)
-
-	// root object
-	/*
-		group := NewGroup()
-		object := group
-	*/
 
 	// starting mesh
 	mb := &meshbuffer{}
-	b := Boundary{}
-	/*
-		mat, err := NewMaterial("phong")
-		if err != nil {
-			return nil, err
-		}
-		mesh := NewMesh(geo, mat)
-	*/
 
 	// cache
 	var (
 		vertices []mgl32.Vec3
 		normals  []mgl32.Vec3
 		uvs      []mgl32.Vec2
-		//color    = math.Color{1, 1, 1}
 	)
+
+	/*
+		wavefront obj/mtl importer
+		http://en.wikipedia.org/wiki/Wavefront_OBJ
+
+		object format
+		http://paulbourke.net/dataformats/obj/
+
+		material format
+		http://paulbourke.net/dataformats/mtl/
+	*/
 
 	for {
 		if line, err := reader.ReadString('\n'); err == nil {
 			fields := strings.Split(strings.TrimSpace(line), " ")
-			//value := strings.TrimSpace(strings.Join(fields[1:], " "))
 
 			switch strings.ToLower(fields[0]) {
 
-			case "v": // vertex: x, y, z
-				// v 9.035167 173.402832 -2.713000
+			// Vertex data
+
+			case "v": // geometric vertices: x, y, z, [w]
 				x, err := strconv.ParseFloat(fields[1], 32)
 				if err != nil {
-					return nil, b, err
+					log.Fatal(err)
 				}
 
 				y, err := strconv.ParseFloat(fields[2], 32)
 				if err != nil {
-					return nil, b, err
+					log.Fatal(err)
 				}
 
 				z, err := strconv.ParseFloat(fields[3], 32)
 				if err != nil {
-					return nil, b, err
+					log.Fatal(err)
 				}
 
 				vertices = append(vertices, mgl32.Vec3{float32(x), float32(y), float32(z)})
 
-			case "vt": // texture: u, v
-				// vt 0.748573 0.750412
+			case "vt": // texture vertices: u, v, [w]
 				u, err := strconv.ParseFloat(fields[1], 32)
 				if err != nil {
-					return nil, b, err
+					log.Fatal(err)
 				}
 
 				v, err := strconv.ParseFloat(fields[2], 32)
 				if err != nil {
-					return nil, b, err
+					log.Fatal(err)
 				}
 
 				uvs = append(uvs, mgl32.Vec2{float32(u), 1.0 - float32(v)})
 
-			case "vn": // normal: x, y, z
-				// vn 0.000000 0.000000 -1.000000
+			case "vn": // vertex normals: i, j, k
 				x, err := strconv.ParseFloat(fields[1], 32)
 				if err != nil {
-					return nil, b, err
+					log.Fatal(err)
 				}
 
 				y, err := strconv.ParseFloat(fields[2], 32)
 				if err != nil {
-					return nil, b, err
+					log.Fatal(err)
 				}
 
 				z, err := strconv.ParseFloat(fields[3], 32)
 				if err != nil {
-					return nil, b, err
+					log.Fatal(err)
 				}
 
 				normals = append(normals, mgl32.Vec3{float32(x), float32(y), float32(z)})
 
-			case "f": // face
-				// f 3 8 4 - vertex
-				// f 1/4 2/5 3/6 - vertex/uv
-				// f 24//24 25//24 13//24 - vertex//normal
-				// f 5/1/1 1/2/1 4/3/1 - vertex/uv/normal
-				// 8/11/7 - 8 vertex index (1 based), 11 texture index, 7 normal index
+			case "vp": // parameter space vertices
+			case "cstype": // curve or surface type
+			case "deg": // degree
+			case "bmat": // basis matrix
+			case "step": // step size
+
+			// Elements
+
+			case "f": // face: v/vt/vn v/vt/vn v/vt/vn
 
 				// quad instead of tri, split up
-				// f 5/1/1 1/2/1 4/3/1 3/4/2
-				seg := [][]string{}
+				// f v/vt/vn v/vt/vn v/vt/vn v/vt/vn
+				var faces [][]string
 				if len(fields) == 5 {
-					seg = append(seg, []string{"f", fields[1], fields[2], fields[4]})
-					seg = append(seg, []string{"f", fields[2], fields[3], fields[4]})
+					faces = [][]string{
+						[]string{"f", fields[1], fields[2], fields[4]},
+						[]string{"f", fields[2], fields[3], fields[4]},
+					}
 				} else {
-					seg = append(seg, fields)
+					faces = [][]string{fields}
 				}
 
-				for _, fields := range seg {
+				for _, fields := range faces {
 					var face [3]Vertex
 					var v uint64
 
 					for i, f := range fields[1:4] {
 						a := strings.Split(f, "/")
-						//face[i].color = color
 
 						// vertex
 						if v, err = strconv.ParseUint(a[0], 10, 64); err != nil {
-							return nil, b, err
+							log.Fatal(err)
 						}
 						face[i].position = vertices[v-1]
 
 						// uv
 						if len(a) > 1 && a[1] != "" {
 							if v, err = strconv.ParseUint(a[1], 10, 64); err != nil {
-								return nil, b, err
+								log.Fatal(err)
 							}
 							face[i].uv = uvs[v-1]
 						}
@@ -237,7 +192,7 @@ func (ls *AssetLoaderSystem) LoadOBJ(name string) (*meshbuffer, Boundary, error)
 						// normal
 						if len(a) == 3 {
 							if v, err = strconv.ParseUint(a[2], 10, 64); err != nil {
-								return nil, b, err
+								log.Fatal(err)
 							}
 							face[i].normal = normals[v-1]
 						}
@@ -246,58 +201,39 @@ func (ls *AssetLoaderSystem) LoadOBJ(name string) (*meshbuffer, Boundary, error)
 					mb.AddFace(face[0], face[1], face[2])
 				}
 
-			case "o": // new object
-			/*
-				object = NewGroup()
-				group.AddChild(object)
-			*/
+			case "p": // point
+			case "l": // line
+			case "curv": // curve
+			case "curv2": // 2d curve
+			case "surf": // surface
 
-			case "g": // mesh within object
-			/*
-				if geo.VerticesCount() > 0 {
-					geo.MergeVertices()
-					geo.ComputeBoundary()
+			// Free-form curve/surface body statements
 
-					object.AddChild(mesh)
+			case "parm", "trim", "hole", "scrv", "sp", "end", "con":
 
-					geo = NewGeometry()
-					mesh = NewMesh(geo, mat)
-				}
-			*/
+			// Grouping
 
-			case "usemtl": // material name for the element following it
-			/*
-				if m, ok := materials[value]; ok {
-					mat = &m
-					mesh.SetMaterial(mat)
-				} else {
-					mat, err = NewMaterial("phong")
-					if err != nil {
-						return nil, err
-					}
-				}
-			*/
+			case "g": // group name
+			case "s": // smoothing group
+			case "mg": // merging group
+			case "o": // object name
 
-			case "mtllib": // mtl file
-			/*
-				if mtl == "" {
-					if materials, err = loadMTL(basePath + value); err != nil {
-						//return nil, err
-						fmt.Println("could not load mtl file:", err.Error())
-					}
-				}
-			*/
+			// Display/render attributes
 
-			case "s": // smooth shading
+			case "usemtl": // material name
+			case "mtllib": // material library
+			case "bevel", "c_interp", "d_interp", "lod",
+				"shadow_obj", "trace_obj", "ctech", "stech":
+
 			case "#": // comment
 			case "": // empty line
 			default:
-				return nil, b, fmt.Errorf("unknown object line type: %s", line)
+				log.Fatalf("unknown object line type: %s", line)
 			}
 		} else if err == io.EOF {
 			break
 		} else {
-			return nil, b, err
+			log.Fatal(err)
 		}
 	}
 
@@ -308,8 +244,8 @@ func (ls *AssetLoaderSystem) LoadOBJ(name string) (*meshbuffer, Boundary, error)
 		mb.Init()
 	})
 
-	//ls.meshbuffers[name] = mb
-	return mb, mb.Bounding, nil
+	ls.meshbuffers[name] = mb
+	return mb, mb.Bounding
 }
 
 func (ls *AssetLoaderSystem) SpherePrimitive(radius float64, widthSegments, heightSegments int) (*meshbuffer, Boundary) {
@@ -1146,13 +1082,15 @@ func (t Texture) Cleanup() {
 	}
 }
 
-func (ls *AssetLoaderSystem) LoadTexture(path string) (*Texture, error) {
+func (ls *AssetLoaderSystem) LoadTexture(name string) (*Texture, error) {
 	ls.lock.Lock()
 	defer ls.lock.Unlock()
 
-	if t, found := ls.textures[path]; found {
+	if t, found := ls.textures[name]; found {
 		return t, nil
 	}
+
+	path := ls.path + "/" + name
 
 	// load file
 	file, err := os.Open(path)
@@ -1205,7 +1143,7 @@ func (ls *AssetLoaderSystem) LoadTexture(path string) (*Texture, error) {
 		t.buffer.Unbind(gl.TEXTURE_2D)
 	})
 
-	ls.textures[path] = t
+	ls.textures[name] = t
 	return t, nil
 }
 
