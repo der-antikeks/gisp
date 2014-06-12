@@ -1,15 +1,19 @@
 package game
 
 import (
+	"bufio"
 	"fmt"
 	"image"
 	"image/draw"
 	_ "image/jpeg"
 	_ "image/png"
+	"io"
 	"io/ioutil"
 	"log"
 	"math"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/der-antikeks/mathgl/mgl32"
@@ -83,8 +87,229 @@ func loadMtl(path string) (err error, found []string) {
 
 */
 
-func (ls *AssetLoaderSystem) LoadOBJ(name string) (*meshbuffer, Boundary) {
-	return nil, Boundary{}
+func (ls *AssetLoaderSystem) LoadOBJ(name string) (*meshbuffer, Boundary, error) {
+	/*
+		// load materials
+		materials := map[string]Material{}
+		if mtl != "" {
+			var err error
+			materials, err = loadMTL(mtl)
+			if err != nil {
+				return nil, err
+			}
+		}
+	*/
+
+	// open object file, init reader
+	path := ls.path + "/" + name
+
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, Boundary{}, err
+	}
+	defer file.Close()
+	reader := bufio.NewReader(file)
+	//basePath := filepath.Dir(obj) + string(filepath.Separator)
+
+	// root object
+	/*
+		group := NewGroup()
+		object := group
+	*/
+
+	// starting mesh
+	mb := &meshbuffer{}
+	b := Boundary{}
+	/*
+		mat, err := NewMaterial("phong")
+		if err != nil {
+			return nil, err
+		}
+		mesh := NewMesh(geo, mat)
+	*/
+
+	// cache
+	var (
+		vertices []mgl32.Vec3
+		normals  []mgl32.Vec3
+		uvs      []mgl32.Vec2
+		//color    = math.Color{1, 1, 1}
+	)
+
+	for {
+		if line, err := reader.ReadString('\n'); err == nil {
+			fields := strings.Split(strings.TrimSpace(line), " ")
+			//value := strings.TrimSpace(strings.Join(fields[1:], " "))
+
+			switch strings.ToLower(fields[0]) {
+
+			case "v": // vertex: x, y, z
+				// v 9.035167 173.402832 -2.713000
+				x, err := strconv.ParseFloat(fields[1], 32)
+				if err != nil {
+					return nil, b, err
+				}
+
+				y, err := strconv.ParseFloat(fields[2], 32)
+				if err != nil {
+					return nil, b, err
+				}
+
+				z, err := strconv.ParseFloat(fields[3], 32)
+				if err != nil {
+					return nil, b, err
+				}
+
+				vertices = append(vertices, mgl32.Vec3{float32(x), float32(y), float32(z)})
+
+			case "vt": // texture: u, v
+				// vt 0.748573 0.750412
+				u, err := strconv.ParseFloat(fields[1], 32)
+				if err != nil {
+					return nil, b, err
+				}
+
+				v, err := strconv.ParseFloat(fields[2], 32)
+				if err != nil {
+					return nil, b, err
+				}
+
+				uvs = append(uvs, mgl32.Vec2{float32(u), 1.0 - float32(v)})
+
+			case "vn": // normal: x, y, z
+				// vn 0.000000 0.000000 -1.000000
+				x, err := strconv.ParseFloat(fields[1], 32)
+				if err != nil {
+					return nil, b, err
+				}
+
+				y, err := strconv.ParseFloat(fields[2], 32)
+				if err != nil {
+					return nil, b, err
+				}
+
+				z, err := strconv.ParseFloat(fields[3], 32)
+				if err != nil {
+					return nil, b, err
+				}
+
+				normals = append(normals, mgl32.Vec3{float32(x), float32(y), float32(z)})
+
+			case "f": // face
+				// f 3 8 4 - vertex
+				// f 1/4 2/5 3/6 - vertex/uv
+				// f 24//24 25//24 13//24 - vertex//normal
+				// f 5/1/1 1/2/1 4/3/1 - vertex/uv/normal
+				// 8/11/7 - 8 vertex index (1 based), 11 texture index, 7 normal index
+
+				// quad instead of tri, split up
+				// f 5/1/1 1/2/1 4/3/1 3/4/2
+				seg := [][]string{}
+				if len(fields) == 5 {
+					seg = append(seg, []string{"f", fields[1], fields[2], fields[4]})
+					seg = append(seg, []string{"f", fields[2], fields[3], fields[4]})
+				} else {
+					seg = append(seg, fields)
+				}
+
+				for _, fields := range seg {
+					var face [3]Vertex
+					var v uint64
+
+					for i, f := range fields[1:4] {
+						a := strings.Split(f, "/")
+						//face[i].color = color
+
+						// vertex
+						if v, err = strconv.ParseUint(a[0], 10, 64); err != nil {
+							return nil, b, err
+						}
+						face[i].position = vertices[v-1]
+
+						// uv
+						if len(a) > 1 && a[1] != "" {
+							if v, err = strconv.ParseUint(a[1], 10, 64); err != nil {
+								return nil, b, err
+							}
+							face[i].uv = uvs[v-1]
+						}
+
+						// normal
+						if len(a) == 3 {
+							if v, err = strconv.ParseUint(a[2], 10, 64); err != nil {
+								return nil, b, err
+							}
+							face[i].normal = normals[v-1]
+						}
+					}
+
+					mb.AddFace(face[0], face[1], face[2])
+				}
+
+			case "o": // new object
+			/*
+				object = NewGroup()
+				group.AddChild(object)
+			*/
+
+			case "g": // mesh within object
+			/*
+				if geo.VerticesCount() > 0 {
+					geo.MergeVertices()
+					geo.ComputeBoundary()
+
+					object.AddChild(mesh)
+
+					geo = NewGeometry()
+					mesh = NewMesh(geo, mat)
+				}
+			*/
+
+			case "usemtl": // material name for the element following it
+			/*
+				if m, ok := materials[value]; ok {
+					mat = &m
+					mesh.SetMaterial(mat)
+				} else {
+					mat, err = NewMaterial("phong")
+					if err != nil {
+						return nil, err
+					}
+				}
+			*/
+
+			case "mtllib": // mtl file
+			/*
+				if mtl == "" {
+					if materials, err = loadMTL(basePath + value); err != nil {
+						//return nil, err
+						fmt.Println("could not load mtl file:", err.Error())
+					}
+				}
+			*/
+
+			case "s": // smooth shading
+			case "#": // comment
+			case "": // empty line
+			default:
+				return nil, b, fmt.Errorf("unknown object line type: %s", line)
+			}
+		} else if err == io.EOF {
+			break
+		} else {
+			return nil, b, err
+		}
+	}
+
+	mb.MergeVertices()
+	mb.ComputeBoundary()
+	mb.FaceCount = len(mb.Faces)
+	ls.context.MainThread(func() {
+		mb.Init()
+	})
+
+	//ls.meshbuffers[name] = mb
+	return mb, mb.Bounding, nil
 }
 
 func (ls *AssetLoaderSystem) SpherePrimitive(radius float64, widthSegments, heightSegments int) (*meshbuffer, Boundary) {

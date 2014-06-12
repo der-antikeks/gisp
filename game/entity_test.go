@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	max = 1e6
+	maxv = 1e6
 )
 
 func TestEntitySlice(t *testing.T) {
@@ -95,7 +95,7 @@ func BenchmarkEntityBitset_Set(b *testing.B) {
 func benchmarkEntityCollection_Set(c EntityCollection, b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		c.Set(Entity(rand.Uint32() % max))
+		c.Set(Entity(rand.Uint32() % maxv))
 	}
 }
 
@@ -113,11 +113,11 @@ func BenchmarkEntityBitset_Get(b *testing.B) {
 
 func benchmarkEntityCollection_Get(c EntityCollection, b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		c.Set(Entity(rand.Uint32() % max))
+		c.Set(Entity(rand.Uint32() % maxv))
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		c.Get(Entity(rand.Uint32() % max))
+		c.Get(Entity(rand.Uint32() % maxv))
 	}
 }
 
@@ -135,11 +135,11 @@ func BenchmarkEntityBitset_Remove(b *testing.B) {
 
 func benchmarkEntityCollection_Remove(c EntityCollection, b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		c.Set(Entity(rand.Uint32() % max))
+		c.Set(Entity(rand.Uint32() % maxv))
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		c.Remove(Entity(rand.Uint32() % max))
+		c.Remove(Entity(rand.Uint32() % maxv))
 	}
 }
 
@@ -157,7 +157,7 @@ func BenchmarkEntityBitset_Iterate(b *testing.B) {
 
 func benchmarkEntityCollection_Iterate(c EntityCollection, b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		c.Set(Entity(rand.Uint32() % max))
+		c.Set(Entity(rand.Uint32() % maxv))
 	}
 
 	b.ResetTimer()
