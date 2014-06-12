@@ -949,6 +949,19 @@ func (ls *AssetLoaderSystem) LoadShader(name string) *shaderprogram {
 
 		uniforms["diffuseMap"] = nil // *Texture
 		uniforms["opacity"] = 1.0
+
+	case "billboard":
+		uniforms["opacity"] = 1.0
+		uniforms["diffuse"] = mgl32.Vec3{1, 1, 1}
+
+		uniforms["diffuseMap"] = nil // *Texture
+
+	case "fixedbb":
+		uniforms["opacity"] = 1.0
+		uniforms["diffuse"] = mgl32.Vec3{1, 1, 1}
+		uniforms["diffuseMap"] = nil // *Texture
+
+		uniforms["size"] = mgl32.Vec2{1, 1}
 	}
 
 	s := &shaderprogram{

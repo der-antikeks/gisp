@@ -284,6 +284,8 @@ func (s *EntitySystem) OnRemove(ts ...ComponentType) *Observer {
 func (s *EntitySystem) CreateSplashScreen() {
 	s.createCube()
 	s.createSphere()
+
+	s.createBillboard()
 }
 
 func (s *EntitySystem) CreateMainMenu() {
@@ -430,6 +432,42 @@ func (s *EntitySystem) createSphere() Entity {
 	}
 
 	return sphere
+}
+
+func (s *EntitySystem) createBillboard() Entity {
+	// Transformation
+	trans := Transformation{
+		Position: mgl32.Vec3{2, 0, -5},
+		Rotation: mgl32.Quat{1, mgl32.Vec3{0, 0, 0}},
+		Scale:    mgl32.Vec3{1, 1, 1},
+		Up:       mgl32.Vec3{0, 1, 0},
+	}
+
+	// geometry
+	geo := s.getGeometry("plane")
+
+	// material
+	mat := s.getMaterial("billboard")
+	tex, err := s.loader.LoadTexture("uvtemplate.png")
+	if err != nil {
+		log.Fatal("could not load texture:", err)
+	}
+	mat.Set("diffuseMap", tex)
+	mat.Set("opacity", 0.8)
+
+	// scene
+	stc := Scene{Name: "mainscene"}
+
+	// Entity
+	billboard := s.Entity()
+	if err := s.Set(
+		billboard,
+		trans, geo, mat, stc,
+	); err != nil {
+		log.Fatal("could not create billboard:", err)
+	}
+
+	return billboard
 }
 
 func (s *EntitySystem) getMaterial(e string) Material {

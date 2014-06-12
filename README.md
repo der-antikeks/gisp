@@ -2,10 +2,8 @@
 
 __todo:__
 * Rendersystem "Bounding Volume Hierarchy" aka sphere tree
-* Load Obj Files
 * Entity/Transformation Grouping
 * Light
-* Billboards
 * Text/Distance Field Fonts
 * Renderpasses/targets
 * Shadows
