@@ -4,7 +4,6 @@ __todo:__
 * Rendersystem "Bounding Volume Hierarchy" aka sphere tree
 * Entity/Transformation Grouping
 * Light
-* Text/Distance Field Fonts
 * Renderpasses/targets
 * Shadows
 

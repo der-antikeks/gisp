@@ -1,0 +1,18 @@
+#version 330 core
+
+// Interpolated values from the vertex shaders
+in vec2 UV;
+
+// Values that stay constant for the whole mesh.
+uniform vec3 diffuse;
+uniform float opacity;
+uniform sampler2D distanceFieldMap;
+
+// Output data
+out vec4 fragmentColor;
+
+void main() {
+	float distance = texture(distanceFieldMap, UV).a;
+	float alpha = smoothstep(0.5 - opacity, 0.5 + opacity, distance);
+	fragmentColor = vec4(diffuse, alpha);
+}

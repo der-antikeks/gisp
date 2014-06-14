@@ -258,7 +258,7 @@ func (ls *AssetLoaderSystem) SpherePrimitive(radius float64, widthSegments, heig
 	ls.lock.Lock()
 	defer ls.lock.Unlock()
 
-	name := "sphere"
+	name := fmt.Sprintf("%s_%g_%d_%d", "sphere", radius, widthSegments, heightSegments)
 	if mb, found := ls.meshbuffers[name]; found {
 		return mb, mb.Bounding
 	}
@@ -399,7 +399,7 @@ func (ls *AssetLoaderSystem) CubePrimitive(size float32) (*meshbuffer, Boundary)
 	ls.lock.Lock()
 	defer ls.lock.Unlock()
 
-	name := "cube"
+	name := fmt.Sprintf("%s_%g", "cube", size)
 	if mb, found := ls.meshbuffers[name]; found {
 		return mb, mb.Bounding
 	}
@@ -628,7 +628,7 @@ func (ls *AssetLoaderSystem) PlanePrimitive(width, height float32) (*meshbuffer,
 	ls.lock.Lock()
 	defer ls.lock.Unlock()
 
-	name := "plane"
+	name := fmt.Sprintf("%s_%g_%g", "plane", width, height)
 	if mb, found := ls.meshbuffers[name]; found {
 		return mb, mb.Bounding
 	}
@@ -968,6 +968,11 @@ func (ls *AssetLoaderSystem) LoadShader(name string) *shaderprogram {
 		uniforms["diffuseMap"] = nil // *Texture
 
 		uniforms["size"] = mgl32.Vec2{1, 1}
+
+	case "sdf":
+		uniforms["distanceFieldMap"] = nil // *Texture
+		uniforms["diffuse"] = mgl32.Vec3{1, 1, 1}
+		uniforms["opacity"] = 0.25
 	}
 
 	s := &shaderprogram{
@@ -1075,23 +1080,8 @@ func (s *shaderprogram) Cleanup() {
 }
 
 type Texture struct {
-	File string // loading from entitymanager?
-
 	buffer gl.Texture
-	w, h   int
-}
-
-// TODO: binding/unbinding from rendersystem
-// MainThread(func() {})
-
-// bind texture in Texture Unit slot
-func (t Texture) Bind(slot int) {
-	t.buffer.Bind(gl.TEXTURE_2D)
-	gl.ActiveTexture(gl.TEXTURE0 + gl.GLenum(slot))
-}
-
-func (t Texture) Unbind() {
-	t.buffer.Unbind(gl.TEXTURE_2D)
+	w, h   int // TODO: needed?
 }
 
 // cleanup
@@ -1134,9 +1124,8 @@ func (ls *AssetLoaderSystem) LoadTexture(name string) (*Texture, error) {
 
 	// create texture
 	t := &Texture{
-		File: path,
-		w:    bounds.Dx(),
-		h:    bounds.Dy(),
+	//w: bounds.Dx(),
+	//h: bounds.Dy(),
 	}
 
 	ls.context.MainThread(func() {
@@ -1199,7 +1188,8 @@ func (ls *AssetLoaderSystem) LoadSDFFont(name string, size float64, low, high in
 	ls.lock.Lock()
 	defer ls.lock.Unlock()
 
-	if t, found := ls.fonts[name]; found {
+	lname := fmt.Sprintf("%s_%g_%d_%d", name, size, low, high)
+	if t, found := ls.fonts[lname]; found {
 		return t, nil
 	}
 
@@ -1295,7 +1285,6 @@ func (ls *AssetLoaderSystem) LoadSDFFont(name string, size float64, low, high in
 				startY, endY := int(math.Max(0, float64(centerY-spread))), int(math.Min(float64(centerY+spread), float64(height-1)))
 
 				closestSquareDist := spread * spread
-
 				for y := startY; y <= endY; y++ {
 					for x := startX; x <= endX; x++ {
 						if base != mask[y][x] {
@@ -1307,11 +1296,10 @@ func (ls *AssetLoaderSystem) LoadSDFFont(name string, size float64, low, high in
 					}
 				}
 
-				var dist float64
-				if base {
-					dist = math.Min(math.Sqrt(float64(closestSquareDist)), float64(spread))
+				dist := math.Min(math.Sqrt(float64(closestSquareDist)), float64(spread))
+				if !base {
+					dist *= -1
 				}
-				dist = -math.Min(math.Sqrt(float64(closestSquareDist)), float64(spread))
 
 				// distance to color
 				cu := uint8(math.Min(1, math.Max(0, 0.5+0.5*(dist/float64(spread)))) * 0xff)
@@ -1325,11 +1313,7 @@ func (ls *AssetLoaderSystem) LoadSDFFont(name string, size float64, low, high in
 	bounds := sdf.Bounds().Size()
 
 	// generate texture
-	tex := &Texture{
-		File: path,
-		w:    bounds.X,
-		h:    bounds.Y,
-	}
+	tex := &Texture{}
 
 	ls.context.MainThread(func() {
 		tex.buffer = gl.GenTexture()
@@ -1340,13 +1324,13 @@ func (ls *AssetLoaderSystem) LoadSDFFont(name string, size float64, low, high in
 		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE) // gl.REPEAT
 		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE)
 
-		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR) // gl.LINEAR_MIPMAP_LINEAR
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR) // gl.LINEAR_MIPMAP_LINEAR
 		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
 
 		// give image(s) to opengl
 		gl.TexImage2D(gl.TEXTURE_2D, 0 /*level*/, gl.RGBA,
-			rgba.Bounds().Dx(), rgba.Bounds().Dy(),
-			0, gl.RGBA, gl.UNSIGNED_BYTE, rgba.Pix)
+			sdf.Bounds().Dx(), sdf.Bounds().Dy(),
+			0, gl.RGBA, gl.UNSIGNED_BYTE, sdf.Pix)
 
 		// generate mipmaps
 		gl.GenerateMipmap(gl.TEXTURE_2D)
@@ -1361,8 +1345,77 @@ func (ls *AssetLoaderSystem) LoadSDFFont(name string, size float64, low, high in
 		chars: glyphs,
 	}
 
-	ls.fonts[name] = f
+	ls.fonts[lname] = f
 	return f, nil
+}
+
+func (ls *AssetLoaderSystem) CreateString(f *Font, s string) (*meshbuffer, Boundary) {
+	mb := &meshbuffer{}
+
+	normal := mgl32.Vec3{0, 0, 1}
+	var size float32 = 1.0
+	var sx float32 = 0.0
+
+	for _, c := range s {
+		glyph, found := f.chars[c]
+		if !found {
+			continue
+		}
+
+		x := float32(glyph.x) / float32(f.w)
+		y := float32(glyph.y) / float32(f.h)
+		w := float32(glyph.advance) / float32(f.w)
+		h := float32(glyph.h) / float32(f.h)
+
+		a := mgl32.Vec3{sx + size*w, size * h, 0}
+		b := mgl32.Vec3{sx, size * h, 0}
+		c := mgl32.Vec3{sx, 0, 0}
+		d := mgl32.Vec3{sx + size*w, 0, 0}
+		sx += size * w
+
+		tl := mgl32.Vec2{x, y}
+		tr := mgl32.Vec2{x + w, y}
+		bl := mgl32.Vec2{x, y + h}
+		br := mgl32.Vec2{x + w, y + h}
+
+		mb.AddFace(
+			Vertex{
+				position: a,
+				normal:   normal,
+				uv:       tr,
+			}, Vertex{
+				position: b,
+				normal:   normal,
+				uv:       tl,
+			}, Vertex{
+				position: c,
+				normal:   normal,
+				uv:       bl,
+			})
+		mb.AddFace(
+			Vertex{
+				position: c,
+				normal:   normal,
+				uv:       bl,
+			}, Vertex{
+				position: d,
+				normal:   normal,
+				uv:       br,
+			}, Vertex{
+				position: a,
+				normal:   normal,
+				uv:       tr,
+			})
+	}
+
+	mb.MergeVertices()
+	mb.ComputeBoundary()
+	mb.FaceCount = len(mb.Faces)
+	ls.context.MainThread(func() {
+		mb.Init()
+	})
+
+	return mb, mb.Bounding
 }
 
 // TODO:

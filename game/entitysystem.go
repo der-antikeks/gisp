@@ -281,6 +281,8 @@ func (s *EntitySystem) CreateSplashScreen() {
 	s.createSphere()
 
 	s.createBillboard()
+
+	s.createString()
 }
 
 func (s *EntitySystem) CreateMainMenu() {
@@ -477,6 +479,60 @@ func (s *EntitySystem) createBillboard() Entity {
 	}
 
 	return billboard
+}
+
+func (s *EntitySystem) createString() Entity {
+	// transformation
+	trans := Transformation{
+		Position: mgl32.Vec3{2, 0, 0},
+		Rotation: mgl32.Quat{1, mgl32.Vec3{0, 0, 0}},
+		Scale:    mgl32.Vec3{10, 10, 10},
+		Up:       mgl32.Vec3{0, 1, 0},
+	}
+
+	// load font
+	font, err := s.loader.LoadSDFFont("luxisr.ttf", 32.0, 32, 127)
+	if err != nil {
+		log.Fatal("could not load font file:", err)
+	}
+
+	// geometry
+	m, b := s.loader.CreateString(font, "Lorem ipsum dolor sit amet, consectetur adipiscing elit.")
+	geo := Geometry{
+		mesh:     m,
+		Bounding: b,
+	}
+
+	// material
+	mat := s.getMaterial("sdf")
+	//mat.Set("diffuseMap", font.sdf)
+	mat.Set("distanceFieldMap", font.sdf)
+	mat.Set("diffuse", mgl32.Vec3{0, 1, 1})
+	mat.Set("opacity", 0.25) // 0.25 / (float64(spread) * scale)
+
+	// velocity
+	vel := Velocity{
+		Velocity: mgl32.Vec3{0, 0, 0},
+		Angular: mgl32.Vec3{
+			0,
+			mgl32.DegToRad(45.0),
+			0,
+		},
+	}
+
+	// scene
+	stc := Scene{Name: "mainscene"}
+
+	// Entity
+	str := s.Entity()
+	if err := s.Set(
+		str,
+		trans, geo, mat, vel, stc,
+	); err != nil {
+		log.Fatal("could not create string:", err)
+	}
+
+	return str
 }
 
 func (s *EntitySystem) getMaterial(e string) Material {

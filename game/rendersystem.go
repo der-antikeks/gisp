@@ -334,14 +334,14 @@ func (s *RenderSystem) render(
 	// ### bind material
 	var updateAttributes bool
 	if material.program != s.currentProgram {
-		// unbind old material (Textures)
-		s.unbindTextures()
-
 		s.currentProgram = material.program
 		s.currentProgram.program.Use()
 
 		updateAttributes = true
 	}
+
+	// unbind old material (Textures)
+	s.unbindTextures() // TODO: no caching of old material bindings?
 
 	// ### bind geometry
 	if geometry.mesh != s.currentGeometry || updateAttributes {
