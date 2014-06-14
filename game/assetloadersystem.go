@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"image"
+	"image/color"
 	"image/draw"
 	_ "image/jpeg"
 	_ "image/png"
@@ -20,6 +21,9 @@ import (
 
 	"github.com/go-gl/gl"
 	"github.com/go-gl/glh"
+
+	// TODO: freetype license or outsource as a separate sdf generator
+	"code.google.com/p/freetype-go/freetype"
 )
 
 /*
@@ -35,6 +39,7 @@ type AssetLoaderSystem struct {
 	meshbuffers    map[string]*meshbuffer
 	shaderPrograms map[string]*shaderprogram
 	textures       map[string]*Texture
+	fonts          map[string]*Font
 }
 
 func NewAssetLoaderSystem(path string, context *GlContextSystem) *AssetLoaderSystem {
@@ -45,6 +50,7 @@ func NewAssetLoaderSystem(path string, context *GlContextSystem) *AssetLoaderSys
 		meshbuffers:    map[string]*meshbuffer{},
 		shaderPrograms: map[string]*shaderprogram{},
 		textures:       map[string]*Texture{},
+		fonts:          map[string]*Font{},
 	}
 
 	return s
@@ -1160,6 +1166,205 @@ func (ls *AssetLoaderSystem) LoadTexture(name string) (*Texture, error) {
 	return t, nil
 }
 
+type Glyph struct {
+	x, y    int
+	w, h    int
+	advance int
+}
+
+type Font struct {
+	sdf   *Texture
+	w, h  int
+	chars map[rune]Glyph
+}
+
+// cleanup
+func (f *Font) Cleanup() {
+	if f.sdf.buffer != 0 {
+		f.sdf.buffer.Delete()
+	}
+}
+
+func NextHighestPowerOfTwo(n int) int {
+	n--
+	n |= n >> 1
+	n |= n >> 2
+	n |= n >> 4
+	n |= n >> 8
+	n |= n >> 16
+	return n + 1
+}
+
+func (ls *AssetLoaderSystem) LoadSDFFont(name string, size float64, low, high int) (*Font, error) {
+	ls.lock.Lock()
+	defer ls.lock.Unlock()
+
+	if t, found := ls.fonts[name]; found {
+		return t, nil
+	}
+
+	path := ls.path + "/" + name
+	dpi := 72.0 // screen resolution in dots per inch
+	//size := 32.0          // font size in points
+	//low, high := 32, 127  // lower, upper rune limits
+	spread := 4           // signed distance radius
+	padding := spread + 1 // padding between glyphs
+
+	// read font data
+	fontBytes, err := ioutil.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	font, err := freetype.ParseFont(fontBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	// create image
+	glyphCounts := high - low + 1
+	glyphsPerRow := int(math.Ceil(math.Sqrt(float64(glyphCounts))))
+	glyphsPerCol := (glyphCounts / glyphsPerRow) + 1
+
+	glyphBounds := font.Bounds(int32(size))
+	glyphWidth := int(glyphBounds.XMax-glyphBounds.XMin) + padding*2
+	glyphHeight := int(glyphBounds.YMax-glyphBounds.YMin) + padding*2
+
+	rgba := image.NewRGBA(image.Rect(0, 0,
+		NextHighestPowerOfTwo(glyphWidth*glyphsPerRow),
+		NextHighestPowerOfTwo(glyphHeight*glyphsPerCol)))
+	//draw.Draw(rgba, rgba.Bounds(), image.Black, image.ZP, draw.Src)
+
+	// initialize context
+	ctx := freetype.NewContext()
+	ctx.SetDPI(dpi)
+	ctx.SetFont(font)
+	ctx.SetFontSize(size)
+	ctx.SetClip(rgba.Bounds())
+	ctx.SetDst(rgba)
+	ctx.SetSrc(image.White)
+
+	// draw runes
+	glyphs := make(map[rune]Glyph)
+	var glyphNum, glyphX, glyphY int
+
+	for ch := low; ch <= high; ch++ {
+		glyphX = (glyphNum % glyphsPerRow) * glyphWidth
+		glyphY = (glyphNum / glyphsPerRow) * glyphHeight
+
+		metric := font.HMetric(int32(size), font.Index(rune(ch)))
+		advance := int(metric.AdvanceWidth) + padding
+
+		glyphs[rune(ch)] = Glyph{glyphX, glyphY, glyphWidth, glyphHeight, advance}
+
+		pt := freetype.Pt(glyphX+padding, glyphY+padding+int(ctx.PointToFix32(size)>>8))
+		if _, err = ctx.DrawString(string(ch), pt); err != nil {
+			return nil, err
+		}
+
+		glyphNum++
+	}
+
+	// generate signed distance field
+	sdf := image.NewRGBA(rgba.Bounds())
+
+	for _, glyph := range glyphs {
+		// create mask
+		mask := make([][]bool, glyph.h)
+
+		for y := 0; y < glyph.h; y++ {
+			if mask[y] == nil {
+				mask[y] = make([]bool, glyph.w)
+			}
+
+			for x := 0; x < glyph.w; x++ {
+				r, g, b, a := rgba.At(glyph.x+x, glyph.y+y).RGBA()
+				mask[y][x] = (r >= 0x7fff || g >= 0x7fff || b >= 0x7fff) && (a >= 0x7fff)
+			}
+		}
+
+		// find signed distance
+		width := len(mask[0])
+		height := len(mask)
+
+		for centerY := 0; centerY < glyph.h; centerY++ {
+			for centerX := 0; centerX < glyph.w; centerX++ {
+				base := mask[centerY][centerX]
+
+				startX, endX := int(math.Max(0, float64(centerX-spread))), int(math.Min(float64(centerX+spread), float64(width-1)))
+				startY, endY := int(math.Max(0, float64(centerY-spread))), int(math.Min(float64(centerY+spread), float64(height-1)))
+
+				closestSquareDist := spread * spread
+
+				for y := startY; y <= endY; y++ {
+					for x := startX; x <= endX; x++ {
+						if base != mask[y][x] {
+							squareDist := (centerX-x)*(centerX-x) + (centerY-y)*(centerY-y)
+							if squareDist < closestSquareDist {
+								closestSquareDist = squareDist
+							}
+						}
+					}
+				}
+
+				var dist float64
+				if base {
+					dist = math.Min(math.Sqrt(float64(closestSquareDist)), float64(spread))
+				}
+				dist = -math.Min(math.Sqrt(float64(closestSquareDist)), float64(spread))
+
+				// distance to color
+				cu := uint8(math.Min(1, math.Max(0, 0.5+0.5*(dist/float64(spread)))) * 0xff)
+				c := color.RGBA{cu, cu, cu, cu} // premultiplied alpha white
+
+				sdf.Set(glyph.x+centerX, glyph.y+centerY, c)
+			}
+		}
+	}
+
+	bounds := sdf.Bounds().Size()
+
+	// generate texture
+	tex := &Texture{
+		File: path,
+		w:    bounds.X,
+		h:    bounds.Y,
+	}
+
+	ls.context.MainThread(func() {
+		tex.buffer = gl.GenTexture()
+		tex.buffer.Bind(gl.TEXTURE_2D)
+
+		// set texture parameters
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE) // gl.REPEAT
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE) // gl.REPEAT
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE)
+
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR) // gl.LINEAR_MIPMAP_LINEAR
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+
+		// give image(s) to opengl
+		gl.TexImage2D(gl.TEXTURE_2D, 0 /*level*/, gl.RGBA,
+			rgba.Bounds().Dx(), rgba.Bounds().Dy(),
+			0, gl.RGBA, gl.UNSIGNED_BYTE, rgba.Pix)
+
+		// generate mipmaps
+		gl.GenerateMipmap(gl.TEXTURE_2D)
+
+		tex.buffer.Unbind(gl.TEXTURE_2D)
+	})
+
+	f := &Font{
+		sdf:   tex,
+		w:     bounds.X,
+		h:     bounds.Y,
+		chars: glyphs,
+	}
+
+	ls.fonts[name] = f
+	return f, nil
+}
+
 // TODO:
 func (ls *AssetLoaderSystem) NewFramebuffer(w, h int) *Texture {
 	t := &Texture{
@@ -1209,6 +1414,12 @@ func (ls *AssetLoaderSystem) Cleanup() {
 	for _, t := range ls.textures {
 		ls.context.MainThread(func() {
 			t.Cleanup()
+		})
+	}
+
+	for _, f := range ls.fonts {
+		ls.context.MainThread(func() {
+			f.Cleanup()
 		})
 	}
 }
