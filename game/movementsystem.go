@@ -100,7 +100,8 @@ func (s *MovementSystem) Update(delta time.Duration) error {
 		}
 
 		if update {
-			transform.updatedMatrix = false // TODO: remove
+			transform.matrix = Compose(transform.Position, transform.Rotation, transform.Scale)
+			transform.updatedMatrix = true
 
 			if err := s.ents.Set(en, transform); err != nil {
 				return err

@@ -10,11 +10,6 @@ import (
 	"github.com/der-antikeks/mathgl/mgl32"
 )
 
-const (
-	DEG2RAD = math.Pi / 180
-	RAD2DEG = 180 / math.Pi
-)
-
 var (
 	ErrNoSuchEntity    = errors.New("no such entity")
 	ErrNoSuchComponent = errors.New("no such component")
@@ -305,8 +300,8 @@ func (s *EntitySystem) createCube() Entity {
 	vel := Velocity{
 		Velocity: mgl32.Vec3{0, 0, 0},
 		Angular: mgl32.Vec3{
-			45.0 * DEG2RAD,
-			5.0 * DEG2RAD,
+			mgl32.DegToRad(45.0),
+			mgl32.DegToRad(5.0),
 			0,
 		},
 	}
@@ -369,6 +364,20 @@ func (s *EntitySystem) createRndCube() Entity {
 		Up:    mgl32.Vec3{0, 1, 0},
 	}
 
+	// velocity
+	vel := Velocity{
+		Velocity: mgl32.Vec3{
+			r(-1, 1),
+			r(-1, 1),
+			r(-1, 1),
+		},
+		Angular: mgl32.Vec3{
+			mgl32.DegToRad(r(0, 45)),
+			mgl32.DegToRad(r(0, 45)),
+			mgl32.DegToRad(r(0, 45)),
+		},
+	}
+
 	// geometry
 	geo := s.getGeometry("cube")
 
@@ -388,7 +397,7 @@ func (s *EntitySystem) createRndCube() Entity {
 	cube := s.Entity()
 	if err := s.Set(
 		cube,
-		trans, geo, mat, stc,
+		trans, vel, geo, mat, stc,
 	); err != nil {
 		log.Fatal("could not create cube:", err)
 	}

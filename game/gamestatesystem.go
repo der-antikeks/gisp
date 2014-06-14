@@ -148,7 +148,7 @@ func (s *GameStateSystem) Update(delta time.Duration) {
 			s.ents.CreateMainMenu()
 
 			w, h := s.context.Size()
-			c := s.ents.CreatePerspectiveCamera(45.0, float32(w)/float32(h), 0.1, 100.0)
+			c := s.ents.CreatePerspectiveCamera(45.0, float32(w)/float32(h), 0.1, 200.0)
 			s.ents.Set(c,
 				OrbitControl{
 					MovementSpeed: 1.0,
