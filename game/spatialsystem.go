@@ -4,6 +4,7 @@ import (
 	"fmt" // TODO: for debugging
 	"log"
 	"math"
+	"sort"
 	"strings"
 
 	"github.com/der-antikeks/mathgl/mgl32"
@@ -131,7 +132,7 @@ func (s *SpatialSystem) addEntity(en Entity) error {
 		s.trees[stc.Name] = tree
 	}
 
-	stc.leaf = tree.Add(pos, radius)
+	stc.leaf = tree.Add(en, pos, radius)
 	if err := s.ents.Set(en, stc); err != nil {
 		return err
 	}
@@ -194,9 +195,84 @@ func (s *SpatialSystem) Contains(p mgl32.Vec3, r float64) []Entity {
 	return nil // TODO
 }
 
-func (s *SpatialSystem) VisibleEntities(sene string, p mgl32.Vec3, frustum Frustum) (opaque, transparent, light []Entity) {
+type byZ struct {
+	entities []Entity
+	zorder   map[Entity]float32
+}
+
+func (a byZ) Len() int {
+	return len(a.entities)
+}
+func (a byZ) Swap(i, j int) {
+	a.entities[i], a.entities[j] = a.entities[j], a.entities[i]
+}
+func (a byZ) Less(i, j int) bool {
+	return a.zorder[a.entities[i]] < a.zorder[a.entities[j]]
+}
+
+func (s *SpatialSystem) VisibleEntities(scene string, p mgl32.Vec3, frustum Frustum) (opaque, transparent, light []Entity) {
 	s.updateIfNeeded()
-	return nil, nil, nil // TODO
+	// TODO
+
+	opaque = make([]Entity, 0)
+	transparent = make([]Entity, 0)
+	light = make([]Entity, 0)
+
+	var err error
+	var ec Component
+
+	zorder := map[Entity]float32{}
+	p4 := mgl32.Vec4{p[0], p[1], p[2], 0} // TODO
+
+	drawable := []Entity{}
+
+	for _, e := range drawable {
+		ec, err = s.ents.Get(e, TransformationType)
+		if err != nil {
+			continue
+		}
+		t := ec.(Transformation)
+
+		ec, err = s.ents.Get(e, GeometryType)
+		if err != nil {
+			continue
+		}
+		g := ec.(Geometry)
+
+		ec, err = s.ents.Get(e, MaterialType)
+		if err != nil {
+			continue
+		}
+		m := ec.(Material)
+
+		c, r := g.Bounding.Sphere()
+		c = t.MatrixWorld().Mul4x1(c)
+		r *= mgl32.ExtractMaxScale(t.MatrixWorld())
+
+		if frustum.IntersectsSphere(c, r) {
+			zorder[e] = c.Sub(p4).Len()
+
+			if m.opaque() {
+				opaque = append(opaque, e)
+			} else {
+				transparent = append(transparent, e)
+			}
+		}
+	}
+
+	// front-to-back order
+	sort.Sort(byZ{
+		entities: opaque,
+		zorder:   zorder,
+	})
+
+	// back-to-front order
+	sort.Sort(sort.Reverse(byZ{
+		entities: transparent,
+		zorder:   zorder,
+	}))
+
+	return
 }
 
 type SphereTree struct {
@@ -239,12 +315,13 @@ func (t *SphereTree) get() *Node {
 	return &Node{tree: t}
 }
 
-func (t *SphereTree) Add(p mgl32.Vec3, r float32) *Node {
+func (t *SphereTree) Add(e Entity, p mgl32.Vec3, r float32) *Node {
 	if t.root == nil {
 		t.root = t.get()
 		t.root.typ = LeafNode // BranchNode
 		t.root.center = p
 		t.root.radius = r + t.restraint
+		t.root.entity = e
 		return t.root
 	}
 
@@ -252,6 +329,7 @@ func (t *SphereTree) Add(p mgl32.Vec3, r float32) *Node {
 	n.typ = LeafNode
 	n.center = p
 	n.radius = r
+	n.entity = e
 
 	// TODO: prevent Update()->parent before scheduleInsert
 	//t.scheduleInsert(n)
@@ -439,6 +517,7 @@ const (
 type Node struct {
 	center mgl32.Vec3
 	radius float32
+	entity Entity
 
 	typ      NodeType
 	tree     *SphereTree

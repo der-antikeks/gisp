@@ -17,11 +17,6 @@ const (
 
 	SceneType
 	LightType
-
-	// old
-	MenuType
-	MeshType
-	PositionType
 )
 
 type Projection struct {

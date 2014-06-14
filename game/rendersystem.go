@@ -193,6 +193,7 @@ func (s *RenderSystem) updateScene(delta time.Duration, sc string) error {
 	projScreenMatrix := p.Matrix.Mul4(t.MatrixWorld().Inv())
 	frustum := Mat4ToFrustum(projScreenMatrix)
 	// fetch all objects visible in frustum
+	//opaque, transparent, _ := s.spatial.VisibleEntities(sc, t.Position, frustum)
 	opaque, transparent := s.visibleEntities(frustum, t.Position, s.scenes[sc].drawable)
 
 	// opaque pass (front-to-back order)
@@ -227,20 +228,6 @@ func (s *RenderSystem) setClearColor(color mgl32.Vec3, alpha float64) {
 }
 
 // TODO: replace with spatial system
-type byZ struct {
-	entities []Entity
-	zorder   map[Entity]float32
-}
-
-func (a byZ) Len() int {
-	return len(a.entities)
-}
-func (a byZ) Swap(i, j int) {
-	a.entities[i], a.entities[j] = a.entities[j], a.entities[i]
-}
-func (a byZ) Less(i, j int) bool {
-	return a.zorder[a.entities[i]] < a.zorder[a.entities[j]]
-}
 
 func (s *RenderSystem) visibleEntities(frustum Frustum, cp mgl32.Vec3, drawable []Entity) (opaque, transparent []Entity) {
 	opaque = make([]Entity, 0)

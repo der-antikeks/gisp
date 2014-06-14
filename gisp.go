@@ -10,8 +10,8 @@ import (
 
 var (
 	fps   = 70
-	w, h  = 800, 400
-	title = "gisp engine-less-ecs rewrite"
+	w, h  = 800, 600
+	title = "gisp ecs"
 )
 
 func main() {
