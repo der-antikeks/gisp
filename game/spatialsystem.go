@@ -87,7 +87,7 @@ func (s *spatialSystem) Stop() {
 }
 
 // run function on main thread
-func (s *spatialSystem) Do(f func()) {
+func (s *spatialSystem) do(f func()) {
 	s.doConc <- f
 	<-s.doDone
 }
@@ -114,12 +114,12 @@ func (s *spatialSystem) getData(en Entity) (stc Scene, pos mgl32.Vec4, radius fl
 	} else if ec, err = EntitySystem().Get(en, LightType); err == nil {
 		// light
 
-		pos = transform.MatrixWorld().Mul4x1(mgl32.Vec4{})
+		pos = transform.MatrixWorld().Mul4x1(mgl32.Vec4{0, 0, 0, 1})
 		radius = float32(ec.(Light).Power * 1.0) // TODO: test
 	} else {
 		// point object...
 
-		pos = transform.MatrixWorld().Mul4x1(mgl32.Vec4{})
+		pos = transform.MatrixWorld().Mul4x1(mgl32.Vec4{0, 0, 0, 1})
 		// TODO: consider parent transformation
 		// transform.Parent.MatrixWorld().Transform(pos)
 
@@ -204,16 +204,11 @@ func (s *spatialSystem) updateIfNeeded() {
 	s.update = true
 }
 
-func (s *spatialSystem) Contains(p mgl32.Vec4, r float64) []Entity {
-	return nil // TODO
-}
-
-func (s *spatialSystem) VisibleEntities(scene string, frustum Frustum) []Entity {
+func (s *spatialSystem) IntersectsFrustum(scene string, frustum Frustum) []Entity {
 	s.updateIfNeeded()
 
-	visible := []Entity{}
-
-	s.Do(func() {
+	intersects := []Entity{}
+	s.do(func() {
 		sc, ok := s.trees[scene]
 		if !ok || sc.root == nil {
 			return
@@ -225,13 +220,63 @@ func (s *spatialSystem) VisibleEntities(scene string, frustum Frustum) []Entity 
 			}
 
 			if p.typ == LeafNode {
-				visible = append(visible, p.entity)
+				intersects = append(intersects, p.entity)
 			}
 			return true
 		})
 	})
+	return intersects
+}
 
-	return visible
+func (s *spatialSystem) IntersectsSphere(scene string, p mgl32.Vec4, r float64) []Entity {
+	s.updateIfNeeded()
+
+	intersects := []Entity{}
+	s.do(func() {
+		// TODO
+	})
+	return intersects
+}
+
+func (s *spatialSystem) IntersectsRay(scene string, origin, direction mgl32.Vec4 /* near, far float64 */) []Entity {
+	s.updateIfNeeded()
+
+	intersects := []Entity{}
+	s.do(func() {
+		sc, ok := s.trees[scene]
+		if !ok || sc.root == nil {
+			return
+		}
+
+		sc.root.walk(func(p *Node) bool {
+			center, radius := p.center, p.radius
+			if p.typ == LeafNode {
+				// get up to date data
+				if _, pos, rad, err := s.getData(p.entity); err == nil {
+					center = pos
+					radius = rad
+				}
+			}
+
+			dist := center.Sub(origin).Dot(direction)
+			if dist < 0 {
+				// sphere is behind the origin
+				dist = origin.Sub(center).Len()
+			} else {
+				dist = direction.Mul(dist).Add(origin).Sub(center).Len()
+			}
+
+			if math.Sqrt(float64(dist)) > float64(radius) {
+				return false
+			}
+
+			if p.typ == LeafNode {
+				intersects = append(intersects, p.entity)
+			}
+			return true
+		})
+	})
+	return intersects
 }
 
 type SphereTree struct {

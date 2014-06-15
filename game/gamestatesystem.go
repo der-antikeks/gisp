@@ -162,6 +162,8 @@ func (s *gameStateSystem) Update(delta time.Duration) {
 				},
 			)
 
+			UiSystem().SetCamera(c)
+
 			s.state = "mainmenu"
 			s.since = time.Now()
 		}

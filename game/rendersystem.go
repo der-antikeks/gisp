@@ -175,12 +175,12 @@ func (s *renderSystem) renderScene(delta time.Duration, camera Entity) error {
 	projScreenMatrix := p.Matrix.Mul4(t.MatrixWorld().Inv())
 	frustum := Mat4ToFrustum(projScreenMatrix)
 
-	// fetch all objects og scene visible in frustum
-	drawable := SpatialSystem().VisibleEntities(sc, frustum)
+	// fetch all objects of scene visible in frustum
+	visible := SpatialSystem().IntersectsFrustum(sc, frustum)
 
 	//sort by z, by material, etc.
-	pos := t.MatrixWorld().Mul4x1(mgl32.Vec4{})
-	opaque, transparent, _ := s.sortEntities(pos, drawable)
+	pos := t.MatrixWorld().Mul4x1(mgl32.Vec4{0, 0, 0, 1})
+	opaque, transparent, _ := s.sortEntities(pos, visible)
 
 	// opaque pass (front-to-back order)
 	GlContextSystem(nil).MainThread(func() {
