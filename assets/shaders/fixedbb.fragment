@@ -12,5 +12,5 @@ uniform sampler2D diffuseMap;
 out vec4 fragmentColor;
 
 void main() {
-	fragmentColor = texture2D(diffuseMap, UV) * vec4(diffuse, opacity);
+	fragmentColor = texture(diffuseMap, UV) * vec4(diffuse, opacity);
 }
