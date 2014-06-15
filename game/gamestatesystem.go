@@ -36,8 +36,8 @@ func GameStateSystem() *gameStateSystem {
 		stateInstance = &gameStateSystem{
 			messages: make(chan interface{}),
 
-			quit:   NewObserver(),
-			update: NewObserver(),
+			quit:   NewObserver(nil),
+			update: NewObserver(nil),
 		}
 
 		/*
@@ -138,11 +138,10 @@ func (s *gameStateSystem) Update(delta time.Duration) {
 			// late key message subscription
 			GlContextSystem(nil).OnKey().Subscribe(s.messages, PriorityBeforeRender)
 
+			// remove previous cameras
 			/*
-				for _, e := range EntitySystem().Query() {
-					if e == s.state {
-						continue
-					}
+				TODO: need to implement Observer.PublishAndWait first
+				for _, e := range EntitySystem().Query(ProjectionType) {
 					EntitySystem().Delete(e) // ignoring errors
 				}
 			*/
@@ -200,7 +199,7 @@ func (s *gameStateSystem) Update(delta time.Duration) {
 		}
 	}
 
-	s.update.Publish(MessageUpdate{Delta: delta})
+	s.update.PublishAndWait(MessageUpdate{Delta: delta})
 	return
 }
 

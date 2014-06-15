@@ -20,13 +20,9 @@ import (
 		render opaque, transparent
 */
 type renderSystem struct {
-	drawChan, camChan, updChan chan interface{}
-
-	scenes map[string]struct {
-		drawable []Entity
-		lights   []Entity
-		camera   Entity
-	}
+	camChan, updChan chan interface{}
+	renderPasses     []Entity
+	updatePrio       bool
 
 	currentGeometry *meshbuffer
 	currentProgram  *shaderprogram
@@ -41,15 +37,9 @@ var (
 func RenderSystem() *renderSystem {
 	renderOnce.Do(func() {
 		renderInstance = &renderSystem{
-			drawChan: make(chan interface{}),
-			camChan:  make(chan interface{}),
-			updChan:  make(chan interface{}),
-
-			scenes: map[string]struct {
-				drawable []Entity
-				lights   []Entity
-				camera   Entity
-			}{},
+			camChan:      make(chan interface{}),
+			updChan:      make(chan interface{}),
+			renderPasses: []Entity{},
 		}
 
 		go func() {
@@ -57,46 +47,21 @@ func RenderSystem() *renderSystem {
 
 			for {
 				select {
-				case event := <-renderInstance.drawChan:
-					switch e := event.(type) {
-					case MessageEntityAdd:
-						sn := renderInstance.getScene(e.Added)
-						sc := renderInstance.scenes[sn]
-						sc.drawable = append(sc.drawable, e.Added)
-						renderInstance.scenes[sn] = sc
-
-					case MessageEntityRemove:
-						sn := renderInstance.getScene(e.Removed)
-						sc := renderInstance.scenes[sn]
-						for i, f := range sc.drawable {
-							if f == e.Removed {
-								sc.drawable = append(sc.drawable[:i], sc.drawable[i+1:]...)
-								break
-							}
-						}
-						renderInstance.scenes[sn] = sc
-					}
 
 				case event := <-renderInstance.camChan:
 					switch e := event.(type) {
 					case MessageEntityAdd:
-						sn := renderInstance.getScene(e.Added)
-						sc := renderInstance.scenes[sn]
-						sc.camera = e.Added
-						renderInstance.scenes[sn] = sc
+						renderInstance.addRenderPass(e.Added)
+					case MessageEntityUpdate:
+						renderInstance.updateRenderPass(e.Updated)
 					case MessageEntityRemove:
-						sn := renderInstance.getScene(e.Removed)
-						sc := renderInstance.scenes[sn]
-						if sc.camera == e.Removed {
-							sc.camera = NoEntity
-						}
-						renderInstance.scenes[sn] = sc
+						renderInstance.removeRenderPass(e.Removed)
 					}
 
 				case event := <-renderInstance.updChan:
 					switch e := event.(type) {
 					case MessageUpdate:
-						if err := renderInstance.Update(e.Delta); err != nil {
+						if err := renderInstance.update(e.Delta); err != nil {
 							log.Println("could not render:", err)
 						}
 					}
@@ -111,96 +76,118 @@ func RenderSystem() *renderSystem {
 func (s *renderSystem) Restart() {
 	GameStateSystem().OnUpdate().Subscribe(s.updChan, PriorityRender)
 
-	EntitySystem().OnAdd(TransformationType, GeometryType, MaterialType, SceneType).Subscribe(s.drawChan, PriorityRender)
-	EntitySystem().OnRemove(TransformationType, GeometryType, MaterialType, SceneType).Subscribe(s.drawChan, PriorityRender)
-
 	EntitySystem().OnAdd(TransformationType, ProjectionType, SceneType).Subscribe(s.camChan, PriorityRender)
+	EntitySystem().OnUpdate(TransformationType, ProjectionType, SceneType).Subscribe(s.camChan, PriorityRender)
 	EntitySystem().OnRemove(TransformationType, ProjectionType, SceneType).Subscribe(s.camChan, PriorityRender)
 }
 
 func (s *renderSystem) Stop() {
 	GameStateSystem().OnUpdate().Unsubscribe(s.updChan)
 
-	EntitySystem().OnAdd(TransformationType, GeometryType, MaterialType, SceneType).Unsubscribe(s.drawChan)
-	EntitySystem().OnRemove(TransformationType, GeometryType, MaterialType, SceneType).Unsubscribe(s.drawChan)
-
 	EntitySystem().OnAdd(TransformationType, ProjectionType, SceneType).Unsubscribe(s.camChan)
 	EntitySystem().OnRemove(TransformationType, ProjectionType, SceneType).Unsubscribe(s.camChan)
-
-	//s.drawable = []Entity{}
-	//s.camera = NoEntity
-	// TODO: empty scenes?
 }
 
-func (s *renderSystem) AddRenderPass(camera Entity, priority int) {
-	// TODO
+func (s *renderSystem) addRenderPass(camera Entity) {
+	s.renderPasses = append(s.renderPasses, camera)
+	s.updatePrio = true
 }
 
-func (s *renderSystem) Update(delta time.Duration) error {
-	for n := range s.scenes {
-		if err := s.updateScene(delta, n); err != nil {
+func (s *renderSystem) updateRenderPass(_ Entity) {
+	s.updatePrio = true
+}
+
+func (s *renderSystem) removeRenderPass(camera Entity) {
+	for i, f := range s.renderPasses {
+		if f == camera {
+			s.renderPasses = append(s.renderPasses[:i], s.renderPasses[i+1:]...)
+			return
+		}
+	}
+}
+
+func (s *renderSystem) update(delta time.Duration) error {
+	if s.updatePrio {
+		// TODO: sort renderpasses based on priority
+		s.updatePrio = false
+	}
+
+	for _, camera := range s.renderPasses {
+		if err := s.renderScene(delta, camera); err != nil {
 			return err
 		}
 	}
+
+	// swap buffers
+	GlContextSystem(nil).Update()
 	return nil
 }
 
-func (s *renderSystem) getScene(e Entity) string {
-	ec, err := EntitySystem().Get(e, SceneType)
-	if err != nil {
-		return ""
-	}
-	return ec.(Scene).Name
-}
-
-func (s *renderSystem) updateScene(delta time.Duration, sc string) error {
-	color := mgl32.Vec3{0, 0, 0}
-	alpha := 1.0
-	s.setClearColor(color, alpha)
-
-	// w, h := GlContextSystem(nil).Size()
-	// gl.Viewport(0, 0, w, h) TODO: already set in WindowManager onResize(), must be changed with frambuffer?
-
-	// TODO: clearing should depend on rendertarget
-	clear := true
-	if clear {
-		GlContextSystem(nil).MainThread(func() {
-			gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
-		})
-	}
-
-	// TODO: move rendertarget to camera? or camera like interface (Viewport(w,h), Projection, etc.)
-	if s.scenes[sc].camera == NoEntity {
+func (s *renderSystem) renderScene(delta time.Duration, camera Entity) error {
+	if camera == NoEntity {
 		return fmt.Errorf("no camera found for renderSystem")
 	}
-	// update scene matrix (all objects)
-	// update camera matrix if not child of scene
-	// calculate frustum of camera
-	ec, err := EntitySystem().Get(s.scenes[sc].camera, ProjectionType)
+
+	// get camera components
+	ec, err := EntitySystem().Get(camera, ProjectionType)
 	if err != nil {
 		return err
 	}
 	p := ec.(Projection)
 
-	ec, err = EntitySystem().Get(s.scenes[sc].camera, TransformationType)
+	ec, err = EntitySystem().Get(camera, TransformationType)
 	if err != nil {
 		return err
 	}
 	t := ec.(Transformation)
 
+	ec, err = EntitySystem().Get(camera, SceneType)
+	if err != nil {
+		return err
+	}
+	sc := ec.(Scene).Name
+
+	// set rendertarget
+	target := p.Rendertarget
+	color := mgl32.Vec3{0, 0, 0}
+	alpha := 1.0
+	clear := true
+
+	if target != nil {
+		// w, h := GlContextSystem(nil).Size()
+		// gl.Viewport(0, 0, w, h) TODO: already set in WindowManager onResize(), must be changed with frambuffer?
+
+		color = target.Color
+		alpha = target.Alpha
+		clear = target.Clear
+	}
+
+	if clear {
+		GlContextSystem(nil).MainThread(func() {
+			gl.ClearColor(gl.GLclampf(color[0]), gl.GLclampf(color[1]), gl.GLclampf(color[2]), gl.GLclampf(alpha))
+			gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+		})
+	}
+
+	// update scene matrix (all objects)
+	// update camera matrix if not child of scene
+	// calculate frustum of camera
 	projScreenMatrix := p.Matrix.Mul4(t.MatrixWorld().Inv())
 	frustum := Mat4ToFrustum(projScreenMatrix)
-	// fetch all objects visible in frustum
-	//opaque, transparent, _ := SpatialSystem().VisibleEntities(sc, t.Position, frustum)
+
+	// fetch all objects og scene visible in frustum
+	drawable := SpatialSystem().VisibleEntities(sc, frustum)
+
 	//sort by z, by material, etc.
-	opaque, transparent := s.visibleEntities(frustum, t.Position, s.scenes[sc].drawable)
+	pos := t.MatrixWorld().Mul4x1(mgl32.Vec4{})
+	opaque, transparent, _ := s.sortEntities(pos, drawable)
 
 	// opaque pass (front-to-back order)
 	GlContextSystem(nil).MainThread(func() {
 		gl.Disable(gl.BLEND)
 
 		for _, e := range opaque {
-			s.renderEntity(e, s.scenes[sc].camera)
+			s.renderEntity(e, t, p)
 		}
 	})
 
@@ -211,31 +198,21 @@ func (s *renderSystem) updateScene(delta time.Duration, sc string) error {
 		gl.BlendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
 
 		for _, e := range transparent {
-			s.renderEntity(e, s.scenes[sc].camera)
+			s.renderEntity(e, t, p)
 		}
 	})
 
-	// swap buffers
-	GlContextSystem(nil).Update()
 	return nil
 }
 
-func (s *renderSystem) setClearColor(color mgl32.Vec3, alpha float64) {
-	GlContextSystem(nil).MainThread(func() {
-		gl.ClearColor(gl.GLclampf(color[0]), gl.GLclampf(color[1]), gl.GLclampf(color[2]), gl.GLclampf(alpha))
-	})
-}
-
-// TODO: replace with spatial system
-
-func (s *renderSystem) visibleEntities(frustum Frustum, cp mgl32.Vec3, drawable []Entity) (opaque, transparent []Entity) {
+func (s *renderSystem) sortEntities(cp mgl32.Vec4, drawable []Entity) (opaque, transparent, light []Entity) {
 	opaque = make([]Entity, 0)
 	transparent = make([]Entity, 0)
+	light = make([]Entity, 0)
+
 	var err error
 	var ec Component
-
 	zorder := map[Entity]float32{}
-	cp4 := mgl32.Vec4{cp[0], cp[1], cp[2], 0} // TODO
 
 	for _, e := range drawable {
 		ec, err = EntitySystem().Get(e, TransformationType)
@@ -256,18 +233,15 @@ func (s *renderSystem) visibleEntities(frustum Frustum, cp mgl32.Vec3, drawable 
 		}
 		m := ec.(Material)
 
-		c, r := g.Bounding.Sphere()
+		c, _ := g.Bounding.Sphere()
 		c = t.MatrixWorld().Mul4x1(c)
-		r *= mgl32.ExtractMaxScale(t.MatrixWorld())
 
-		if frustum.IntersectsSphere(c, r) {
-			zorder[e] = c.Sub(cp4).Len()
+		zorder[e] = c.Sub(cp).Len()
 
-			if m.opaque() {
-				opaque = append(opaque, e)
-			} else {
-				transparent = append(transparent, e)
-			}
+		if m.opaque() {
+			opaque = append(opaque, e)
+		} else {
+			transparent = append(transparent, e)
 		}
 	}
 
@@ -283,10 +257,27 @@ func (s *renderSystem) visibleEntities(frustum Frustum, cp mgl32.Vec3, drawable 
 		zorder:   zorder,
 	}))
 
-	return opaque, transparent
+	// TODO: shader program sorting?
+
+	return opaque, transparent, light
 }
 
-func (s *renderSystem) renderEntity(object, camera Entity) error {
+type byZ struct {
+	entities []Entity
+	zorder   map[Entity]float32
+}
+
+func (a byZ) Len() int {
+	return len(a.entities)
+}
+func (a byZ) Swap(i, j int) {
+	a.entities[i], a.entities[j] = a.entities[j], a.entities[i]
+}
+func (a byZ) Less(i, j int) bool {
+	return a.zorder[a.entities[i]] < a.zorder[a.entities[j]]
+}
+
+func (s *renderSystem) renderEntity(object Entity, cameratransform Transformation, projection Projection) error {
 	ec, err := EntitySystem().Get(object, MaterialType)
 	if err != nil {
 		return err
@@ -298,18 +289,6 @@ func (s *renderSystem) renderEntity(object, camera Entity) error {
 		return err
 	}
 	geometry := ec.(Geometry)
-
-	ec, err = EntitySystem().Get(camera, ProjectionType)
-	if err != nil {
-		return err
-	}
-	projection := ec.(Projection)
-
-	ec, err = EntitySystem().Get(camera, TransformationType)
-	if err != nil {
-		return err
-	}
-	cameratransform := ec.(Transformation)
 
 	ec, err = EntitySystem().Get(object, TransformationType)
 	if err != nil {

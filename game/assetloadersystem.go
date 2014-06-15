@@ -1431,7 +1431,16 @@ func (ls *assetLoaderSystem) CreateString(f *Font, s string) (*meshbuffer, Bound
 	return mb, mb.Bounding
 }
 
-// TODO:
+// TODO: Framebuffers
+
+type Framebuffer struct {
+	Color mgl32.Vec3
+	Alpha float64
+	Clear bool
+
+	buffer *Texture
+}
+
 func (ls *assetLoaderSystem) NewFramebuffer(w, h int) *Texture {
 	t := &Texture{
 		buffer: gl.GenTexture(),

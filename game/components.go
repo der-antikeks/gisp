@@ -23,13 +23,8 @@ type Projection struct {
 	Matrix        mgl32.Mat4
 	Width, Height float64 // update Projection via RenderSystem hooked to MessageResize
 
-	rendertarget *Framebuffer // nil for screen
-	priority     int
-}
-
-type Framebuffer struct {
-	Color mgl32.Vec3
-	Alpha float64
+	Rendertarget *Framebuffer // nil for screen
+	Priority     int
 }
 
 func (c Projection) Type() ComponentType {

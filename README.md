@@ -1,7 +1,6 @@
 # gisp
 
 __todo:__
-* Rendersystem "Bounding Volume Hierarchy" aka sphere tree
 * Entity/Transformation Grouping
 * Light
 * Renderpasses/targets

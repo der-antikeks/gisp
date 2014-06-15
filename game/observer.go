@@ -37,7 +37,7 @@ type Observer struct {
 	pending []msgchan
 }
 
-func NewObserver() *Observer {
+func NewObserver(newsub func() <-chan interface{}) *Observer {
 	o := &Observer{
 		sub:   make(chan subchan),
 		unsub: make(chan chan<- interface{}),
@@ -67,6 +67,12 @@ func NewObserver() *Observer {
 				o.subs = append(o.subs, sc.c)
 				o.prio[sc.c] = sc.p
 				o.update = true
+
+				if newsub != nil {
+					for m := range newsub() {
+						o.send <- msgchan{sc.c, m}
+					}
+				}
 			case c = <-o.unsub:
 				for i, f := range o.subs {
 					if f == c {
@@ -128,6 +134,11 @@ func (o *Observer) Unsubscribe(c chan<- interface{}) {
 
 func (o *Observer) Publish(msg interface{}) {
 	o.in <- msg
+}
+
+func (o *Observer) PublishAndWait(msg interface{}) {
+	o.Publish(msg)
+	// TODO: wait for completion of all subscribers
 }
 
 func (o *Observer) Close() {

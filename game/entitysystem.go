@@ -43,17 +43,18 @@ var (
 func EntitySystem() *entitySystem {
 	entityOnce.Do(func() {
 		entityInstance = &entitySystem{
-			observers: map[*aspect]struct{ add, update, remove *Observer }{
-				nil: struct{ add, update, remove *Observer }{
-					add:    NewObserver(),
-					update: NewObserver(),
-					remove: NewObserver(),
-				}},
-
 			next:       1,
 			pool:       []Entity{},
 			components: map[Entity]map[ComponentType]Component{},
 			aspects:    map[Entity][]*aspect{},
+		}
+
+		entityInstance.observers = map[*aspect]struct{ add, update, remove *Observer }{
+			nil: struct{ add, update, remove *Observer }{
+				add:    NewObserver(entityInstance.onAddSendAll(nil)),
+				update: NewObserver(nil),
+				remove: NewObserver(nil),
+			},
 		}
 
 		go func() {
@@ -93,9 +94,9 @@ func (s *entitySystem) Delete(e Entity) error {
 	}
 
 	for _, a := range s.aspects[e] {
-		s.observers[a].remove.Publish(MessageEntityRemove{Removed: e})
+		s.observers[a].remove.PublishAndWait(MessageEntityRemove{Removed: e})
 	}
-	s.observers[nil].remove.Publish(MessageEntityRemove{Removed: e})
+	s.observers[nil].remove.PublishAndWait(MessageEntityRemove{Removed: e})
 
 	delete(s.components, e)
 	delete(s.aspects, e)
@@ -207,12 +208,12 @@ func (s *entitySystem) Remove(e Entity, types ...ComponentType) error {
 	for i, a := range s.aspects[e] {
 		if !a.subset(ts) {
 			// aspect does not accept entity anymore
+			s.observers[a].remove.PublishAndWait(MessageEntityRemove{Removed: e})
+
 			// remove aspect from entities slice
 			copy(s.aspects[e][i:], s.aspects[e][i+1:])
 			s.aspects[e][len(s.aspects[e])-1] = nil
 			s.aspects[e] = s.aspects[e][:len(s.aspects[e])-1]
-
-			s.observers[a].remove.Publish(MessageEntityRemove{Removed: e})
 		}
 	}
 	return nil
@@ -248,9 +249,9 @@ func (s *entitySystem) getAspect(ts []ComponentType) *aspect {
 	// new aspect
 	a := &aspect{ts}
 	s.observers[a] = struct{ add, update, remove *Observer }{
-		add:    NewObserver(),
-		update: NewObserver(),
-		remove: NewObserver(),
+		add:    NewObserver(s.onAddSendAll(ts)),
+		update: NewObserver(nil),
+		remove: NewObserver(nil),
 	}
 
 	// connect new aspect with existing entities
@@ -269,6 +270,19 @@ func (s *entitySystem) getAspect(ts []ComponentType) *aspect {
 
 func (s *entitySystem) OnAdd(ts ...ComponentType) *Observer {
 	return s.observers[s.getAspect(ts)].add
+}
+
+func (s *entitySystem) onAddSendAll(ts []ComponentType) func() <-chan interface{} {
+	return func() <-chan interface{} {
+		c := make(chan interface{})
+		go func() {
+			defer close(c)
+			for _, e := range s.Query(ts...) {
+				c <- MessageEntityAdd{Added: e}
+			}
+		}()
+		return c
+	}
 }
 
 func (s *entitySystem) OnUpdate(ts ...ComponentType) *Observer {

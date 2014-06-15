@@ -63,12 +63,13 @@ func GlContextSystem(opts *CtxOpts) *glContextSystem {
 			mousePressed: map[glfw.MouseButton]bool{},
 			mouseClicked: map[glfw.MouseButton]bool{},
 
-			resize:      NewObserver(),
-			key:         NewObserver(),
-			mousebutton: NewObserver(),
-			mousemove:   NewObserver(),
-			mousescroll: NewObserver(),
+			//resize:      NewObserver(ctxInstance.sendSize),
+			key:         NewObserver(nil),
+			mousebutton: NewObserver(nil),
+			mousemove:   NewObserver(nil),
+			mousescroll: NewObserver(nil),
 		}
+		ctxInstance.resize = NewObserver(ctxInstance.sendSize)
 
 		// main thread
 		go func() {
@@ -199,6 +200,14 @@ func (s *glContextSystem) onResize(w *glfw.Window, width, height int) {
 	s.height = height
 
 	s.resize.Publish(MessageResize{width, height})
+}
+
+func (s *glContextSystem) sendSize() <-chan interface{} {
+	c := make(chan interface{}, 1)
+	defer close(c)
+
+	c <- MessageResize{s.width, s.height}
+	return c
 }
 
 func (s *glContextSystem) SetSize(width, height int) {
