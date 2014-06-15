@@ -2,80 +2,81 @@ package game
 
 import (
 	"log"
+	"sync"
 	"time"
 
 	"github.com/der-antikeks/mathgl/mgl32"
 )
 
 // move entities with velocity
-type MovementSystem struct {
-	ents  *EntitySystem
-	state *GameStateSystem
-
+type movementSystem struct {
 	messages chan interface{}
-
 	moveable []Entity
 }
 
-func NewMovementsSystem(ents *EntitySystem, state *GameStateSystem) *MovementSystem {
-	s := &MovementSystem{
-		ents:  ents,
-		state: state,
+var (
+	moveInstance *movementSystem
+	moveOnce     sync.Once
+)
 
-		messages: make(chan interface{}),
-	}
+func MovementSystem() *movementSystem {
+	moveOnce.Do(func() {
+		moveInstance = &movementSystem{
+			messages: make(chan interface{}),
+		}
 
-	go func() {
-		s.Restart()
+		go func() {
+			moveInstance.Restart()
 
-		for event := range s.messages {
-			switch e := event.(type) {
-			case MessageEntityAdd:
-				s.moveable = append(s.moveable, e.Added)
-			case MessageEntityRemove:
-				for i, f := range s.moveable {
-					if f == e.Removed {
-						s.moveable = append(s.moveable[:i], s.moveable[i+1:]...)
-						break
+			for event := range moveInstance.messages {
+				switch e := event.(type) {
+				case MessageEntityAdd:
+					moveInstance.moveable = append(moveInstance.moveable, e.Added)
+				case MessageEntityRemove:
+					for i, f := range moveInstance.moveable {
+						if f == e.Removed {
+							moveInstance.moveable = append(moveInstance.moveable[:i], moveInstance.moveable[i+1:]...)
+							break
+						}
+					}
+
+				case MessageUpdate:
+					if err := moveInstance.Update(e.Delta); err != nil {
+						log.Fatal("could not update movement:", err)
 					}
 				}
-
-			case MessageUpdate:
-				if err := s.Update(e.Delta); err != nil {
-					log.Fatal("could not update movement:", err)
-				}
 			}
-		}
-	}()
+		}()
+	})
 
-	return s
+	return moveInstance
 }
 
-func (s *MovementSystem) Restart() {
-	s.state.OnUpdate().Subscribe(s.messages, PriorityBeforeRender)
+func (s *movementSystem) Restart() {
+	GameStateSystem().OnUpdate().Subscribe(s.messages, PriorityBeforeRender)
 
-	s.ents.OnAdd(TransformationType, VelocityType).Subscribe(s.messages, PriorityBeforeRender)
-	s.ents.OnRemove(TransformationType, VelocityType).Subscribe(s.messages, PriorityBeforeRender)
+	EntitySystem().OnAdd(TransformationType, VelocityType).Subscribe(s.messages, PriorityBeforeRender)
+	EntitySystem().OnRemove(TransformationType, VelocityType).Subscribe(s.messages, PriorityBeforeRender)
 }
 
-func (s *MovementSystem) Stop() {
-	s.state.OnUpdate().Unsubscribe(s.messages)
+func (s *movementSystem) Stop() {
+	GameStateSystem().OnUpdate().Unsubscribe(s.messages)
 
-	s.ents.OnAdd(TransformationType, VelocityType).Unsubscribe(s.messages)
-	s.ents.OnRemove(TransformationType, VelocityType).Unsubscribe(s.messages)
+	EntitySystem().OnAdd(TransformationType, VelocityType).Unsubscribe(s.messages)
+	EntitySystem().OnRemove(TransformationType, VelocityType).Unsubscribe(s.messages)
 
 	s.moveable = []Entity{}
 }
 
-func (s *MovementSystem) Update(delta time.Duration) error {
+func (s *movementSystem) Update(delta time.Duration) error {
 	for _, en := range s.moveable {
-		ec, err := s.ents.Get(en, TransformationType)
+		ec, err := EntitySystem().Get(en, TransformationType)
 		if err != nil {
 			return err
 		}
 		transform := ec.(Transformation)
 
-		ec, err = s.ents.Get(en, VelocityType)
+		ec, err = EntitySystem().Get(en, VelocityType)
 		if err != nil {
 			return err
 		}
@@ -103,7 +104,7 @@ func (s *MovementSystem) Update(delta time.Duration) error {
 			transform.matrix = Compose(transform.Position, transform.Rotation, transform.Scale)
 			transform.updatedMatrix = true
 
-			if err := s.ents.Set(en, transform); err != nil {
+			if err := EntitySystem().Set(en, transform); err != nil {
 				return err
 			}
 		}

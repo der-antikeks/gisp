@@ -24,7 +24,7 @@ var (
 	Set/Get/RemoveComponent()
 	SubscribeOnAdd(Aspect(type,...), chan Entity)
 */
-type EntitySystem struct {
+type entitySystem struct {
 	lock sync.RWMutex
 
 	observers map[*aspect]struct{ add, update, remove *Observer }
@@ -33,36 +33,39 @@ type EntitySystem struct {
 	pool       []Entity
 	components map[Entity]map[ComponentType]Component
 	aspects    map[Entity][]*aspect
-
-	loader *AssetLoaderSystem
 }
 
-func NewEntitySystem(loader *AssetLoaderSystem) *EntitySystem {
-	s := &EntitySystem{
-		observers: map[*aspect]struct{ add, update, remove *Observer }{
-			nil: struct{ add, update, remove *Observer }{
-				add:    NewObserver(),
-				update: NewObserver(),
-				remove: NewObserver(),
-			}},
+var (
+	entityInstance *entitySystem
+	entityOnce     sync.Once
+)
 
-		next:       1,
-		pool:       []Entity{},
-		components: map[Entity]map[ComponentType]Component{},
-		aspects:    map[Entity][]*aspect{},
+func EntitySystem() *entitySystem {
+	entityOnce.Do(func() {
+		entityInstance = &entitySystem{
+			observers: map[*aspect]struct{ add, update, remove *Observer }{
+				nil: struct{ add, update, remove *Observer }{
+					add:    NewObserver(),
+					update: NewObserver(),
+					remove: NewObserver(),
+				}},
 
-		loader: loader,
-	}
+			next:       1,
+			pool:       []Entity{},
+			components: map[Entity]map[ComponentType]Component{},
+			aspects:    map[Entity][]*aspect{},
+		}
 
-	go func() {
-		// TODO: remove locks
-	}()
+		go func() {
+			// TODO: remove locks
+		}()
+	})
 
-	return s
+	return entityInstance
 }
 
 // Create a new Entity
-func (s *EntitySystem) Entity() Entity {
+func (s *entitySystem) Entity() Entity {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -81,7 +84,7 @@ func (s *EntitySystem) Entity() Entity {
 }
 
 // Delete Entity from Engine and send RemoveEvents to all registered observers
-func (s *EntitySystem) Delete(e Entity) error {
+func (s *entitySystem) Delete(e Entity) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -100,7 +103,7 @@ func (s *EntitySystem) Delete(e Entity) error {
 	return nil
 }
 
-func (s *EntitySystem) Query(types ...ComponentType) []Entity {
+func (s *entitySystem) Query(types ...ComponentType) []Entity {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 
@@ -121,7 +124,7 @@ func (s *EntitySystem) Query(types ...ComponentType) []Entity {
 	return ret
 }
 
-func (s *EntitySystem) Set(e Entity, components ...Component) error {
+func (s *entitySystem) Set(e Entity, components ...Component) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -184,7 +187,7 @@ func (s *EntitySystem) Set(e Entity, components ...Component) error {
 	return nil
 }
 
-func (s *EntitySystem) Remove(e Entity, types ...ComponentType) error {
+func (s *entitySystem) Remove(e Entity, types ...ComponentType) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -215,7 +218,7 @@ func (s *EntitySystem) Remove(e Entity, types ...ComponentType) error {
 	return nil
 }
 
-func (s *EntitySystem) Get(e Entity, t ComponentType) (Component, error) {
+func (s *entitySystem) Get(e Entity, t ComponentType) (Component, error) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 
@@ -231,7 +234,7 @@ func (s *EntitySystem) Get(e Entity, t ComponentType) (Component, error) {
 	return c, nil
 }
 
-func (s *EntitySystem) getAspect(ts []ComponentType) *aspect {
+func (s *entitySystem) getAspect(ts []ComponentType) *aspect {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -264,19 +267,19 @@ func (s *EntitySystem) getAspect(ts []ComponentType) *aspect {
 	return a
 }
 
-func (s *EntitySystem) OnAdd(ts ...ComponentType) *Observer {
+func (s *entitySystem) OnAdd(ts ...ComponentType) *Observer {
 	return s.observers[s.getAspect(ts)].add
 }
 
-func (s *EntitySystem) OnUpdate(ts ...ComponentType) *Observer {
+func (s *entitySystem) OnUpdate(ts ...ComponentType) *Observer {
 	return s.observers[s.getAspect(ts)].update
 }
 
-func (s *EntitySystem) OnRemove(ts ...ComponentType) *Observer {
+func (s *entitySystem) OnRemove(ts ...ComponentType) *Observer {
 	return s.observers[s.getAspect(ts)].remove
 }
 
-func (s *EntitySystem) CreateSplashScreen() {
+func (s *entitySystem) CreateSplashScreen() {
 	s.createCube()
 	s.createSphere()
 
@@ -285,13 +288,13 @@ func (s *EntitySystem) CreateSplashScreen() {
 	s.createString()
 }
 
-func (s *EntitySystem) CreateMainMenu() {
+func (s *entitySystem) CreateMainMenu() {
 	for i := 0; i < 2000; i++ {
 		s.createRndCube()
 	}
 }
 
-func (s *EntitySystem) createCube() Entity {
+func (s *entitySystem) createCube() Entity {
 	// Transformation
 	trans := Transformation{
 		Position: mgl32.Vec3{0, 0, 0},
@@ -319,7 +322,7 @@ func (s *EntitySystem) createCube() Entity {
 	mat.Set("lightDiffuse", mgl32.Vec3{1, 0, 0})
 	mat.Set("opacity", 0.8)
 
-	tex, err := s.loader.LoadTexture("fighter/fighter.png")
+	tex, err := AssetLoaderSystem(nil).LoadTexture("fighter/fighter.png")
 	if err != nil {
 		log.Fatal("could not load texture:", err)
 	}
@@ -340,7 +343,7 @@ func (s *EntitySystem) createCube() Entity {
 	return cube
 }
 
-func (s *EntitySystem) createRndCube() Entity {
+func (s *entitySystem) createRndCube() Entity {
 	// helper
 	r := func(min, max float32) float32 {
 		return rand.Float32()*(max-min) + min
@@ -409,7 +412,7 @@ func (s *EntitySystem) createRndCube() Entity {
 	return cube
 }
 
-func (s *EntitySystem) createSphere() Entity {
+func (s *entitySystem) createSphere() Entity {
 	// Transformation
 	trans := Transformation{
 		Position: mgl32.Vec3{5, 0, 0},
@@ -424,7 +427,7 @@ func (s *EntitySystem) createSphere() Entity {
 	// material
 	mat := s.getMaterial("phong")
 
-	tex, err := s.loader.LoadTexture("uvtemplate.png")
+	tex, err := AssetLoaderSystem(nil).LoadTexture("uvtemplate.png")
 	if err != nil {
 		log.Fatal("could not load texture:", err)
 	}
@@ -445,7 +448,7 @@ func (s *EntitySystem) createSphere() Entity {
 	return sphere
 }
 
-func (s *EntitySystem) createBillboard() Entity {
+func (s *entitySystem) createBillboard() Entity {
 	// Transformation
 	trans := Transformation{
 		Position: mgl32.Vec3{2, 0, -5},
@@ -459,7 +462,7 @@ func (s *EntitySystem) createBillboard() Entity {
 
 	// material
 	mat := s.getMaterial("billboard")
-	tex, err := s.loader.LoadTexture("uvtemplate.png")
+	tex, err := AssetLoaderSystem(nil).LoadTexture("uvtemplate.png")
 	if err != nil {
 		log.Fatal("could not load texture:", err)
 	}
@@ -481,7 +484,7 @@ func (s *EntitySystem) createBillboard() Entity {
 	return billboard
 }
 
-func (s *EntitySystem) createString() Entity {
+func (s *entitySystem) createString() Entity {
 	// transformation
 	trans := Transformation{
 		Position: mgl32.Vec3{2, 0, 0},
@@ -491,13 +494,13 @@ func (s *EntitySystem) createString() Entity {
 	}
 
 	// load font
-	font, err := s.loader.LoadSDFFont("luxisr.ttf", 32.0, 32, 127)
+	font, err := AssetLoaderSystem(nil).LoadSDFFont("luxisr.ttf", 32.0, 32, 127)
 	if err != nil {
 		log.Fatal("could not load font file:", err)
 	}
 
 	// geometry
-	m, b := s.loader.CreateString(font, "Lorem ipsum dolor sit amet, consectetur adipiscing elit.")
+	m, b := AssetLoaderSystem(nil).CreateString(font, "Lorem ipsum dolor sit amet, consectetur adipiscing elit.")
 	geo := Geometry{
 		mesh:     m,
 		Bounding: b,
@@ -508,7 +511,7 @@ func (s *EntitySystem) createString() Entity {
 	//mat.Set("diffuseMap", font.sdf)
 	mat.Set("distanceFieldMap", font.sdf)
 	mat.Set("diffuse", mgl32.Vec3{0, 1, 1})
-	mat.Set("opacity", 0.25) // 0.25 / (float64(spread) * scale)
+	mat.Set("opacity", 1.0/(4*10)) // 0.25 / (float64(spread) * scale)
 
 	// velocity
 	vel := Velocity{
@@ -535,11 +538,11 @@ func (s *EntitySystem) createString() Entity {
 	return str
 }
 
-func (s *EntitySystem) getMaterial(e string) Material {
+func (s *entitySystem) getMaterial(e string) Material {
 	mat := Material{
 		Program:  e,
 		uniforms: map[string]interface{}{},
-		program:  s.loader.LoadShader(e),
+		program:  AssetLoaderSystem(nil).LoadShader(e),
 	}
 
 	// preset with standard values
@@ -552,19 +555,19 @@ func (s *EntitySystem) getMaterial(e string) Material {
 	return mat
 }
 
-func (s *EntitySystem) getGeometry(e string) Geometry {
+func (s *entitySystem) getGeometry(e string) Geometry {
 	var m *meshbuffer
 	var b Boundary
 
 	switch e {
 	default:
-		m, b = s.loader.LoadOBJ(e)
+		m, b = AssetLoaderSystem(nil).LoadOBJ(e)
 	case "sphere":
-		m, b = s.loader.SpherePrimitive(2, 100, 50)
+		m, b = AssetLoaderSystem(nil).SpherePrimitive(2, 100, 50)
 	case "cube":
-		m, b = s.loader.CubePrimitive(2)
+		m, b = AssetLoaderSystem(nil).CubePrimitive(2)
 	case "plane":
-		m, b = s.loader.PlanePrimitive(1, 1)
+		m, b = AssetLoaderSystem(nil).PlanePrimitive(1, 1)
 	}
 
 	geo := Geometry{
@@ -576,7 +579,7 @@ func (s *EntitySystem) getGeometry(e string) Geometry {
 	return geo
 }
 
-func (s *EntitySystem) CreatePerspectiveCamera(fov, aspect, near, far float32) Entity {
+func (s *entitySystem) CreatePerspectiveCamera(fov, aspect, near, far float32) Entity {
 	t := Transformation{
 		Position: mgl32.Vec3{0, 0, -10},
 		//Rotation: mgl32.Quat{},
@@ -600,7 +603,7 @@ func (s *EntitySystem) CreatePerspectiveCamera(fov, aspect, near, far float32) E
 	return c
 }
 
-func (s *EntitySystem) CreateOrthographicCamera(left, right, top, bottom, near, far float32) Entity {
+func (s *entitySystem) CreateOrthographicCamera(left, right, top, bottom, near, far float32) Entity {
 	t := Transformation{
 		Position: mgl32.Vec3{0, 0, -10},
 		//Rotation: mgl32.Quat{},

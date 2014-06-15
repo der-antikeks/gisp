@@ -2,128 +2,128 @@ package game
 
 import (
 	"log"
+	"sync"
 
 	"github.com/der-antikeks/mathgl/mgl32"
 )
 
 // change entities based on controller input
-type OrbitControlSystem struct {
-	context *GlContextSystem
-	ents    *EntitySystem
-	state   *GameStateSystem
-
+type orbitControlSystem struct {
 	messages    chan interface{}
 	controlable []Entity
 }
 
-func NewControlSystem(context *GlContextSystem, ents *EntitySystem, state *GameStateSystem) *OrbitControlSystem {
-	s := &OrbitControlSystem{
-		context: context,
-		ents:    ents,
-		state:   state,
+var (
+	controlInstance *orbitControlSystem
+	controlOnce     sync.Once
+)
 
-		messages:    make(chan interface{}),
-		controlable: []Entity{},
-	}
+func ControlSystem() *orbitControlSystem {
+	controlOnce.Do(func() {
+		controlInstance = &orbitControlSystem{
+			messages:    make(chan interface{}),
+			controlable: []Entity{},
+		}
 
-	go func() {
-		s.Restart()
+		go func() {
+			controlInstance.Restart()
 
-		var dragging bool
-		var oldx, oldy float64
-		var deltax, deltay, deltaz float64
-		/*
-			TODO: initial value
-			var width, height float64
+			var dragging bool
+			var oldx, oldy float64
+			var deltax, deltay, deltaz float64
+			/*
+				TODO: initial value
+				var width, height float64
 
-			s.context.width
-			s.context.height
-		*/
+				GlContextSystem(nil).width
+				GlContextSystem(nil).height
+			*/
 
-		for event := range s.messages {
-			switch e := event.(type) {
-			case MessageEntityAdd:
-				s.controlable = append(s.controlable, e.Added)
-			case MessageEntityRemove:
-				for i, f := range s.controlable {
-					if f == e.Removed {
-						s.controlable = append(s.controlable[:i], s.controlable[i+1:]...)
-						break
+			for event := range controlInstance.messages {
+				switch e := event.(type) {
+				case MessageEntityAdd:
+					controlInstance.controlable = append(controlInstance.controlable, e.Added)
+				case MessageEntityRemove:
+					for i, f := range controlInstance.controlable {
+						if f == e.Removed {
+							controlInstance.controlable = append(controlInstance.controlable[:i], controlInstance.controlable[i+1:]...)
+							break
+						}
 					}
-				}
 
-			case MessageMouseButton:
-				if !dragging && s.context.IsMouseDown(MouseRight) {
-					dragging = true
-					oldx, oldy = s.context.MousePos()
-				} else if dragging && !s.context.IsMouseDown(MouseRight) {
-					dragging = false
-					deltax, deltay = 0, 0
-				}
-
-			case MessageMouseScroll:
-				deltaz -= float64(e)
-
-			case MessageResize:
-				/*
-					width = float64(e.Width)
-					height = float64(e.Height)
-				*/
-
-			case MessageUpdate:
-				if dragging {
-					x, y := s.context.MousePos()
-					deltax, deltay = x-oldx, y-oldy // /width, /height
-					oldx, oldy = x, y
-				}
-
-				if deltax != 0 || deltay != 0 || deltaz != 0 {
-					if err := s.Update(deltax, deltay, deltaz); err != nil {
-						log.Fatal("could not update game state:", err)
+				case MessageMouseButton:
+					if !dragging && GlContextSystem(nil).IsMouseDown(MouseRight) {
+						dragging = true
+						oldx, oldy = GlContextSystem(nil).MousePos()
+					} else if dragging && !GlContextSystem(nil).IsMouseDown(MouseRight) {
+						dragging = false
+						deltax, deltay = 0, 0
 					}
-					deltaz = 0
+
+				case MessageMouseScroll:
+					deltaz -= float64(e)
+
+				case MessageResize:
+					/*
+						width = float64(e.Width)
+						height = float64(e.Height)
+					*/
+
+				case MessageUpdate:
+					if dragging {
+						x, y := GlContextSystem(nil).MousePos()
+						deltax, deltay = x-oldx, y-oldy // /width, /height
+						oldx, oldy = x, y
+					}
+
+					if deltax != 0 || deltay != 0 || deltaz != 0 {
+						if err := controlInstance.Update(deltax, deltay, deltaz); err != nil {
+							log.Fatal("could not update game state:", err)
+						}
+						deltaz = 0
+					}
 				}
 			}
-		}
-	}()
+		}()
+	})
 
-	return s
+	return controlInstance
 }
 
-func (s *OrbitControlSystem) Restart() {
-	s.state.OnUpdate().Subscribe(s.messages, PriorityBeforeRender)
+func (s *orbitControlSystem) Restart() {
+	GameStateSystem().OnUpdate().Subscribe(s.messages, PriorityBeforeRender)
 
-	s.context.OnMouseButton().Subscribe(s.messages, PriorityBeforeRender)
-	s.context.OnMouseScroll().Subscribe(s.messages, PriorityBeforeRender)
-	s.context.OnResize().Subscribe(s.messages, PriorityBeforeRender)
+	GlContextSystem(nil).OnMouseButton().Subscribe(s.messages, PriorityBeforeRender)
+	GlContextSystem(nil).OnMouseScroll().Subscribe(s.messages, PriorityBeforeRender)
+	GlContextSystem(nil).OnResize().Subscribe(s.messages, PriorityBeforeRender)
 
-	s.ents.OnAdd(TransformationType, OrbitControlType).Subscribe(s.messages, PriorityBeforeRender)
-	s.ents.OnRemove(TransformationType, OrbitControlType).Subscribe(s.messages, PriorityBeforeRender)
+	EntitySystem().OnAdd(TransformationType, OrbitControlType).Subscribe(s.messages, PriorityBeforeRender)
+	EntitySystem().OnRemove(TransformationType, OrbitControlType).Subscribe(s.messages, PriorityBeforeRender)
 }
 
-func (s *OrbitControlSystem) Stop() {
-	s.state.OnUpdate().Unsubscribe(s.messages)
+func (s *orbitControlSystem) Stop() {
+	GameStateSystem().OnUpdate().Unsubscribe(s.messages)
 
-	s.context.OnMouseButton().Unsubscribe(s.messages)
-	s.context.OnMouseScroll().Unsubscribe(s.messages)
-	s.context.OnResize().Unsubscribe(s.messages)
+	GlContextSystem(nil).OnMouseButton().Unsubscribe(s.messages)
+	GlContextSystem(nil).OnMouseScroll().Unsubscribe(s.messages)
+	GlContextSystem(nil).OnResize().Unsubscribe(s.messages)
 
-	s.ents.OnAdd(TransformationType, OrbitControlType).Unsubscribe(s.messages)
-	s.ents.OnRemove(TransformationType, OrbitControlType).Unsubscribe(s.messages)
+	EntitySystem().OnAdd(TransformationType, OrbitControlType).Unsubscribe(s.messages)
+	EntitySystem().OnRemove(TransformationType, OrbitControlType).Unsubscribe(s.messages)
 
 	s.controlable = s.controlable[:0]
 }
 
-func (s *OrbitControlSystem) Update(deltax, deltay, deltaz float64) error {
+func (s *orbitControlSystem) Update(deltax, deltay, deltaz float64) error {
 	for _, en := range s.controlable {
 
-		ec, err := s.ents.Get(en, TransformationType)
+		ec, err := EntitySystem().Get(en, TransformationType)
 		if err != nil {
 			return err
 		}
 		transform := ec.(Transformation)
 
-		ec, err = s.ents.Get(en, OrbitControlType)
+		ec, err = EntitySystem().Get(en, OrbitControlType)
 		if err != nil {
 			return err
 		}
@@ -132,7 +132,7 @@ func (s *OrbitControlSystem) Update(deltax, deltay, deltaz float64) error {
 		var target mgl32.Vec3
 		// TODO: if no target is set return error
 		if control.Target != 0 {
-			ec, err = s.ents.Get(control.Target, TransformationType)
+			ec, err = EntitySystem().Get(control.Target, TransformationType)
 			if err != nil {
 				return err
 			}
@@ -157,7 +157,7 @@ func (s *OrbitControlSystem) Update(deltax, deltay, deltaz float64) error {
 			distance,
 		}).Add(target)
 
-		if err := s.ents.Set(en, transform); err != nil {
+		if err := EntitySystem().Set(en, transform); err != nil {
 			return err
 		}
 	}

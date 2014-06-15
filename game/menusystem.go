@@ -2,10 +2,11 @@ package game
 
 import (
 	//	"log"
+	"sync"
 	"time"
 )
 
-type MenuSystem struct {
+type menuSystem struct {
 	/*
 		engine *Engine
 		prio   Priority
@@ -18,9 +19,14 @@ type MenuSystem struct {
 	*/
 }
 
-func NewMenuSystem( /*engine *Engine, im *InputManager*/) /* *MenuSystem */ {
+var (
+	menuInstance *menuSystem
+	menuOnce     sync.Once
+)
+
+func MenuSystem() /* *menuSystem */ {
 	/*
-		s := &MenuSystem{
+		s := &menuSystem{
 			engine:    engine,
 			prio:      PriorityBeforeRender,
 			im:        im,
@@ -46,7 +52,7 @@ func NewMenuSystem( /*engine *Engine, im *InputManager*/) /* *MenuSystem */ {
 	*/
 }
 
-func (s *MenuSystem) Restart() {
+func (s *menuSystem) Restart() {
 	/*
 		s.engine.Subscribe(Filter{
 			Types: []MessageType{UpdateMessageType},
@@ -64,7 +70,7 @@ func (s *MenuSystem) Restart() {
 	*/
 }
 
-func (s *MenuSystem) Stop() {
+func (s *menuSystem) Stop() {
 	/*
 		s.engine.Unsubscribe(Filter{
 			Types: []MessageType{UpdateMessageType},
@@ -85,7 +91,7 @@ func (s *MenuSystem) Stop() {
 	*/
 }
 
-func (s *MenuSystem) Update(delta time.Duration) error {
+func (s *menuSystem) Update(delta time.Duration) error {
 	/*
 		state := s.gamestate.First().Get(GameStateType).(*GameStateComponent)
 

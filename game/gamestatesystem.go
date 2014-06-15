@@ -3,6 +3,7 @@ package game
 import (
 	"log"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/der-antikeks/mathgl/mgl32"
@@ -15,10 +16,7 @@ import (
 	Update(delta time.Duration)
 	SubscribeOnUpdate(chan time.Duration, prio int)
 */
-type GameStateSystem struct {
-	context *GlContextSystem
-	ents    *EntitySystem
-
+type gameStateSystem struct {
 	state string
 	since time.Time
 
@@ -28,59 +26,63 @@ type GameStateSystem struct {
 	quit, update *Observer
 }
 
-func NewGameStateSystem(context *GlContextSystem, ents *EntitySystem) *GameStateSystem {
-	s := &GameStateSystem{
-		context: context,
-		ents:    ents,
+var (
+	stateInstance *gameStateSystem
+	stateOnce     sync.Once
+)
 
-		messages: make(chan interface{}),
+func GameStateSystem() *gameStateSystem {
+	stateOnce.Do(func() {
+		stateInstance = &gameStateSystem{
+			messages: make(chan interface{}),
 
-		quit:   NewObserver(),
-		update: NewObserver(),
-	}
+			quit:   NewObserver(),
+			update: NewObserver(),
+		}
 
-	/*
-		go func() {
-			s.Restart()
+		/*
+			go func() {
+				stateInstance.Restart()
 
-			for event := range s.messages {
-				switch event.(type) {
-				case MessageKey,
-					MessageTimeout:
+				for event := range stateInstance.messages {
+					switch event.(type) {
+					case MessageKey,
+						MessageTimeout:
 
-					if err := s.Update(); err != nil {
-						log.Fatal("could not update game state:", err)
+						if err := stateInstance.Update(); err != nil {
+							log.Fatal("could not update game state:", err)
+						}
 					}
 				}
-			}
-		}()
-	*/
+			}()
+		*/
+	})
 
-	return s
+	return stateInstance
 }
 
-func (s *GameStateSystem) Restart() {
+func (s *gameStateSystem) Restart() {
 	//s.update.Subscribe(s.messages, PriorityBeforeRender)
 }
 
-func (s *GameStateSystem) Stop() {
-	s.context.OnKey().Unsubscribe(s.messages)
+func (s *gameStateSystem) Stop() {
+	GlContextSystem(nil).OnKey().Unsubscribe(s.messages)
 	//s.update.Unsubscribe(s.messages)
 
 	s.state = ""
 }
 
-func (s *GameStateSystem) init() {
+func (s *gameStateSystem) init() {
 	log.Println("initialize")
 
-	w, h := s.context.Size()
+	w, h := GlContextSystem(nil).Size()
 	aspect := float32(w) / float32(h) // 4.0 / 3.0
 	// TODO: update aspect after wm.onResize
 
 	var size float32 = 10.0
-	c := s.ents.CreateOrthographicCamera(-size, size, size/aspect, -size/aspect, 1, 100)
+	c := EntitySystem().CreateOrthographicCamera(-size, size, size/aspect, -size/aspect, 1, 100)
 
-	ec, err := s.ents.Get(c, TransformationType)
+	ec, err := EntitySystem().Get(c, TransformationType)
 	if err != nil {
 		log.Fatal("could not get transform of camera:", err)
 	}
@@ -89,16 +91,16 @@ func (s *GameStateSystem) init() {
 	t.Position = mgl32.Vec3{0, 10, 0}
 	t.Rotation = mgl32.QuatLookAtV(t.Position, mgl32.Vec3{0, 0, 0}, t.Up)
 
-	if err := s.ents.Set(c, t); err != nil {
+	if err := EntitySystem().Set(c, t); err != nil {
 		log.Fatal("could not move camera:", err)
 	}
 }
 
-func (s *GameStateSystem) Update(delta time.Duration) {
-	if s.context.IsKeyDown(KeyEscape) {
+func (s *gameStateSystem) Update(delta time.Duration) {
+	if GlContextSystem(nil).IsKeyDown(KeyEscape) {
 		log.Println("closing")
 
-		s.context.Close()
+		GlContextSystem(nil).Close()
 		s.quit.Publish(MessageQuit{})
 		// TODO: later replace with quit screen, closing initialized by gui-system
 		return
@@ -113,7 +115,7 @@ func (s *GameStateSystem) Update(delta time.Duration) {
 	case "init":
 		log.Println("create splash screen")
 
-		s.ents.CreateSplashScreen()
+		EntitySystem().CreateSplashScreen()
 		s.state = "splash"
 		s.since = time.Now()
 
@@ -128,28 +130,28 @@ func (s *GameStateSystem) Update(delta time.Duration) {
 		*/
 
 	case "splash":
-		if time.Now().After(s.since.Add(5*time.Second)) || s.context.AnyKeyDown() {
+		if time.Now().After(s.since.Add(5*time.Second)) || GlContextSystem(nil).AnyKeyDown() {
 			log.Println("create main menu")
 
 			//s.timer.Stop()
 
 			// late key message subscription
-			s.context.OnKey().Subscribe(s.messages, PriorityBeforeRender)
+			GlContextSystem(nil).OnKey().Subscribe(s.messages, PriorityBeforeRender)
 
 			/*
-				for _, e := range s.ents.Query() {
+				for _, e := range EntitySystem().Query() {
 					if e == s.state {
 						continue
 					}
-					s.ents.Delete(e) // ignoring errors
+					EntitySystem().Delete(e) // ignoring errors
 				}
 			*/
 
-			s.ents.CreateMainMenu()
+			EntitySystem().CreateMainMenu()
 
-			w, h := s.context.Size()
-			c := s.ents.CreatePerspectiveCamera(45.0, float32(w)/float32(h), 0.1, 200.0)
-			s.ents.Set(c,
+			w, h := GlContextSystem(nil).Size()
+			c := EntitySystem().CreatePerspectiveCamera(45.0, float32(w)/float32(h), 0.1, 200.0)
+			EntitySystem().Set(c,
 				OrbitControl{
 					MovementSpeed: 1.0,
 					RotationSpeed: 0.01,
@@ -166,7 +168,7 @@ func (s *GameStateSystem) Update(delta time.Duration) {
 		}
 
 	case "mainmenu":
-		if s.context.IsKeyDown(KeyEnter) {
+		if GlContextSystem(nil).IsKeyDown(KeyEnter) {
 			log.Println("starting game")
 
 			s.state = "playing"
@@ -174,7 +176,7 @@ func (s *GameStateSystem) Update(delta time.Duration) {
 		}
 
 	case "optionsmenu":
-		if s.context.IsKeyDown(KeyEscape) {
+		if GlContextSystem(nil).IsKeyDown(KeyEscape) {
 			log.Println("back to main menu")
 
 			s.state = "mainmenu"
@@ -182,7 +184,7 @@ func (s *GameStateSystem) Update(delta time.Duration) {
 		}
 
 	case "playing":
-		if s.context.IsKeyDown(KeyPause) {
+		if GlContextSystem(nil).IsKeyDown(KeyPause) {
 			log.Println("pausing")
 
 			s.state = "pause"
@@ -190,7 +192,7 @@ func (s *GameStateSystem) Update(delta time.Duration) {
 		}
 
 	case "pause":
-		if !s.context.IsKeyDown(KeyPause) && s.context.AnyKeyDown() {
+		if !GlContextSystem(nil).IsKeyDown(KeyPause) && GlContextSystem(nil).AnyKeyDown() {
 			log.Println("restarting")
 
 			s.state = "playing"
@@ -202,5 +204,5 @@ func (s *GameStateSystem) Update(delta time.Duration) {
 	return
 }
 
-func (s *GameStateSystem) OnQuit() *Observer   { return s.quit }
-func (s *GameStateSystem) OnUpdate() *Observer { return s.update }
+func (s *gameStateSystem) OnQuit() *Observer   { return s.quit }
+func (s *gameStateSystem) OnUpdate() *Observer { return s.update }

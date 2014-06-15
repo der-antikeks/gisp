@@ -31,10 +31,9 @@ import (
 
 	LoadGeometry(name)
 */
-type AssetLoaderSystem struct {
-	lock    sync.Mutex
-	path    string
-	context *GlContextSystem
+type assetLoaderSystem struct {
+	lock sync.Mutex
+	path string
 
 	meshbuffers    map[string]*meshbuffer
 	shaderPrograms map[string]*shaderprogram
@@ -42,21 +41,35 @@ type AssetLoaderSystem struct {
 	fonts          map[string]*Font
 }
 
-func NewAssetLoaderSystem(path string, context *GlContextSystem) *AssetLoaderSystem {
-	s := &AssetLoaderSystem{
-		path:    path,
-		context: context,
+var (
+	assetInstance *assetLoaderSystem
+	assetOnce     sync.Once
+)
 
-		meshbuffers:    map[string]*meshbuffer{},
-		shaderPrograms: map[string]*shaderprogram{},
-		textures:       map[string]*Texture{},
-		fonts:          map[string]*Font{},
-	}
-
-	return s
+type AssetOpts struct {
+	Path string
 }
 
-func (ls *AssetLoaderSystem) LoadOBJ(name string) (*meshbuffer, Boundary) {
+func AssetLoaderSystem(opts *AssetOpts) *assetLoaderSystem {
+	assetOnce.Do(func() {
+		if opts == nil {
+			log.Fatal("zero options init of system")
+		}
+
+		assetInstance = &assetLoaderSystem{
+			path: opts.Path,
+
+			meshbuffers:    map[string]*meshbuffer{},
+			shaderPrograms: map[string]*shaderprogram{},
+			textures:       map[string]*Texture{},
+			fonts:          map[string]*Font{},
+		}
+	})
+
+	return assetInstance
+}
+
+func (ls *assetLoaderSystem) LoadOBJ(name string) (*meshbuffer, Boundary) {
 	ls.lock.Lock()
 	defer ls.lock.Unlock()
 
@@ -246,7 +259,7 @@ func (ls *AssetLoaderSystem) LoadOBJ(name string) (*meshbuffer, Boundary) {
 	mb.MergeVertices()
 	mb.ComputeBoundary()
 	mb.FaceCount = len(mb.Faces)
-	ls.context.MainThread(func() {
+	GlContextSystem(nil).MainThread(func() {
 		mb.Init()
 	})
 
@@ -254,7 +267,7 @@ func (ls *AssetLoaderSystem) LoadOBJ(name string) (*meshbuffer, Boundary) {
 	return mb, mb.Bounding
 }
 
-func (ls *AssetLoaderSystem) SpherePrimitive(radius float64, widthSegments, heightSegments int) (*meshbuffer, Boundary) {
+func (ls *assetLoaderSystem) SpherePrimitive(radius float64, widthSegments, heightSegments int) (*meshbuffer, Boundary) {
 	ls.lock.Lock()
 	defer ls.lock.Unlock()
 
@@ -387,7 +400,7 @@ func (ls *AssetLoaderSystem) SpherePrimitive(radius float64, widthSegments, heig
 	mb.MergeVertices()
 	mb.ComputeBoundary()
 	mb.FaceCount = len(mb.Faces)
-	ls.context.MainThread(func() {
+	GlContextSystem(nil).MainThread(func() {
 		mb.Init()
 	})
 
@@ -395,7 +408,7 @@ func (ls *AssetLoaderSystem) SpherePrimitive(radius float64, widthSegments, heig
 	return mb, mb.Bounding
 }
 
-func (ls *AssetLoaderSystem) CubePrimitive(size float32) (*meshbuffer, Boundary) {
+func (ls *assetLoaderSystem) CubePrimitive(size float32) (*meshbuffer, Boundary) {
 	ls.lock.Lock()
 	defer ls.lock.Unlock()
 
@@ -616,7 +629,7 @@ func (ls *AssetLoaderSystem) CubePrimitive(size float32) (*meshbuffer, Boundary)
 	mb.MergeVertices()
 	mb.ComputeBoundary()
 	mb.FaceCount = len(mb.Faces)
-	ls.context.MainThread(func() {
+	GlContextSystem(nil).MainThread(func() {
 		mb.Init()
 	})
 
@@ -624,7 +637,7 @@ func (ls *AssetLoaderSystem) CubePrimitive(size float32) (*meshbuffer, Boundary)
 	return mb, mb.Bounding
 }
 
-func (ls *AssetLoaderSystem) PlanePrimitive(width, height float32) (*meshbuffer, Boundary) {
+func (ls *assetLoaderSystem) PlanePrimitive(width, height float32) (*meshbuffer, Boundary) {
 	ls.lock.Lock()
 	defer ls.lock.Unlock()
 
@@ -685,7 +698,7 @@ func (ls *AssetLoaderSystem) PlanePrimitive(width, height float32) (*meshbuffer,
 	mb.MergeVertices()
 	mb.ComputeBoundary()
 	mb.FaceCount = len(mb.Faces)
-	ls.context.MainThread(func() {
+	GlContextSystem(nil).MainThread(func() {
 		mb.Init()
 	})
 
@@ -894,7 +907,7 @@ type shaderprogram struct {
 	}
 }
 
-func (ls *AssetLoaderSystem) LoadShader(name string) *shaderprogram {
+func (ls *assetLoaderSystem) LoadShader(name string) *shaderprogram {
 	ls.lock.Lock()
 	defer ls.lock.Unlock()
 
@@ -987,7 +1000,7 @@ func (ls *AssetLoaderSystem) LoadShader(name string) *shaderprogram {
 		}{},
 	}
 
-	ls.context.MainThread(func() {
+	GlContextSystem(nil).MainThread(func() {
 		s.program = gl.CreateProgram()
 
 		// vertex shader
@@ -1091,7 +1104,7 @@ func (t Texture) Cleanup() {
 	}
 }
 
-func (ls *AssetLoaderSystem) LoadTexture(name string) (*Texture, error) {
+func (ls *assetLoaderSystem) LoadTexture(name string) (*Texture, error) {
 	ls.lock.Lock()
 	defer ls.lock.Unlock()
 
@@ -1128,7 +1141,7 @@ func (ls *AssetLoaderSystem) LoadTexture(name string) (*Texture, error) {
 	//h: bounds.Dy(),
 	}
 
-	ls.context.MainThread(func() {
+	GlContextSystem(nil).MainThread(func() {
 		t.buffer = gl.GenTexture()
 		t.buffer.Bind(gl.TEXTURE_2D)
 
@@ -1184,7 +1197,7 @@ func NextHighestPowerOfTwo(n int) int {
 	return n + 1
 }
 
-func (ls *AssetLoaderSystem) LoadSDFFont(name string, size float64, low, high int) (*Font, error) {
+func (ls *assetLoaderSystem) LoadSDFFont(name string, size float64, low, high int) (*Font, error) {
 	ls.lock.Lock()
 	defer ls.lock.Unlock()
 
@@ -1315,7 +1328,7 @@ func (ls *AssetLoaderSystem) LoadSDFFont(name string, size float64, low, high in
 	// generate texture
 	tex := &Texture{}
 
-	ls.context.MainThread(func() {
+	GlContextSystem(nil).MainThread(func() {
 		tex.buffer = gl.GenTexture()
 		tex.buffer.Bind(gl.TEXTURE_2D)
 
@@ -1349,7 +1362,7 @@ func (ls *AssetLoaderSystem) LoadSDFFont(name string, size float64, low, high in
 	return f, nil
 }
 
-func (ls *AssetLoaderSystem) CreateString(f *Font, s string) (*meshbuffer, Boundary) {
+func (ls *assetLoaderSystem) CreateString(f *Font, s string) (*meshbuffer, Boundary) {
 	mb := &meshbuffer{}
 
 	normal := mgl32.Vec3{0, 0, 1}
@@ -1411,7 +1424,7 @@ func (ls *AssetLoaderSystem) CreateString(f *Font, s string) (*meshbuffer, Bound
 	mb.MergeVertices()
 	mb.ComputeBoundary()
 	mb.FaceCount = len(mb.Faces)
-	ls.context.MainThread(func() {
+	GlContextSystem(nil).MainThread(func() {
 		mb.Init()
 	})
 
@@ -1419,7 +1432,7 @@ func (ls *AssetLoaderSystem) CreateString(f *Font, s string) (*meshbuffer, Bound
 }
 
 // TODO:
-func (ls *AssetLoaderSystem) NewFramebuffer(w, h int) *Texture {
+func (ls *assetLoaderSystem) NewFramebuffer(w, h int) *Texture {
 	t := &Texture{
 		buffer: gl.GenTexture(),
 		w:      w,
@@ -1449,29 +1462,29 @@ func (ls *AssetLoaderSystem) NewFramebuffer(w, h int) *Texture {
 	return t
 }
 
-func (ls *AssetLoaderSystem) Cleanup() {
+func (ls *assetLoaderSystem) Cleanup() {
 	// TODO: unload textures, buffers, programs and empty caches
 
 	for _, m := range ls.meshbuffers {
-		ls.context.MainThread(func() {
+		GlContextSystem(nil).MainThread(func() {
 			m.Cleanup()
 		})
 	}
 
 	for _, s := range ls.shaderPrograms {
-		ls.context.MainThread(func() {
+		GlContextSystem(nil).MainThread(func() {
 			s.Cleanup()
 		})
 	}
 
 	for _, t := range ls.textures {
-		ls.context.MainThread(func() {
+		GlContextSystem(nil).MainThread(func() {
 			t.Cleanup()
 		})
 	}
 
 	for _, f := range ls.fonts {
-		ls.context.MainThread(func() {
+		GlContextSystem(nil).MainThread(func() {
 			f.Cleanup()
 		})
 	}

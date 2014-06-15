@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/der-antikeks/mathgl/mgl32"
@@ -18,12 +19,7 @@ import (
 		render to framebuffer, render to screen
 		render opaque, transparent
 */
-type RenderSystem struct {
-	context *GlContextSystem
-	spatial *SpatialSystem
-	state   *GameStateSystem
-	ents    *EntitySystem // temporary
-
+type renderSystem struct {
 	drawChan, camChan, updChan chan interface{}
 
 	scenes map[string]struct {
@@ -37,108 +33,110 @@ type RenderSystem struct {
 	currentTextures []gl.Texture // usedTextureUnits
 }
 
-func NewRenderSystem(context *GlContextSystem, spatial *SpatialSystem, state *GameStateSystem, ents *EntitySystem) *RenderSystem {
-	s := &RenderSystem{
-		context: context,
-		spatial: spatial,
-		state:   state,
-		ents:    ents,
+var (
+	renderInstance *renderSystem
+	renderOnce     sync.Once
+)
 
-		drawChan: make(chan interface{}),
-		camChan:  make(chan interface{}),
-		updChan:  make(chan interface{}),
+func RenderSystem() *renderSystem {
+	renderOnce.Do(func() {
+		renderInstance = &renderSystem{
+			drawChan: make(chan interface{}),
+			camChan:  make(chan interface{}),
+			updChan:  make(chan interface{}),
 
-		scenes: map[string]struct {
-			drawable []Entity
-			lights   []Entity
-			camera   Entity
-		}{},
-	}
+			scenes: map[string]struct {
+				drawable []Entity
+				lights   []Entity
+				camera   Entity
+			}{},
+		}
 
-	go func() {
-		s.Restart()
+		go func() {
+			renderInstance.Restart()
 
-		for {
-			select {
-			case event := <-s.drawChan:
-				switch e := event.(type) {
-				case MessageEntityAdd:
-					sn := s.getScene(e.Added)
-					sc := s.scenes[sn]
-					sc.drawable = append(sc.drawable, e.Added)
-					s.scenes[sn] = sc
+			for {
+				select {
+				case event := <-renderInstance.drawChan:
+					switch e := event.(type) {
+					case MessageEntityAdd:
+						sn := renderInstance.getScene(e.Added)
+						sc := renderInstance.scenes[sn]
+						sc.drawable = append(sc.drawable, e.Added)
+						renderInstance.scenes[sn] = sc
 
-				case MessageEntityRemove:
-					sn := s.getScene(e.Removed)
-					sc := s.scenes[sn]
-					for i, f := range sc.drawable {
-						if f == e.Removed {
-							sc.drawable = append(sc.drawable[:i], sc.drawable[i+1:]...)
-							break
+					case MessageEntityRemove:
+						sn := renderInstance.getScene(e.Removed)
+						sc := renderInstance.scenes[sn]
+						for i, f := range sc.drawable {
+							if f == e.Removed {
+								sc.drawable = append(sc.drawable[:i], sc.drawable[i+1:]...)
+								break
+							}
 						}
+						renderInstance.scenes[sn] = sc
 					}
-					s.scenes[sn] = sc
-				}
 
-			case event := <-s.camChan:
-				switch e := event.(type) {
-				case MessageEntityAdd:
-					sn := s.getScene(e.Added)
-					sc := s.scenes[sn]
-					sc.camera = e.Added
-					s.scenes[sn] = sc
-				case MessageEntityRemove:
-					sn := s.getScene(e.Removed)
-					sc := s.scenes[sn]
-					if sc.camera == e.Removed {
-						sc.camera = NoEntity
+				case event := <-renderInstance.camChan:
+					switch e := event.(type) {
+					case MessageEntityAdd:
+						sn := renderInstance.getScene(e.Added)
+						sc := renderInstance.scenes[sn]
+						sc.camera = e.Added
+						renderInstance.scenes[sn] = sc
+					case MessageEntityRemove:
+						sn := renderInstance.getScene(e.Removed)
+						sc := renderInstance.scenes[sn]
+						if sc.camera == e.Removed {
+							sc.camera = NoEntity
+						}
+						renderInstance.scenes[sn] = sc
 					}
-					s.scenes[sn] = sc
-				}
 
-			case event := <-s.updChan:
-				switch e := event.(type) {
-				case MessageUpdate:
-					if err := s.Update(e.Delta); err != nil {
-						log.Println("could not render:", err)
+				case event := <-renderInstance.updChan:
+					switch e := event.(type) {
+					case MessageUpdate:
+						if err := renderInstance.Update(e.Delta); err != nil {
+							log.Println("could not render:", err)
+						}
 					}
 				}
 			}
-		}
-	}()
+		}()
+	})
 
-	return s
+	return renderInstance
 }
 
-func (s *RenderSystem) Restart() {
-	s.state.OnUpdate().Subscribe(s.updChan, PriorityRender)
+func (s *renderSystem) Restart() {
+	GameStateSystem().OnUpdate().Subscribe(s.updChan, PriorityRender)
 
-	s.ents.OnAdd(TransformationType, GeometryType, MaterialType, SceneType).Subscribe(s.drawChan, PriorityRender)
-	s.ents.OnRemove(TransformationType, GeometryType, MaterialType, SceneType).Subscribe(s.drawChan, PriorityRender)
+	EntitySystem().OnAdd(TransformationType, GeometryType, MaterialType, SceneType).Subscribe(s.drawChan, PriorityRender)
+	EntitySystem().OnRemove(TransformationType, GeometryType, MaterialType, SceneType).Subscribe(s.drawChan, PriorityRender)
 
-	s.ents.OnAdd(TransformationType, ProjectionType, SceneType).Subscribe(s.camChan, PriorityRender)
-	s.ents.OnRemove(TransformationType, ProjectionType, SceneType).Subscribe(s.camChan, PriorityRender)
+	EntitySystem().OnAdd(TransformationType, ProjectionType, SceneType).Subscribe(s.camChan, PriorityRender)
+	EntitySystem().OnRemove(TransformationType, ProjectionType, SceneType).Subscribe(s.camChan, PriorityRender)
 }
 
-func (s *RenderSystem) Stop() {
-	s.state.OnUpdate().Unsubscribe(s.updChan)
+func (s *renderSystem) Stop() {
+	GameStateSystem().OnUpdate().Unsubscribe(s.updChan)
 
-	s.ents.OnAdd(TransformationType, GeometryType, MaterialType, SceneType).Unsubscribe(s.drawChan)
-	s.ents.OnRemove(TransformationType, GeometryType, MaterialType, SceneType).Unsubscribe(s.drawChan)
+	EntitySystem().OnAdd(TransformationType, GeometryType, MaterialType, SceneType).Unsubscribe(s.drawChan)
+	EntitySystem().OnRemove(TransformationType, GeometryType, MaterialType, SceneType).Unsubscribe(s.drawChan)
 
-	s.ents.OnAdd(TransformationType, ProjectionType, SceneType).Unsubscribe(s.camChan)
-	s.ents.OnRemove(TransformationType, ProjectionType, SceneType).Unsubscribe(s.camChan)
+	EntitySystem().OnAdd(TransformationType, ProjectionType, SceneType).Unsubscribe(s.camChan)
+	EntitySystem().OnRemove(TransformationType, ProjectionType, SceneType).Unsubscribe(s.camChan)
 
 	//s.drawable = []Entity{}
 	//s.camera = NoEntity
 	// TODO: empty scenes?
 }
 
-func (s *RenderSystem) AddRenderPass(camera Entity, priority int) {
+func (s *renderSystem) AddRenderPass(camera Entity, priority int) {
 	// TODO
 }
 
-func (s *RenderSystem) Update(delta time.Duration) error {
+func (s *renderSystem) Update(delta time.Duration) error {
 	for n := range s.scenes {
 		if err := s.updateScene(delta, n); err != nil {
 			return err
@@ -147,44 +145,44 @@ func (s *RenderSystem) Update(delta time.Duration) error {
 	return nil
 }
 
-func (s *RenderSystem) getScene(e Entity) string {
-	ec, err := s.ents.Get(e, SceneType)
+func (s *renderSystem) getScene(e Entity) string {
+	ec, err := EntitySystem().Get(e, SceneType)
 	if err != nil {
 		return ""
 	}
 	return ec.(Scene).Name
 }
 
-func (s *RenderSystem) updateScene(delta time.Duration, sc string) error {
+func (s *renderSystem) updateScene(delta time.Duration, sc string) error {
 	color := mgl32.Vec3{0, 0, 0}
 	alpha := 1.0
 	s.setClearColor(color, alpha)
 
-	// w, h := s.context.Size()
+	// w, h := GlContextSystem(nil).Size()
 	// gl.Viewport(0, 0, w, h) TODO: already set in WindowManager onResize(), must be changed with frambuffer?
 
 	// TODO: clearing should depend on rendertarget
 	clear := true
 	if clear {
-		s.context.MainThread(func() {
+		GlContextSystem(nil).MainThread(func() {
 			gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 		})
 	}
 
 	// TODO: move rendertarget to camera? or camera like interface (Viewport(w,h), Projection, etc.)
 	if s.scenes[sc].camera == NoEntity {
-		return fmt.Errorf("no camera found for RenderSystem")
+		return fmt.Errorf("no camera found for renderSystem")
 	}
 	// update scene matrix (all objects)
 	// update camera matrix if not child of scene
 	// calculate frustum of camera
-	ec, err := s.ents.Get(s.scenes[sc].camera, ProjectionType)
+	ec, err := EntitySystem().Get(s.scenes[sc].camera, ProjectionType)
 	if err != nil {
 		return err
 	}
 	p := ec.(Projection)
 
-	ec, err = s.ents.Get(s.scenes[sc].camera, TransformationType)
+	ec, err = EntitySystem().Get(s.scenes[sc].camera, TransformationType)
 	if err != nil {
 		return err
 	}
@@ -193,11 +191,12 @@ func (s *RenderSystem) updateScene(delta time.Duration, sc string) error {
 	projScreenMatrix := p.Matrix.Mul4(t.MatrixWorld().Inv())
 	frustum := Mat4ToFrustum(projScreenMatrix)
 	// fetch all objects visible in frustum
-	//opaque, transparent, _ := s.spatial.VisibleEntities(sc, t.Position, frustum)
+	//opaque, transparent, _ := SpatialSystem().VisibleEntities(sc, t.Position, frustum)
+	//sort by z, by material, etc.
 	opaque, transparent := s.visibleEntities(frustum, t.Position, s.scenes[sc].drawable)
 
 	// opaque pass (front-to-back order)
-	s.context.MainThread(func() {
+	GlContextSystem(nil).MainThread(func() {
 		gl.Disable(gl.BLEND)
 
 		for _, e := range opaque {
@@ -206,7 +205,7 @@ func (s *RenderSystem) updateScene(delta time.Duration, sc string) error {
 	})
 
 	// transparent pass (back-to-front order)
-	s.context.MainThread(func() {
+	GlContextSystem(nil).MainThread(func() {
 		gl.Enable(gl.BLEND)
 		gl.BlendEquationSeparate(gl.FUNC_ADD, gl.FUNC_ADD)
 		gl.BlendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
@@ -217,19 +216,19 @@ func (s *RenderSystem) updateScene(delta time.Duration, sc string) error {
 	})
 
 	// swap buffers
-	s.context.Update()
+	GlContextSystem(nil).Update()
 	return nil
 }
 
-func (s *RenderSystem) setClearColor(color mgl32.Vec3, alpha float64) {
-	s.context.MainThread(func() {
+func (s *renderSystem) setClearColor(color mgl32.Vec3, alpha float64) {
+	GlContextSystem(nil).MainThread(func() {
 		gl.ClearColor(gl.GLclampf(color[0]), gl.GLclampf(color[1]), gl.GLclampf(color[2]), gl.GLclampf(alpha))
 	})
 }
 
 // TODO: replace with spatial system
 
-func (s *RenderSystem) visibleEntities(frustum Frustum, cp mgl32.Vec3, drawable []Entity) (opaque, transparent []Entity) {
+func (s *renderSystem) visibleEntities(frustum Frustum, cp mgl32.Vec3, drawable []Entity) (opaque, transparent []Entity) {
 	opaque = make([]Entity, 0)
 	transparent = make([]Entity, 0)
 	var err error
@@ -239,19 +238,19 @@ func (s *RenderSystem) visibleEntities(frustum Frustum, cp mgl32.Vec3, drawable 
 	cp4 := mgl32.Vec4{cp[0], cp[1], cp[2], 0} // TODO
 
 	for _, e := range drawable {
-		ec, err = s.ents.Get(e, TransformationType)
+		ec, err = EntitySystem().Get(e, TransformationType)
 		if err != nil {
 			continue
 		}
 		t := ec.(Transformation)
 
-		ec, err = s.ents.Get(e, GeometryType)
+		ec, err = EntitySystem().Get(e, GeometryType)
 		if err != nil {
 			continue
 		}
 		g := ec.(Geometry)
 
-		ec, err = s.ents.Get(e, MaterialType)
+		ec, err = EntitySystem().Get(e, MaterialType)
 		if err != nil {
 			continue
 		}
@@ -287,32 +286,32 @@ func (s *RenderSystem) visibleEntities(frustum Frustum, cp mgl32.Vec3, drawable 
 	return opaque, transparent
 }
 
-func (s *RenderSystem) renderEntity(object, camera Entity) error {
-	ec, err := s.ents.Get(object, MaterialType)
+func (s *renderSystem) renderEntity(object, camera Entity) error {
+	ec, err := EntitySystem().Get(object, MaterialType)
 	if err != nil {
 		return err
 	}
 	material := ec.(Material)
 
-	ec, err = s.ents.Get(object, GeometryType)
+	ec, err = EntitySystem().Get(object, GeometryType)
 	if err != nil {
 		return err
 	}
 	geometry := ec.(Geometry)
 
-	ec, err = s.ents.Get(camera, ProjectionType)
+	ec, err = EntitySystem().Get(camera, ProjectionType)
 	if err != nil {
 		return err
 	}
 	projection := ec.(Projection)
 
-	ec, err = s.ents.Get(camera, TransformationType)
+	ec, err = EntitySystem().Get(camera, TransformationType)
 	if err != nil {
 		return err
 	}
 	cameratransform := ec.(Transformation)
 
-	ec, err = s.ents.Get(object, TransformationType)
+	ec, err = EntitySystem().Get(object, TransformationType)
 	if err != nil {
 		return err
 	}
@@ -323,7 +322,7 @@ func (s *RenderSystem) renderEntity(object, camera Entity) error {
 		cameratransform, projection)
 }
 
-func (s *RenderSystem) render(
+func (s *renderSystem) render(
 	objecttransform Transformation,
 	material Material,
 	geometry Geometry,
@@ -404,7 +403,7 @@ func (s *RenderSystem) render(
 	return nil
 }
 
-func (s *RenderSystem) bindTexture(buffer gl.Texture) int {
+func (s *renderSystem) bindTexture(buffer gl.Texture) int {
 	for s, b := range s.currentTextures {
 		if b == buffer {
 			return s
@@ -420,14 +419,14 @@ func (s *RenderSystem) bindTexture(buffer gl.Texture) int {
 	return slot
 }
 
-func (s *RenderSystem) unbindTextures() {
+func (s *renderSystem) unbindTextures() {
 	for _, buffer := range s.currentTextures {
 		buffer.Unbind(gl.TEXTURE_2D)
 	}
 	s.currentTextures = s.currentTextures[:0]
 }
 
-func (s *RenderSystem) UpdateUniform(name string, value interface{}) error {
+func (s *renderSystem) UpdateUniform(name string, value interface{}) error {
 	if _, found := s.currentProgram.uniforms[name]; !found {
 		log.Fatalf("unsupported uniform: %v", name)
 		//return fmt.Errorf("unsupported uniform: %v", name)

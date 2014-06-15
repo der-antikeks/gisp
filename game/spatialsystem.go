@@ -6,6 +6,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/der-antikeks/mathgl/mgl32"
 )
@@ -17,88 +18,91 @@ import (
 	VisibleEntities(scene, frustum) []Entity
 	Collisions, FollowNearby
 */
-type SpatialSystem struct {
-	ents *EntitySystem
-
+type spatialSystem struct {
 	messages chan interface{}
 	doConc   chan func()
 	trees    map[string]*SphereTree
 	update   bool
 }
 
-func NewSpatialSystem(ents *EntitySystem) *SpatialSystem {
-	s := &SpatialSystem{
-		ents: ents,
+var (
+	spatialInstance *spatialSystem
+	spatialOnce     sync.Once
+)
 
-		messages: make(chan interface{}),
-		doConc:   make(chan func()),
-		trees:    map[string]*SphereTree{},
-	}
-
-	go func() {
-		s.Restart()
-
-		for {
-			select {
-			case event := <-s.messages:
-				switch e := event.(type) {
-				case MessageEntityAdd:
-					if err := s.addEntity(e.Added); err != nil {
-						log.Fatal("could not add entity to scene:", err)
-					}
-				case MessageEntityUpdate:
-					if err := s.updateEntity(e.Updated); err != nil {
-						log.Fatal("could not update entity:", err)
-					}
-				case MessageEntityRemove:
-					if err := s.removeEntity(e.Removed); err != nil {
-						log.Fatal("could not remove entity from scene:", err)
-					}
-				}
-			case f := <-s.doConc:
-				f()
-			}
+func SpatialSystem() *spatialSystem {
+	spatialOnce.Do(func() {
+		spatialInstance = &spatialSystem{
+			messages: make(chan interface{}),
+			doConc:   make(chan func()),
+			trees:    map[string]*SphereTree{},
 		}
-	}()
 
-	return s
+		go func() {
+			spatialInstance.Restart()
+
+			for {
+				select {
+				case event := <-spatialInstance.messages:
+					switch e := event.(type) {
+					case MessageEntityAdd:
+						if err := spatialInstance.addEntity(e.Added); err != nil {
+							log.Fatal("could not add entity to scene:", err)
+						}
+					case MessageEntityUpdate:
+						if err := spatialInstance.updateEntity(e.Updated); err != nil {
+							log.Fatal("could not update entity:", err)
+						}
+					case MessageEntityRemove:
+						if err := spatialInstance.removeEntity(e.Removed); err != nil {
+							log.Fatal("could not remove entity from scene:", err)
+						}
+					}
+				case f := <-spatialInstance.doConc:
+					f()
+				}
+			}
+		}()
+	})
+
+	return spatialInstance
 }
 
-func (s *SpatialSystem) Restart() {
-	s.ents.OnAdd(TransformationType, SceneType).Subscribe(s.messages, PriorityBeforeRender)
-	s.ents.OnUpdate(TransformationType, SceneType).Subscribe(s.messages, PriorityBeforeRender)
-	s.ents.OnRemove(TransformationType, SceneType).Subscribe(s.messages, PriorityBeforeRender)
+func (s *spatialSystem) Restart() {
+	EntitySystem().OnAdd(TransformationType, SceneType).Subscribe(s.messages, PriorityBeforeRender)
+	EntitySystem().OnUpdate(TransformationType, SceneType).Subscribe(s.messages, PriorityBeforeRender)
+	EntitySystem().OnRemove(TransformationType, SceneType).Subscribe(s.messages, PriorityBeforeRender)
 }
 
-func (s *SpatialSystem) Stop() {
-	s.ents.OnAdd(TransformationType, SceneType).Unsubscribe(s.messages)
-	s.ents.OnUpdate(TransformationType, SceneType).Unsubscribe(s.messages)
-	s.ents.OnRemove(TransformationType, SceneType).Unsubscribe(s.messages)
+func (s *spatialSystem) Stop() {
+	EntitySystem().OnAdd(TransformationType, SceneType).Unsubscribe(s.messages)
+	EntitySystem().OnUpdate(TransformationType, SceneType).Unsubscribe(s.messages)
+	EntitySystem().OnRemove(TransformationType, SceneType).Unsubscribe(s.messages)
 
 	// TODO: empty trees?
 }
 
-func (s *SpatialSystem) getData(en Entity) (stc Scene, pos mgl32.Vec3, radius float32, err error) {
-	ec, err := s.ents.Get(en, TransformationType)
+func (s *spatialSystem) getData(en Entity) (stc Scene, pos mgl32.Vec3, radius float32, err error) {
+	ec, err := EntitySystem().Get(en, TransformationType)
 	if err != nil {
 		return
 	}
 	transform := ec.(Transformation)
 
-	ec, err = s.ents.Get(en, SceneType)
+	ec, err = EntitySystem().Get(en, SceneType)
 	if err != nil {
 		return
 	}
 	stc = ec.(Scene)
 
-	if ec, err = s.ents.Get(en, GeometryType); err == nil {
+	if ec, err = EntitySystem().Get(en, GeometryType); err == nil {
 		// drawable entity
 
 		pos4, radius := ec.(Geometry).Bounding.Sphere()
 		pos4 = transform.MatrixWorld().Mul4x1(pos4)
 		pos = mgl32.Vec3{pos4[0], pos4[1], pos4[2]} // TODO
 		radius *= mgl32.ExtractMaxScale(transform.MatrixWorld())
-	} else if ec, err = s.ents.Get(en, LightType); err == nil {
+	} else if ec, err = EntitySystem().Get(en, LightType); err == nil {
 		// light
 
 		pos = transform.Position
@@ -116,7 +120,7 @@ func (s *SpatialSystem) getData(en Entity) (stc Scene, pos mgl32.Vec3, radius fl
 	return
 }
 
-func (s *SpatialSystem) addEntity(en Entity) error {
+func (s *spatialSystem) addEntity(en Entity) error {
 	stc, pos, radius, err := s.getData(en)
 	if err != nil {
 		return err
@@ -133,7 +137,7 @@ func (s *SpatialSystem) addEntity(en Entity) error {
 	}
 
 	stc.leaf = tree.Add(en, pos, radius)
-	if err := s.ents.Set(en, stc); err != nil {
+	if err := EntitySystem().Set(en, stc); err != nil {
 		return err
 	}
 
@@ -141,7 +145,7 @@ func (s *SpatialSystem) addEntity(en Entity) error {
 	return nil
 }
 
-func (s *SpatialSystem) updateEntity(en Entity) error {
+func (s *spatialSystem) updateEntity(en Entity) error {
 	stc, pos, radius, err := s.getData(en)
 	if err != nil {
 		return err
@@ -157,8 +161,8 @@ func (s *SpatialSystem) updateEntity(en Entity) error {
 	return nil
 }
 
-func (s *SpatialSystem) removeEntity(en Entity) error {
-	ec, err := s.ents.Get(en, SceneType)
+func (s *spatialSystem) removeEntity(en Entity) error {
+	ec, err := EntitySystem().Get(en, SceneType)
 	if err != nil {
 		return err
 	}
@@ -173,7 +177,7 @@ func (s *SpatialSystem) removeEntity(en Entity) error {
 	}
 
 	stc.leaf = nil
-	if err := s.ents.Set(en, stc); err != nil {
+	if err := EntitySystem().Set(en, stc); err != nil {
 		return err
 	}
 
@@ -181,7 +185,7 @@ func (s *SpatialSystem) removeEntity(en Entity) error {
 	return nil
 }
 
-func (s *SpatialSystem) updateIfNeeded() {
+func (s *spatialSystem) updateIfNeeded() {
 	if !s.update {
 		return
 	}
@@ -191,7 +195,7 @@ func (s *SpatialSystem) updateIfNeeded() {
 	s.update = true
 }
 
-func (s *SpatialSystem) Contains(p mgl32.Vec3, r float64) []Entity {
+func (s *spatialSystem) Contains(p mgl32.Vec3, r float64) []Entity {
 	return nil // TODO
 }
 
@@ -210,7 +214,7 @@ func (a byZ) Less(i, j int) bool {
 	return a.zorder[a.entities[i]] < a.zorder[a.entities[j]]
 }
 
-func (s *SpatialSystem) VisibleEntities(scene string, p mgl32.Vec3, frustum Frustum) (opaque, transparent, light []Entity) {
+func (s *spatialSystem) VisibleEntities(scene string, p mgl32.Vec3, frustum Frustum) (opaque, transparent, light []Entity) {
 	s.updateIfNeeded()
 	// TODO
 
@@ -227,19 +231,19 @@ func (s *SpatialSystem) VisibleEntities(scene string, p mgl32.Vec3, frustum Frus
 	drawable := []Entity{}
 
 	for _, e := range drawable {
-		ec, err = s.ents.Get(e, TransformationType)
+		ec, err = EntitySystem().Get(e, TransformationType)
 		if err != nil {
 			continue
 		}
 		t := ec.(Transformation)
 
-		ec, err = s.ents.Get(e, GeometryType)
+		ec, err = EntitySystem().Get(e, GeometryType)
 		if err != nil {
 			continue
 		}
 		g := ec.(Geometry)
 
-		ec, err = s.ents.Get(e, MaterialType)
+		ec, err = EntitySystem().Get(e, MaterialType)
 		if err != nil {
 			continue
 		}

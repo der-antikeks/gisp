@@ -3,6 +3,7 @@ package game
 import (
 	"log"
 	"runtime"
+	"sync"
 
 	"github.com/go-gl/gl"
 	glfw "github.com/go-gl/glfw3"
@@ -16,7 +17,7 @@ import (
 	IsKeyDown/IsMouseClick
 	SubscribeOnMouseScroll(chan x/y float64)
 */
-type GlContextSystem struct {
+type glContextSystem struct {
 	mChan chan func()
 	mDone chan struct{}
 
@@ -35,46 +36,63 @@ type GlContextSystem struct {
 	mousescroll *Observer
 }
 
-func NewGlContextSystem(title string, w, h int) *GlContextSystem {
-	s := &GlContextSystem{
-		mChan: make(chan func()),
-		mDone: make(chan struct{}),
+var (
+	ctxInstance *glContextSystem
+	ctxOnce     sync.Once
+)
 
-		width:  w,
-		height: h,
+type CtxOpts struct {
+	Title string
+	W, H  int
+}
 
-		keyPressed:   map[glfw.Key]bool{},
-		mousePressed: map[glfw.MouseButton]bool{},
-		mouseClicked: map[glfw.MouseButton]bool{},
-
-		resize:      NewObserver(),
-		key:         NewObserver(),
-		mousebutton: NewObserver(),
-		mousemove:   NewObserver(),
-		mousescroll: NewObserver(),
-	}
-
-	// main thread
-	go func() {
-		runtime.LockOSThread()
-		for mf := range s.mChan {
-			mf()
-			s.mDone <- struct{}{}
+func GlContextSystem(opts *CtxOpts) *glContextSystem {
+	ctxOnce.Do(func() {
+		if opts == nil {
+			log.Fatal("zero options init of system")
 		}
-	}()
 
-	s.initGl(title)
+		ctxInstance = &glContextSystem{
+			mChan: make(chan func()),
+			mDone: make(chan struct{}),
 
-	return s
+			width:  opts.W,
+			height: opts.H,
+
+			keyPressed:   map[glfw.Key]bool{},
+			mousePressed: map[glfw.MouseButton]bool{},
+			mouseClicked: map[glfw.MouseButton]bool{},
+
+			resize:      NewObserver(),
+			key:         NewObserver(),
+			mousebutton: NewObserver(),
+			mousemove:   NewObserver(),
+			mousescroll: NewObserver(),
+		}
+
+		// main thread
+		go func() {
+			runtime.LockOSThread()
+			for mf := range ctxInstance.mChan {
+				mf()
+				ctxInstance.mDone <- struct{}{}
+			}
+		}()
+
+		// initialize
+		ctxInstance.initGl(opts.Title)
+	})
+
+	return ctxInstance
 }
 
 // run function on main thread
-func (s *GlContextSystem) MainThread(f func()) {
+func (s *glContextSystem) MainThread(f func()) {
 	s.mChan <- f
 	<-s.mDone
 }
 
-func (s *GlContextSystem) initGl(title string) {
+func (s *glContextSystem) initGl(title string) {
 	s.MainThread(func() {
 		// init glfw
 		glfw.SetErrorCallback(func(err glfw.ErrorCode, desc string) {
@@ -137,22 +155,22 @@ func (s *GlContextSystem) initGl(title string) {
 	})
 }
 
-func (s *GlContextSystem) isRunning() bool {
+func (s *glContextSystem) isRunning() bool {
 	return !s.window.ShouldClose()
 }
 
-func (s *GlContextSystem) Update() {
+func (s *glContextSystem) Update() {
 	s.MainThread(func() {
 		s.window.SwapBuffers()
 		glfw.PollEvents()
 	})
 }
 
-func (s *GlContextSystem) Cleanup() {
+func (s *glContextSystem) Cleanup() {
 	glfw.Terminate()
 }
 
-func (s *GlContextSystem) onResize(w *glfw.Window, width, height int) {
+func (s *glContextSystem) onResize(w *glfw.Window, width, height int) {
 	//h := float64(height) / float64(width)
 	//znear := 1.0
 	//zfar := 1000.0
@@ -183,17 +201,17 @@ func (s *GlContextSystem) onResize(w *glfw.Window, width, height int) {
 	s.resize.Publish(MessageResize{width, height})
 }
 
-func (s *GlContextSystem) SetSize(width, height int) {
+func (s *glContextSystem) SetSize(width, height int) {
 	s.width = width
 	s.height = height
 	s.window.SetSize(width, height) // TODO: Loops to onResize()?
 }
 
-func (s *GlContextSystem) Size() (width, height int) {
+func (s *glContextSystem) Size() (width, height int) {
 	return s.width, s.height
 }
 
-func (s *GlContextSystem) Close() {
+func (s *glContextSystem) Close() {
 	s.window.SetShouldClose(true)
 }
 
@@ -219,7 +237,7 @@ const (
 	KeyD = Key(glfw.KeyD)
 )
 
-func (s *GlContextSystem) onKey(w *glfw.Window, key glfw.Key, scancode int, action glfw.Action, mods glfw.ModifierKey) {
+func (s *glContextSystem) onKey(w *glfw.Window, key glfw.Key, scancode int, action glfw.Action, mods glfw.ModifierKey) {
 	switch action {
 	case glfw.Press:
 		s.keyPressed[key] = true
@@ -230,11 +248,11 @@ func (s *GlContextSystem) onKey(w *glfw.Window, key glfw.Key, scancode int, acti
 	s.key.Publish(MessageKey(key))
 }
 
-func (s *GlContextSystem) IsKeyDown(key Key) bool {
+func (s *glContextSystem) IsKeyDown(key Key) bool {
 	return s.keyPressed[glfw.Key(key)]
 }
 
-func (s *GlContextSystem) AnyKeyDown() bool {
+func (s *glContextSystem) AnyKeyDown() bool {
 	for _, d := range s.keyPressed {
 		if d {
 			return true
@@ -243,7 +261,7 @@ func (s *GlContextSystem) AnyKeyDown() bool {
 	return false
 }
 
-func (s *GlContextSystem) onMouseMove(window *glfw.Window, xpos float64, ypos float64) {
+func (s *glContextSystem) onMouseMove(window *glfw.Window, xpos float64, ypos float64) {
 	s.mx, s.my = xpos, ypos
 
 	for b := range s.mouseClicked {
@@ -253,20 +271,20 @@ func (s *GlContextSystem) onMouseMove(window *glfw.Window, xpos float64, ypos fl
 	s.mousemove.Publish(MessageMouseMove{xpos, ypos})
 }
 
-func (s *GlContextSystem) MousePos() (x, y float64) {
+func (s *glContextSystem) MousePos() (x, y float64) {
 	return s.mx, s.my
 }
 
-func (s *GlContextSystem) onMouseScroll(w *glfw.Window, xoff float64, yoff float64) {
+func (s *glContextSystem) onMouseScroll(w *glfw.Window, xoff float64, yoff float64) {
 	s.zoom += yoff
 	s.mousescroll.Publish(MessageMouseScroll(yoff))
 }
 
-func (s *GlContextSystem) MouseScroll() float64 {
+func (s *glContextSystem) MouseScroll() float64 {
 	return s.zoom
 }
 
-func (s *GlContextSystem) onMouseButton(w *glfw.Window, b glfw.MouseButton, action glfw.Action, mods glfw.ModifierKey) {
+func (s *glContextSystem) onMouseButton(w *glfw.Window, b glfw.MouseButton, action glfw.Action, mods glfw.ModifierKey) {
 	switch action {
 	case glfw.Press:
 		s.mousePressed[b] = true
@@ -289,17 +307,17 @@ const (
 	MouseRight = MouseButton(glfw.MouseButton2)
 )
 
-func (s *GlContextSystem) IsMouseDown(button MouseButton) bool {
+func (s *glContextSystem) IsMouseDown(button MouseButton) bool {
 	return s.mousePressed[glfw.MouseButton(button)]
 }
 
 // mouse up after a down without movement
-func (s *GlContextSystem) IsMouseClick(button MouseButton) bool {
+func (s *glContextSystem) IsMouseClick(button MouseButton) bool {
 	return s.mouseClicked[glfw.MouseButton(button)]
 }
 
-func (s *GlContextSystem) OnResize() *Observer      { return s.resize }
-func (s *GlContextSystem) OnKey() *Observer         { return s.key }
-func (s *GlContextSystem) OnMouseButton() *Observer { return s.mousebutton }
-func (s *GlContextSystem) OnMouseMove() *Observer   { return s.mousemove }
-func (s *GlContextSystem) OnMouseScroll() *Observer { return s.mousescroll }
+func (s *glContextSystem) OnResize() *Observer      { return s.resize }
+func (s *glContextSystem) OnKey() *Observer         { return s.key }
+func (s *glContextSystem) OnMouseButton() *Observer { return s.mousebutton }
+func (s *glContextSystem) OnMouseMove() *Observer   { return s.mousemove }
+func (s *glContextSystem) OnMouseScroll() *Observer { return s.mousescroll }

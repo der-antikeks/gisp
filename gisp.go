@@ -8,40 +8,38 @@ import (
 	"github.com/der-antikeks/gisp/game"
 )
 
-var (
-	fps   = 70
-	w, h  = 800, 600
-	title = "gisp ecs"
-)
-
 func main() {
 	// init
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 	rand.Seed(time.Now().Unix())
 
-	context := game.NewGlContextSystem(title, w, h)
+	context := game.GlContextSystem(&game.CtxOpts{
+		Title: "gisp ecs",
+		W:     800,
+		H:     600,
+	})
 	defer context.Cleanup()
 
-	loader := game.NewAssetLoaderSystem("assets/", context)
+	loader := game.AssetLoaderSystem(&game.AssetOpts{Path: "assets/"})
 	defer loader.Cleanup()
 
-	ents := game.NewEntitySystem(loader)
-	state := game.NewGameStateSystem(context, ents)
-	spatial := game.NewSpatialSystem(ents)
-	game.NewRenderSystem(context, spatial, state, ents /*temporary*/)
+	state := game.GameStateSystem()
 
-	game.NewMovementsSystem(ents, state)
-	game.NewControlSystem(context, ents, state)
+	// TODO: start/stop from gamestate-system?
+	game.RenderSystem()
+	game.MovementSystem()
+	game.ControlSystem()
 
 	// main loop
 	var (
+		fps    = 70
+		ratio  = 0.01
+		curfps = float64(fps)
+
 		lastTime    = time.Now()
 		currentTime time.Time
 		delta       time.Duration
 		ds          float64
-
-		ratio  = 0.01
-		curfps = float64(fps)
 
 		update  = time.Tick(time.Duration(1000/fps) * time.Millisecond)
 		console = time.Tick(500 * time.Millisecond)
