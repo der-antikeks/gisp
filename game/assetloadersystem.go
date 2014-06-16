@@ -962,9 +962,10 @@ func (ls *assetLoaderSystem) LoadShader(name string) *shaderprogram {
 		uniforms["emissive"] = mgl32.Vec3{1, 1, 1}
 		uniforms["specular"] = mgl32.Vec3{1, 1, 1}
 	case "flat":
-		uniforms["lightDiffuse"] = mgl32.Vec3{1, 1, 1}
-		uniforms["lightPosition"] = mgl32.Vec3{0, 0, 0}
-		uniforms["lightPower"] = 50.0
+		uniforms["lightCount"] = 1
+		uniforms["lightDiffuse"] = []mgl32.Vec3{{1, 1, 1}}
+		uniforms["lightPosition"] = []mgl32.Vec3{{0, 0, 0}}
+		uniforms["lightPower"] = []float64{50.0}
 
 		uniforms["ambientColor"] = mgl32.Vec3{1, 1, 1}
 

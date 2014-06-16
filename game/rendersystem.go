@@ -430,10 +430,10 @@ func (s *renderSystem) UpdateUniform(name string, value interface{}) error {
 
 	case int:
 		s.currentProgram.uniforms[name].location.Uniform1i(t)
-	case float64:
-		s.currentProgram.uniforms[name].location.Uniform1f(float32(t))
 	case float32:
 		s.currentProgram.uniforms[name].location.Uniform1f(t)
+	case float64:
+		s.currentProgram.uniforms[name].location.Uniform1f(float32(t))
 
 	case mgl32.Mat3 /*[9]float32*/ :
 		s.currentProgram.uniforms[name].location.UniformMatrix3fv(false, t)
@@ -446,6 +446,40 @@ func (s *renderSystem) UpdateUniform(name string, value interface{}) error {
 		s.currentProgram.uniforms[name].location.Uniform3f(t[0], t[1], t[2])
 	case mgl32.Vec4:
 		s.currentProgram.uniforms[name].location.Uniform4f(t[0], t[1], t[2], t[3])
+
+	case []int:
+		var va []int32
+		for _, v := range t {
+			va = append(va, int32(v))
+		}
+		s.currentProgram.uniforms[name].location.Uniform1iv(len(t), va)
+	case []float32:
+		s.currentProgram.uniforms[name].location.Uniform1fv(len(t), t)
+	case []float64:
+		var va []float32
+		for _, v := range t {
+			va = append(va, float32(v))
+		}
+		s.currentProgram.uniforms[name].location.Uniform1fv(len(t), va)
+
+	case []mgl32.Vec2:
+		var va []float32
+		for _, v := range t {
+			va = append(va, v[0], v[1])
+		}
+		s.currentProgram.uniforms[name].location.Uniform2fv(len(t), va)
+	case []mgl32.Vec3:
+		var va []float32
+		for _, v := range t {
+			va = append(va, v[0], v[1], v[2])
+		}
+		s.currentProgram.uniforms[name].location.Uniform3fv(len(t), va)
+	case []mgl32.Vec4:
+		var va []float32
+		for _, v := range t {
+			va = append(va, v[0], v[1], v[2], v[3])
+		}
+		s.currentProgram.uniforms[name].location.Uniform4fv(len(t), va)
 
 	case bool:
 		if t {

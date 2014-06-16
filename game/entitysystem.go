@@ -389,8 +389,8 @@ func (s *entitySystem) createCube() Entity {
 
 	// material
 	mat := s.getMaterial("flat")
-	mat.Set("lightPosition", mgl32.Vec3{5, 5, 0})
-	mat.Set("lightDiffuse", mgl32.Vec3{1, 0, 0})
+	mat.Set("lightPosition", []mgl32.Vec3{{5, 5, 0}})
+	mat.Set("lightDiffuse", []mgl32.Vec3{{1, 0, 0}})
 	mat.Set("opacity", 0.8)
 
 	tex, err := AssetLoaderSystem(nil).LoadTexture("fighter/fighter.png")
@@ -496,7 +496,13 @@ func (s *entitySystem) createSphere() Entity {
 	geo := s.getGeometry("sphere")
 
 	// material
-	mat := s.getMaterial("phong")
+	//mat := s.getMaterial("phong")
+	mat := s.getMaterial("flat")
+
+	mat.Set("lightCount", 3)
+	mat.Set("lightDiffuse", []mgl32.Vec3{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}})
+	mat.Set("lightPosition", []mgl32.Vec3{{5, 10, 0}, {-5, 10, 0}, {5, -10, 0}})
+	mat.Set("lightPower", []float64{100.0, 50.0, 100.0})
 
 	tex, err := AssetLoaderSystem(nil).LoadTexture("uvtemplate.png")
 	if err != nil {

@@ -4,6 +4,7 @@ __todo:__
 * Entity/Transformation Grouping
 * Light
 * Shadows
+* Particles
 
 __later:__
 * Clean up system structure/responsibility
