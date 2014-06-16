@@ -39,6 +39,7 @@ type assetLoaderSystem struct {
 	shaderPrograms map[string]*shaderprogram
 	textures       map[string]*Texture
 	fonts          map[string]*Font
+	rendertargets  []*RenderTarget
 }
 
 var (
@@ -63,6 +64,7 @@ func AssetLoaderSystem(opts *AssetOpts) *assetLoaderSystem {
 			shaderPrograms: map[string]*shaderprogram{},
 			textures:       map[string]*Texture{},
 			fonts:          map[string]*Font{},
+			rendertargets:  []*RenderTarget{},
 		}
 	})
 
@@ -1094,10 +1096,9 @@ func (s *shaderprogram) Cleanup() {
 
 type Texture struct {
 	buffer gl.Texture
-	w, h   int // TODO: needed?
+	w, h   int // TODO: needed? for rendertarget?
 }
 
-// cleanup
 func (t Texture) Cleanup() {
 	if t.buffer != 0 {
 		t.buffer.Delete()
@@ -1433,30 +1434,45 @@ func (ls *assetLoaderSystem) CreateString(f *Font, s string) (*meshbuffer, Bound
 
 // TODO: Framebuffers
 
-type Framebuffer struct {
+type RenderTarget struct {
 	Color mgl32.Vec3
 	Alpha float64
 	Clear bool
 
-	buffer *Texture
+	frameBuffer  gl.Framebuffer
+	renderBuffer gl.Renderbuffer
+	texture      *Texture
 }
 
-func (ls *assetLoaderSystem) NewFramebuffer(w, h int) *Texture {
-	t := &Texture{
-		buffer: gl.GenTexture(),
-		w:      w,
-		h:      h,
+func (t *RenderTarget) Cleanup() {
+	if t.frameBuffer != 0 {
+		t.frameBuffer.Delete()
 	}
+	if t.renderBuffer != 0 {
+		t.renderBuffer.Delete()
+	}
+	if t.texture != nil {
+		t.texture.Cleanup()
+	}
+}
 
-	t.buffer.Bind(gl.TEXTURE_2D)
-	{
+func (ls *assetLoaderSystem) NewRenderTarget(w, h int) *RenderTarget {
+	ls.lock.Lock()
+	defer ls.lock.Unlock()
+
+	// generate texture
+	t := &Texture{w: w, h: h}
+	GlContextSystem(nil).MainThread(func() {
+		t.buffer = gl.GenTexture()
+		t.buffer.Bind(gl.TEXTURE_2D)
+
 		// set texture parameters
 		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE) // gl.REPEAT
 		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE) // gl.REPEAT
 		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE)
 
-		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR) // gl.NEAREST
-		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR) // gl.NEAREST
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR) // gl.LINEAR_MIPMAP_LINEAR
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
 
 		// create storage
 		gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA,
@@ -1465,10 +1481,39 @@ func (ls *assetLoaderSystem) NewFramebuffer(w, h int) *Texture {
 
 		// generate mipmaps
 		gl.GenerateMipmap(gl.TEXTURE_2D)
-	}
-	t.buffer.Unbind(gl.TEXTURE_2D)
 
-	return t
+		t.buffer.Unbind(gl.TEXTURE_2D)
+	})
+
+	// generate buffers
+	rt := &RenderTarget{texture: t}
+	GlContextSystem(nil).MainThread(func() {
+		rt.frameBuffer = gl.GenFramebuffer()
+		rt.frameBuffer.Bind()
+		defer rt.renderBuffer.Unbind()
+
+		rt.renderBuffer = gl.GenRenderbuffer()
+		rt.renderBuffer.Bind()
+		defer rt.frameBuffer.Unbind()
+
+		// configure renderbuffer
+		gl.RenderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT /* 16 */, rt.texture.w, rt.texture.h)
+		rt.renderBuffer.FramebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER)
+
+		// configure framebuffer
+		gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, rt.texture.buffer, 0)
+		//gl.FramebufferTexture(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, t.texture.buffer, 0)
+		//gl.DrawBuffers(1, []gl.GLenum{gl.COLOR_ATTACHMENT0 + gl.GLenum(slot)})
+		//gl.Viewport(0, 0, t.width, t.height)
+
+		// check
+		if gl.CheckFramebufferStatus(gl.FRAMEBUFFER) != gl.FRAMEBUFFER_COMPLETE {
+			log.Fatal("could not initialize framebuffer")
+		}
+	})
+
+	ls.rendertargets = append(ls.rendertargets, rt)
+	return rt
 }
 
 func (ls *assetLoaderSystem) Cleanup() {
@@ -1495,6 +1540,12 @@ func (ls *assetLoaderSystem) Cleanup() {
 	for _, f := range ls.fonts {
 		GlContextSystem(nil).MainThread(func() {
 			f.Cleanup()
+		})
+	}
+
+	for _, t := range ls.rendertargets {
+		GlContextSystem(nil).MainThread(func() {
+			t.Cleanup()
 		})
 	}
 }

@@ -49,7 +49,6 @@ func UiSystem() *uiSystem {
 								1,
 								1,
 							}
-							log.Println("win:", win)
 
 							// get camera components
 							if uiInstance.camera == NoEntity {
@@ -87,6 +86,7 @@ func UiSystem() *uiSystem {
 								ec, err := EntitySystem().Get(e, MaterialType)
 								if err != nil {
 									log.Println("could not get material of entity:", e, err)
+									// TODO
 									continue
 								}
 								mat := ec.(Material)
@@ -139,6 +139,7 @@ func (s *uiSystem) SetCamera(c Entity) {
 	})
 }
 
+// www.opengl.org/wiki/GluProject_and_gluUnProject_code
 func unprojectVector(win mgl32.Vec4, modelview, projection mgl32.Mat4) (obj mgl32.Vec4) {
 	m := modelview.Mul4(projection.Inv())
 

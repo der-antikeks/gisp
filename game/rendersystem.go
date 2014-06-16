@@ -148,18 +148,27 @@ func (s *renderSystem) renderScene(delta time.Duration, camera Entity) error {
 	sc := ec.(Scene).Name
 
 	// set rendertarget
-	target := p.Rendertarget
 	color := mgl32.Vec3{0, 0, 0}
 	alpha := 1.0
 	clear := true
 
-	if target != nil {
-		// w, h := GlContextSystem(nil).Size()
-		// gl.Viewport(0, 0, w, h) TODO: already set in WindowManager onResize(), must be changed with frambuffer?
-
+	if target := p.Target; target != nil {
 		color = target.Color
 		alpha = target.Alpha
 		clear = target.Clear
+
+		// TODO: cache binding?
+		GlContextSystem(nil).MainThread(func() {
+			target.frameBuffer.Bind()
+		})
+		defer GlContextSystem(nil).MainThread(func() {
+			target.frameBuffer.Unbind()
+		})
+		//gl.Viewport(0, 0, target.texture.w, target.texture.h)
+	} else {
+		// w, h := GlContextSystem(nil).Size()
+		// gl.Viewport(0, 0, w, h)
+		// TODO: already set in WindowManager onResize(), must be changed after frambuffer?
 	}
 
 	if clear {

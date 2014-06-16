@@ -303,9 +303,66 @@ func (s *entitySystem) CreateSplashScreen() {
 }
 
 func (s *entitySystem) CreateMainMenu() {
+	// multiple cubes on subscene
 	for i := 0; i < 2000; i++ {
 		s.createRndCube()
 	}
+
+	// subscene camera
+	t := Transformation{
+		Position: mgl32.Vec3{0, 0, -10},
+		//Rotation: mgl32.Quat{},
+		Scale: mgl32.Vec3{1, 1, 1},
+		Up:    mgl32.Vec3{0, 1, 0},
+	}
+	t.Rotation = mgl32.QuatLookAtV(t.Position, mgl32.Vec3{0, 0, 0}, t.Up)
+
+	target := AssetLoaderSystem(nil).NewRenderTarget(800, 600)
+	target.Color = mgl32.Vec3{0.2, 0.2, 0.2}
+	target.Alpha = 1.0
+	target.Clear = true
+
+	w, h := GlContextSystem(nil).Size()
+	if err := s.Set(
+		s.Entity(),
+		t,
+		Projection{
+			Matrix:   mgl32.Perspective(45.0, float32(w)/float32(h), 0.1, 200.0),
+			Target:   target,
+			Priority: 0,
+		},
+		Scene{Name: "subscene"},
+	); err != nil {
+		log.Fatal("could not create subscene camera:", err)
+	}
+
+	// billboard window to subscene
+	// Transformation
+	t = Transformation{
+		Position: mgl32.Vec3{0, 2, 5},
+		Rotation: mgl32.Quat{1, mgl32.Vec3{0, 0, 0}},
+		Scale:    mgl32.Vec3{1, 1, 1},
+		Up:       mgl32.Vec3{0, 1, 0},
+	}
+
+	// geometry
+	geo := s.getGeometry("plane")
+
+	// material
+	mat := s.getMaterial("fixedbb")
+	mat.Set("diffuseMap", target.texture)
+	mat.Set("opacity", 0.8)
+	mat.Set("size", mgl32.Vec2{1, 1})
+
+	// Entity
+	if err := s.Set(
+		s.Entity(),
+		t, geo, mat,
+		Scene{Name: "mainscene"},
+	); err != nil {
+		log.Fatal("could not create billboard:", err)
+	}
+
 }
 
 func (s *entitySystem) createCube() Entity {
@@ -412,7 +469,7 @@ func (s *entitySystem) createRndCube() Entity {
 	mat.Set("opacity", float64(r(0.2, 1)))
 
 	// scene
-	stc := Scene{Name: "mainscene"}
+	stc := Scene{Name: "subscene"}
 
 	// Entity
 	cube := s.Entity()
@@ -606,7 +663,8 @@ func (s *entitySystem) CreatePerspectiveCamera(fov, aspect, near, far float32) E
 	if err := s.Set(
 		c,
 		Projection{
-			Matrix: mgl32.Perspective(fov, aspect, near, far),
+			Matrix:   mgl32.Perspective(fov, aspect, near, far),
+			Priority: 10,
 		},
 		t,
 		Scene{Name: "mainscene"},
@@ -630,7 +688,8 @@ func (s *entitySystem) CreateOrthographicCamera(left, right, top, bottom, near, 
 	if err := s.Set(
 		c,
 		Projection{ // TODO: top/bottom switched?
-			Matrix: mgl32.Ortho(left, right, bottom, top, near, far),
+			Matrix:   mgl32.Ortho(left, right, bottom, top, near, far),
+			Priority: 10,
 		},
 		t,
 		Scene{Name: "mainscene"},

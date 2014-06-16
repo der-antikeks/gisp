@@ -21,10 +21,10 @@ const (
 
 type Projection struct {
 	Matrix        mgl32.Mat4
-	Width, Height float64 // update Projection via RenderSystem hooked to MessageResize
+	Width, Height float64 // TODO: update Projection via RenderSystem/UiSystem hooked to MessageResize
 
-	Rendertarget *Framebuffer // nil for screen
-	Priority     int
+	Target   *RenderTarget // nil for screen
+	Priority int
 }
 
 func (c Projection) Type() ComponentType {
