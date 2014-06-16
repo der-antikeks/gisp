@@ -189,14 +189,38 @@ func (s *renderSystem) renderScene(delta time.Duration, camera Entity) error {
 
 	//sort by z, by material, etc.
 	pos := t.MatrixWorld().Mul4x1(mgl32.Vec4{0, 0, 0, 1})
-	opaque, transparent, _ := s.sortEntities(pos, visible)
+	opaque, transparent, light := s.sortEntities(pos, visible)
+
+	lights := struct {
+		pos, diff []mgl32.Vec3
+		pow       []float64
+	}{}
+
+	for _, l := range light {
+		ec, err = EntitySystem().Get(l, TransformationType)
+		if err != nil {
+			return err
+		}
+		lt := ec.(Transformation)
+		p := lt.MatrixWorld().Mul4x1(mgl32.Vec4{0, 0, 0, 1})
+
+		ec, err = EntitySystem().Get(l, LightType)
+		if err != nil {
+			return err
+		}
+		ld := ec.(Light)
+
+		lights.pos = append(lights.pos, mgl32.Vec3{p[0], p[1], p[2]})
+		lights.diff = append(lights.diff, ld.Diffuse)
+		lights.pow = append(lights.pow, ld.Power)
+	}
 
 	// opaque pass (front-to-back order)
 	GlContextSystem(nil).MainThread(func() {
 		gl.Disable(gl.BLEND)
 
 		for _, e := range opaque {
-			s.renderEntity(e, t, p)
+			s.renderEntity(e, t, p, lights)
 		}
 	})
 
@@ -207,7 +231,7 @@ func (s *renderSystem) renderScene(delta time.Duration, camera Entity) error {
 		gl.BlendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
 
 		for _, e := range transparent {
-			s.renderEntity(e, t, p)
+			s.renderEntity(e, t, p, lights)
 		}
 	})
 
@@ -229,6 +253,12 @@ func (s *renderSystem) sortEntities(cp mgl32.Vec4, drawable []Entity) (opaque, t
 			continue
 		}
 		t := ec.(Transformation)
+
+		// light
+		if _, err = EntitySystem().Get(e, LightType); err == nil {
+			light = append(light, e)
+			continue
+		}
 
 		ec, err = EntitySystem().Get(e, GeometryType)
 		if err != nil {
@@ -286,7 +316,15 @@ func (a byZ) Less(i, j int) bool {
 	return a.zorder[a.entities[i]] < a.zorder[a.entities[j]]
 }
 
-func (s *renderSystem) renderEntity(object Entity, cameratransform Transformation, projection Projection) error {
+func (s *renderSystem) renderEntity(
+	object Entity,
+	cameratransform Transformation,
+	projection Projection,
+	lights struct {
+		pos, diff []mgl32.Vec3
+		pow       []float64
+	}) error {
+
 	ec, err := EntitySystem().Get(object, MaterialType)
 	if err != nil {
 		return err
@@ -307,7 +345,7 @@ func (s *renderSystem) renderEntity(object Entity, cameratransform Transformatio
 
 	return s.render(
 		objecttransform, material, geometry,
-		cameratransform, projection)
+		cameratransform, projection, lights)
 }
 
 func (s *renderSystem) render(
@@ -316,7 +354,11 @@ func (s *renderSystem) render(
 	geometry Geometry,
 
 	cameratransform Transformation,
-	projection Projection) error {
+	projection Projection,
+	lights struct {
+		pos, diff []mgl32.Vec3
+		pow       []float64
+	}) error {
 
 	// ### bind material
 	var updateAttributes bool
@@ -379,6 +421,23 @@ func (s *renderSystem) render(
 	// update material values
 	for n, v := range material.uniforms {
 		if err := s.UpdateUniform(n, v); err != nil {
+			return err
+		}
+	}
+
+	// update light values
+	// TODO: needs a better material support check
+	if _, ok := s.currentProgram.uniforms["lightCount"]; ok {
+		if err := s.UpdateUniform("lightCount", len(lights.pos)); err != nil {
+			return err
+		}
+		if err := s.UpdateUniform("lightPosition", lights.pos); err != nil {
+			return err
+		}
+		if err := s.UpdateUniform("lightDiffuse", lights.diff); err != nil {
+			return err
+		}
+		if err := s.UpdateUniform("lightPower", lights.pow); err != nil {
 			return err
 		}
 	}

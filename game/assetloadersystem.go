@@ -1517,6 +1517,14 @@ func (ls *assetLoaderSystem) NewRenderTarget(w, h int) *RenderTarget {
 	return rt
 }
 
+type ShadowMap struct {
+	// distance texture
+}
+
+func (ls *assetLoaderSystem) NewShadowMap(w, h int) *ShadowMap {
+	return nil
+}
+
 func (ls *assetLoaderSystem) Cleanup() {
 	// TODO: unload textures, buffers, programs and empty caches
 

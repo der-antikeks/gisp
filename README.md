@@ -2,7 +2,6 @@
 
 __todo:__
 * Entity/Transformation Grouping
-* Light
 * Shadows
 * Particles
 

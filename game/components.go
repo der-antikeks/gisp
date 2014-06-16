@@ -168,6 +168,8 @@ func (c Scene) Type() ComponentType {
 type Light struct {
 	Diffuse mgl32.Vec3
 	Power   float64
+
+	shadows *ShadowMap
 }
 
 func (c Light) Type() ComponentType {

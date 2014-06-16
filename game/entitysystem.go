@@ -298,8 +298,8 @@ func (s *entitySystem) CreateSplashScreen() {
 	s.createSphere()
 
 	s.createBillboard()
-
 	s.createString()
+	s.createLights()
 }
 
 func (s *entitySystem) CreateMainMenu() {
@@ -389,8 +389,6 @@ func (s *entitySystem) createCube() Entity {
 
 	// material
 	mat := s.getMaterial("flat")
-	mat.Set("lightPosition", []mgl32.Vec3{{5, 5, 0}})
-	mat.Set("lightDiffuse", []mgl32.Vec3{{1, 0, 0}})
 	mat.Set("opacity", 0.8)
 
 	tex, err := AssetLoaderSystem(nil).LoadTexture("fighter/fighter.png")
@@ -496,14 +494,7 @@ func (s *entitySystem) createSphere() Entity {
 	geo := s.getGeometry("sphere")
 
 	// material
-	//mat := s.getMaterial("phong")
 	mat := s.getMaterial("flat")
-
-	mat.Set("lightCount", 3)
-	mat.Set("lightDiffuse", []mgl32.Vec3{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}})
-	mat.Set("lightPosition", []mgl32.Vec3{{5, 10, 0}, {-5, 10, 0}, {5, -10, 0}})
-	mat.Set("lightPower", []float64{100.0, 50.0, 100.0})
-
 	tex, err := AssetLoaderSystem(nil).LoadTexture("uvtemplate.png")
 	if err != nil {
 		log.Fatal("could not load texture:", err)
@@ -523,6 +514,43 @@ func (s *entitySystem) createSphere() Entity {
 	}
 
 	return sphere
+}
+
+func (s *entitySystem) createLights() {
+	stc := Scene{
+		Name: "mainscene",
+	}
+
+	trans := Transformation{
+		Position: mgl32.Vec3{5, 10, 0},
+		Rotation: mgl32.Quat{1, mgl32.Vec3{0, 0, 0}},
+		Scale:    mgl32.Vec3{1, 1, 1},
+		Up:       mgl32.Vec3{0, 1, 0},
+	}
+
+	light := Light{
+		Diffuse: mgl32.Vec3{1, 0, 0},
+		Power:   100.0,
+	}
+
+	if err := s.Set(s.Entity(), stc, light, trans); err != nil {
+		log.Fatal("could not create light:", err)
+	}
+
+	trans.Position = mgl32.Vec3{-5, 10, 0}
+	light.Diffuse = mgl32.Vec3{0, 1, 0}
+	light.Power = 50.0
+	if err := s.Set(s.Entity(), stc, light, trans); err != nil {
+		log.Fatal("could not create light:", err)
+	}
+
+	trans.Position = mgl32.Vec3{5, -10, 0}
+	light.Diffuse = mgl32.Vec3{0, 0, 1}
+	light.Power = 100.0
+	vel := Velocity{Velocity: mgl32.Vec3{0, 1, 0}}
+	if err := s.Set(s.Entity(), stc, light, trans, vel); err != nil {
+		log.Fatal("could not create light:", err)
+	}
 }
 
 func (s *entitySystem) createBillboard() Entity {
