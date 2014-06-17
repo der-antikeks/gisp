@@ -38,6 +38,9 @@ func main() {
 	}
 	defer glfw.Terminate()
 
+	glfw.WindowHint(glfw.Resizable, 0)
+	glfw.WindowHint(glfw.Samples, 4)
+
 	window, err := glfw.CreateWindow(width, height, "Testing", nil, nil)
 	if err != nil {
 		log.Fatal(err)
@@ -47,9 +50,22 @@ func main() {
 	// setup gl
 	gl.Init()
 	gl.ClearColor(0.1, 0.1, 0.1, 0.0)
+	gl.ClearDepth(1)
+	gl.ClearStencil(0)
+
 	gl.Enable(gl.DEPTH_TEST)
 	gl.DepthFunc(gl.LESS)
+
 	gl.Enable(gl.CULL_FACE)
+	gl.FrontFace(gl.CCW)
+	gl.CullFace(gl.BACK)
+
+	gl.ShadeModel(gl.SMOOTH)
+	gl.Hint(gl.PERSPECTIVE_CORRECTION_HINT, gl.NICEST)
+
+	gl.Enable(gl.BLEND)
+	gl.BlendEquationSeparate(gl.FUNC_ADD, gl.FUNC_ADD)
+	gl.BlendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
 
 	// setup shader program
 	program := LoadShader(`
@@ -63,18 +79,55 @@ func main() {
 		uniform mat4 viewMatrix;
 		uniform mat4 modelMatrix;
 		uniform mat4 modelViewMatrix;
-		uniform mat3 normalMatrix;
+
+		uniform vec3 lightPosition;
+		uniform vec3 lightDiffuse;
+		uniform float lightPower;
+
+		uniform vec3 ambientColor;
 
 		out vec2 UV;
+		out vec3 lightColor;
+
+		vec3 adsShading(vec4 position, vec3 norm) {
+			vec4 lightPosCam = viewMatrix * vec4(lightPosition, 1.0); // cameraspace
+			vec3 lightDir = normalize(vec3(lightPosCam - position));
+			vec3 viewDir = normalize(-position.xyz);
+			vec3 reflectDir = reflect(-lightDir, norm);
+			float distance = length(lightPosition - (modelMatrix * vec4(vertexPosition,1)).xyz);
+
+			// ambient, simulates indirect lighting
+			vec3 amb = ambientColor * vec3(0.1, 0.1, 0.1);
+
+			// diffuse, direct lightning
+			float cosTheta = clamp(dot(norm, lightDir), 0.0, 1.0);
+			vec3 diff = lightDiffuse * lightPower * cosTheta / (distance * distance);
+
+			// specular, reflective highlight, like a mirror
+			float cosAlpha = clamp(dot(viewDir, reflectDir), 0.0, 1.0);
+			vec3 spec = vec3(0.3, 0.3, 0.3) * lightDiffuse * lightPower * pow(cosAlpha, 5.0) / (distance * distance);
+
+			return amb + diff + spec;
+		}
 
 		void main() {
+			// Get the position and normal in camera space
+			vec3 camNorm = normalize((viewMatrix * modelMatrix * vec4(vertexNormal, 0.0)).xyz);
+			vec4 camPosition = modelViewMatrix * vec4(vertexPosition, 1.0);
+
 			UV = vertexUV;
+
+			// Evaluate the lighting equation
+			lightColor = adsShading(camPosition, camNorm);
+
+			// Output position of the vertex, clipspace
 			gl_Position = projectionMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
 		}
 	`, `
 		#version 330 core
 
 		in vec2 UV;
+		in vec3 lightColor;
 
 		uniform vec3  diffuse;
 		uniform float opacity;
@@ -84,23 +137,30 @@ func main() {
 
 		void main() {
 			vec3 materialColor = texture(diffuseMap, UV).rgb;
-			fragmentColor = vec4(materialColor * diffuse, opacity);
+
+			fragmentColor = vec4(lightColor * materialColor * diffuse, opacity);
 		}
 	`)
 	defer program.Delete()
 
 	projectionUniform := program.GetUniformLocation("projectionMatrix")
+	viewUniform := program.GetUniformLocation("viewMatrix")
+	modelUniform := program.GetUniformLocation("modelMatrix")
 	modelViewUniform := program.GetUniformLocation("modelViewMatrix")
 	diffuseUniform := program.GetUniformLocation("diffuse")
 	opacityUniform := program.GetUniformLocation("opacity")
 	diffuseMapUniform := program.GetUniformLocation("diffuseMap")
+	lightPositionUniform := program.GetUniformLocation("lightPosition")
+	lightDiffuseUniform := program.GetUniformLocation("lightDiffuse")
+	lightPowerUniform := program.GetUniformLocation("lightPower")
+	ambientColorUniform := program.GetUniformLocation("ambientColor")
 
 	positionAttribute := program.GetAttribLocation("vertexPosition")
 	normalAttribute := program.GetAttribLocation("vertexNormal")
 	uvAttribute := program.GetAttribLocation("vertexUV")
 
 	// setup mesh buffers
-	mesh := LoadObjFile("assets/fighter/fighter.obj")
+	mesh := LoadObjFile("assets/cube/cube.obj")
 
 	// vao
 	vertexArrayObject := gl.GenVertexArray()
@@ -134,13 +194,13 @@ func main() {
 	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, size, mesh.Indices, gl.STATIC_DRAW)
 
 	// setup texture
-	textureBuffer := LoadTexture("assets/fighter/fighter.png")
+	textureBuffer := LoadTexture("assets/uvtemplate.png")
 	defer textureBuffer.Delete()
 
 	// main loop
 	var angle float32
 	for ok := true; ok; ok = (window.GetKey(glfw.KeyEscape) != glfw.Press && !window.ShouldClose()) {
-		angle += float32(math.Pi / 5000.0)
+		angle += float32(math.Pi / 10000.0)
 		textureSlots := 0
 
 		func() {
@@ -154,16 +214,26 @@ func main() {
 			projectionMatrix := mgl32.Perspective(45.0, float32(width)/float32(height), 0.1, 200.0)
 			projectionUniform.UniformMatrix4fv(false, projectionMatrix)
 
-			viewMatrix := mgl32.LookAtV(mgl32.Vec3{0, 0, -10}, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0})
-			modelMatrix := mgl32.HomogRotate3D(angle, (mgl32.Vec3{1, 0.8, 0.5}).Normalize())
-			modelViewMatrix := viewMatrix.Mul4(modelMatrix)
-			modelViewUniform.UniformMatrix4fv(false, modelViewMatrix)
+			viewMatrix := mgl32.LookAtV(mgl32.Vec3{5, 0, 10}, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0})
+			viewUniform.UniformMatrix4fv(false, viewMatrix)
 
 			diffuseColor := mgl32.Vec3{0.5, 0.8, 1}
 			diffuseUniform.Uniform3f(diffuseColor[0], diffuseColor[1], diffuseColor[2])
 
 			opacity := float32(1.0)
 			opacityUniform.Uniform1f(opacity)
+
+			lightPosition := mgl32.Vec3{10, 2, 0}
+			lightPositionUniform.Uniform3f(lightPosition[0], lightPosition[1], lightPosition[2])
+
+			lightDiffuse := mgl32.Vec3{1, 1, 1}
+			lightDiffuseUniform.Uniform3f(lightDiffuse[0], lightDiffuse[1], lightDiffuse[2])
+
+			lightPower := float32(100.0)
+			lightPowerUniform.Uniform1f(lightPower)
+
+			ambientColor := mgl32.Vec3{1, 1, 1}
+			ambientColorUniform.Uniform3f(ambientColor[0], ambientColor[1], ambientColor[2])
 
 			// bind texture
 			gl.ActiveTexture(gl.TEXTURE0 + gl.GLenum(textureSlots))
@@ -194,10 +264,21 @@ func main() {
 			defer uvAttribute.DisableArray()
 			uvAttribute.AttribPointer(2, gl.FLOAT, false, 0, nil)
 
-			// draw elements
-			elementBuffer.Bind(gl.ELEMENT_ARRAY_BUFFER)
-			defer elementBuffer.Unbind(gl.ELEMENT_ARRAY_BUFFER)
-			gl.DrawElements(gl.TRIANGLES, len(mesh.Indices), gl.UNSIGNED_SHORT, nil)
+			var x, y, z, a float32
+			for x = -4; x <= 4; x += 4 {
+				a += math.Pi / 4.0
+
+				modelMatrix := mgl32.Translate3D(x, y, z).Mul4(mgl32.HomogRotate3D(angle+a, (mgl32.Vec3{1, 0.8, 0.5}).Normalize()))
+				modelUniform.UniformMatrix4fv(false, modelMatrix)
+
+				modelViewMatrix := viewMatrix.Mul4(modelMatrix)
+				modelViewUniform.UniformMatrix4fv(false, modelViewMatrix)
+
+				// draw elements
+				elementBuffer.Bind(gl.ELEMENT_ARRAY_BUFFER)
+				defer elementBuffer.Unbind(gl.ELEMENT_ARRAY_BUFFER)
+				gl.DrawElements(gl.TRIANGLES, len(mesh.Indices), gl.UNSIGNED_SHORT, nil)
+			}
 
 			// Swap buffers
 			window.SwapBuffers()
