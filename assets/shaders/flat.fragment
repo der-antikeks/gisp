@@ -1,17 +1,43 @@
 #version 330 core
+#define MAX_LIGHTS 3
 
 // Interpolated values from the vertex shaders
  in vec3 lightColor;
 in vec2 UV;
+in vec4 ShadowCoord[MAX_LIGHTS];
 
 // Values that stay constant for the whole mesh
 uniform float opacity;
 uniform sampler2D diffuseMap;
+
+uniform int lightCount;
+uniform sampler2DShadow shadowMap[MAX_LIGHTS];
+//uniform sampler2D shadowMap[MAX_LIGHTS];
+//uniform samplerCubeShadow
 
 // Output data
 out vec4 fragmentColor;
 
 void main() {
 	vec3 materialColor = texture(diffuseMap, UV).rgb;
-	fragmentColor = vec4(lightColor * materialColor, opacity);
+
+	
+	float visibility = 0.0;
+	for (int idx = 0; idx < lightCount; idx++) {
+		visibility += texture(shadowMap[idx], vec3(ShadowCoord[idx].xy, (ShadowCoord[idx].z)/ShadowCoord[idx].w));
+	}
+	visibility /= lightCount;
+	
+
+	/*
+	float bias = 0.005;
+	float visibility = 1.0;
+	for (int idx = 0; idx < lightCount; idx++) {
+		if (texture(shadowMap[idx], ShadowCoord[idx].xy/ShadowCoord[idx].w).z < (ShadowCoord[idx].z - bias)/ShadowCoord[idx].w) {
+			visibility -= 0.2;
+		}
+	}
+	*/
+
+	fragmentColor = vec4(lightColor * materialColor, opacity) * visibility;
 }

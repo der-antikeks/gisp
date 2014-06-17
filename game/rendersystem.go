@@ -147,37 +147,6 @@ func (s *renderSystem) renderScene(delta time.Duration, camera Entity) error {
 	}
 	sc := ec.(Scene).Name
 
-	// set rendertarget
-	color := mgl32.Vec3{0, 0, 0}
-	alpha := 1.0
-	clear := true
-
-	if target := p.Target; target != nil {
-		color = target.Color
-		alpha = target.Alpha
-		clear = target.Clear
-
-		// TODO: cache binding?
-		GlContextSystem(nil).MainThread(func() {
-			target.frameBuffer.Bind()
-		})
-		defer GlContextSystem(nil).MainThread(func() {
-			target.frameBuffer.Unbind()
-		})
-		//gl.Viewport(0, 0, target.texture.w, target.texture.h)
-	} else {
-		// w, h := GlContextSystem(nil).Size()
-		// gl.Viewport(0, 0, w, h)
-		// TODO: already set in WindowManager onResize(), must be changed after frambuffer?
-	}
-
-	if clear {
-		GlContextSystem(nil).MainThread(func() {
-			gl.ClearColor(gl.GLclampf(color[0]), gl.GLclampf(color[1]), gl.GLclampf(color[2]), gl.GLclampf(alpha))
-			gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
-		})
-	}
-
 	// update scene matrix (all objects)
 	// update camera matrix if not child of scene
 	// calculate frustum of camera
@@ -191,9 +160,12 @@ func (s *renderSystem) renderScene(delta time.Duration, camera Entity) error {
 	pos := t.MatrixWorld().Mul4x1(mgl32.Vec4{0, 0, 0, 1})
 	opaque, transparent, light := s.sortEntities(pos, visible)
 
+	// setup lights and shadowmaps
 	lights := struct {
 		pos, diff []mgl32.Vec3
 		pow       []float64
+		shadows   []*Texture
+		depthBias []mgl32.Mat4
 	}{}
 
 	for _, l := range light {
@@ -210,19 +182,69 @@ func (s *renderSystem) renderScene(delta time.Duration, camera Entity) error {
 		}
 		ld := ec.(Light)
 
-		lights.pos = append(lights.pos, mgl32.Vec3{p[0], p[1], p[2]})
+		pos := mgl32.Vec3{p[0], p[1], p[2]}
+		lights.pos = append(lights.pos, pos)
 		lights.diff = append(lights.diff, ld.Diffuse)
 		lights.pow = append(lights.pow, ld.Power)
+
+		var psc []Entity // potential shadow casters
+		psc = append(psc, opaque...)
+		psc = append(psc, transparent...)
+		depthBiasMVP := s.generateShadowMap(pos, ld.Shadows, psc)
+
+		lights.depthBias = append(lights.depthBias, depthBiasMVP)
+		lights.shadows = append(lights.shadows, ld.Shadows.texture)
+	}
+
+	// set rendertarget
+	color := mgl32.Vec3{0, 0, 0}
+	alpha := 1.0
+	clear := true
+
+	if target := p.Target; target != nil {
+		color = target.Color
+		alpha = target.Alpha
+		clear = target.Clear
+
+		// TODO: cache binding?
+		GlContextSystem(nil).MainThread(func() {
+			target.frameBuffer.Bind()
+			gl.Viewport(0, 0, target.texture.w, target.texture.h)
+		})
+		defer GlContextSystem(nil).MainThread(func() {
+			target.frameBuffer.Unbind()
+		})
+
+	} else {
+		w, h := GlContextSystem(nil).Size()
+		GlContextSystem(nil).MainThread(func() {
+			gl.Viewport(0, 0, w, h)
+		})
+		// TODO: already set in WindowManager onResize(), must be changed after frambuffer?
+	}
+
+	if clear {
+		GlContextSystem(nil).MainThread(func() {
+			gl.ClearColor(gl.GLclampf(color[0]), gl.GLclampf(color[1]), gl.GLclampf(color[2]), gl.GLclampf(alpha))
+			gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+		})
 	}
 
 	// opaque pass (front-to-back order)
+	err = nil
 	GlContextSystem(nil).MainThread(func() {
 		gl.Disable(gl.BLEND)
 
 		for _, e := range opaque {
-			s.renderEntity(e, t, p, lights)
+			err = s.renderEntity(e, t, p, lights)
+			if err != nil {
+				return
+			}
 		}
 	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// transparent pass (back-to-front order)
 	GlContextSystem(nil).MainThread(func() {
@@ -231,9 +253,15 @@ func (s *renderSystem) renderScene(delta time.Duration, camera Entity) error {
 		gl.BlendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
 
 		for _, e := range transparent {
-			s.renderEntity(e, t, p, lights)
+			err = s.renderEntity(e, t, p, lights)
+			if err != nil {
+				return
+			}
 		}
 	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	return nil
 }
@@ -323,6 +351,8 @@ func (s *renderSystem) renderEntity(
 	lights struct {
 		pos, diff []mgl32.Vec3
 		pow       []float64
+		shadows   []*Texture
+		depthBias []mgl32.Mat4
 	}) error {
 
 	ec, err := EntitySystem().Get(object, MaterialType)
@@ -348,6 +378,91 @@ func (s *renderSystem) renderEntity(
 		cameratransform, projection, lights)
 }
 
+func (s *renderSystem) generateShadowMap(lightPos mgl32.Vec3, target *RenderTarget, entities []Entity) mgl32.Mat4 {
+	lightInvDir := mgl32.Vec3{0.5, 2, 2}
+
+	depthProjectionMatrix := mgl32.Ortho(-10, 10, -10, 10, -10, 20)
+	depthViewMatrix := mgl32.LookAtV(lightInvDir, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0})
+
+	// for spotlight
+	//depthProjectionMatrix := mgl32.Perspective(45.0, 1.0, 2.0, 50.0)
+	//depthViewMatrix := mgl32.LookAtV(lightPos, lightPos.Sub(lightInvDir), mgl32.Vec3{0, 1, 0})
+	modelViewMatrix := depthViewMatrix.Mul4(mgl32.Ident4())
+
+	depthBiasMVP := (mgl32.Mat4{
+		0.5, 0.0, 0.0, 0.0,
+		0.0, 0.5, 0.0, 0.0,
+		0.0, 0.0, 0.5, 0.0,
+		0.5, 0.5, 0.5, 1.0,
+	}).Mul4(depthProjectionMatrix.Mul4(modelViewMatrix))
+
+	material := EntitySystem().getMaterial("shadow")
+
+	color := mgl32.Vec3{0, 0, 0}
+	alpha := 1.0
+
+	GlContextSystem(nil).MainThread(func() {
+		target.frameBuffer.Bind()
+		gl.Viewport(0, 0, target.texture.w, target.texture.h)
+
+		gl.ClearColor(gl.GLclampf(color[0]), gl.GLclampf(color[1]), gl.GLclampf(color[2]), gl.GLclampf(alpha))
+		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+
+		// ### bind material
+		if material.program != s.currentProgram {
+			s.currentProgram = material.program
+			s.currentProgram.program.Use()
+		}
+
+		// unbind old textures
+		s.unbindTextures()
+
+		// ### update uniforms
+		s.UpdateUniform("projectionMatrix", depthProjectionMatrix)
+		s.UpdateUniform("modelViewMatrix", modelViewMatrix)
+		/*
+			for n, v := range material.uniforms {
+				if err := s.UpdateUniform(n, v); err != nil {
+					return err
+				}
+			}
+		*/
+
+		for _, e := range entities {
+			ec, err := EntitySystem().Get(e, GeometryType)
+			if err != nil {
+				log.Println("entity without geometry?!")
+				continue
+			}
+			geometry := ec.(Geometry)
+
+			// ### bind geometry
+
+			// disable old attributes
+			s.currentProgram.DisableAttributes()
+
+			// bind new buffers
+			s.currentGeometry = geometry.mesh
+			s.currentGeometry.VertexArrayObject.Bind()
+			//defer s.currentGeometry.VertexArrayObject.Unbind()
+
+			// vertices
+			s.currentGeometry.PositionBuffer.Bind(gl.ARRAY_BUFFER)
+			defer s.currentGeometry.PositionBuffer.Unbind(gl.ARRAY_BUFFER)
+			s.currentProgram.EnableAttribute("vertexPosition")
+
+			// ### draw
+			s.currentGeometry.FaceBuffer.Bind(gl.ELEMENT_ARRAY_BUFFER)
+			defer s.currentGeometry.FaceBuffer.Unbind(gl.ELEMENT_ARRAY_BUFFER)
+			gl.DrawElements(gl.TRIANGLES, s.currentGeometry.FaceCount*3, gl.UNSIGNED_SHORT, nil /* uintptr(start) */) // gl.UNSIGNED_INT, UNSIGNED_SHORT
+		}
+
+		target.frameBuffer.Unbind()
+	})
+
+	return depthBiasMVP
+}
+
 func (s *renderSystem) render(
 	objecttransform Transformation,
 	material Material,
@@ -358,6 +473,8 @@ func (s *renderSystem) render(
 	lights struct {
 		pos, diff []mgl32.Vec3
 		pow       []float64
+		shadows   []*Texture
+		depthBias []mgl32.Mat4
 	}) error {
 
 	// ### bind material
@@ -440,6 +557,13 @@ func (s *renderSystem) render(
 		if err := s.UpdateUniform("lightPower", lights.pow); err != nil {
 			return err
 		}
+
+		if err := s.UpdateUniform("shadowMap", lights.shadows); err != nil {
+			return err
+		}
+		if err := s.UpdateUniform("shadowMVP", lights.depthBias); err != nil {
+			return err
+		}
 	}
 
 	// ### draw
@@ -506,6 +630,16 @@ func (s *renderSystem) UpdateUniform(name string, value interface{}) error {
 	case mgl32.Vec4:
 		s.currentProgram.uniforms[name].location.Uniform4f(t[0], t[1], t[2], t[3])
 
+	case []*Texture:
+		if len(t) == 0 {
+			return nil // fmt.Errorf("empty []*Texture: %v", name)
+		}
+		var va []int32
+		for _, v := range t {
+			va = append(va, int32(s.bindTexture(v.buffer)))
+		}
+		s.currentProgram.uniforms[name].location.Uniform1iv(len(t), va)
+
 	case []int:
 		var va []int32
 		for _, v := range t {
@@ -520,6 +654,16 @@ func (s *renderSystem) UpdateUniform(name string, value interface{}) error {
 			va = append(va, float32(v))
 		}
 		s.currentProgram.uniforms[name].location.Uniform1fv(len(t), va)
+
+	case []mgl32.Mat4:
+		if len(t) == 0 {
+			return nil // fmt.Errorf("empty []Mat4: %v", name)
+		}
+		var va [][16]float32
+		for _, v := range t {
+			va = append(va, [16]float32(v))
+		}
+		s.currentProgram.uniforms[name].location.UniformMatrix4fv(false, va...)
 
 	case []mgl32.Vec2:
 		var va []float32
@@ -550,3 +694,12 @@ func (s *renderSystem) UpdateUniform(name string, value interface{}) error {
 
 	return nil
 }
+
+/*
+	idea for future render function:
+
+	geometry, meshbuffer -> attributes
+	material, light, mvp -> uniforms
+
+	render(Attributes, Uniforms)
+*/

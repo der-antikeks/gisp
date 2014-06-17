@@ -531,6 +531,7 @@ func (s *entitySystem) createLights() {
 	light := Light{
 		Diffuse: mgl32.Vec3{1, 0, 0},
 		Power:   100.0,
+		Shadows: AssetLoaderSystem(nil).NewShadowMap(1024, 1024),
 	}
 
 	if err := s.Set(s.Entity(), stc, light, trans); err != nil {
@@ -540,6 +541,7 @@ func (s *entitySystem) createLights() {
 	trans.Position = mgl32.Vec3{-5, 10, 0}
 	light.Diffuse = mgl32.Vec3{0, 1, 0}
 	light.Power = 50.0
+	light.Shadows = AssetLoaderSystem(nil).NewShadowMap(1024, 1024)
 	if err := s.Set(s.Entity(), stc, light, trans); err != nil {
 		log.Fatal("could not create light:", err)
 	}
@@ -547,6 +549,7 @@ func (s *entitySystem) createLights() {
 	trans.Position = mgl32.Vec3{5, -10, 0}
 	light.Diffuse = mgl32.Vec3{0, 0, 1}
 	light.Power = 100.0
+	light.Shadows = AssetLoaderSystem(nil).NewShadowMap(1024, 1024)
 	vel := Velocity{Velocity: mgl32.Vec3{0, 1, 0}}
 	if err := s.Set(s.Entity(), stc, light, trans, vel); err != nil {
 		log.Fatal("could not create light:", err)

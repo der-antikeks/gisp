@@ -12,17 +12,19 @@ uniform mat4 modelMatrix;		// model matrix
 uniform mat4 modelViewMatrix;	// view * model matrix
 uniform mat3 normalMatrix;		// model-view normal
 
-#define MAX_LIGHTS 10
+#define MAX_LIGHTS 3
 uniform int lightCount;
 uniform vec3 lightPosition[MAX_LIGHTS];	// worldspace
 uniform vec3 lightDiffuse[MAX_LIGHTS];
 uniform float lightPower[MAX_LIGHTS];
+uniform mat4 shadowMVP[MAX_LIGHTS];
 
 uniform vec3 ambientColor;				// indirect light
 
 // Output data, will be interpolated for each fragment
  out vec3 lightColor;
 out vec2 UV;
+out vec4 ShadowCoord[MAX_LIGHTS];
 
 vec3 adsShading(vec4 position, vec3 norm, int idx) {
 	vec4 lightPosCam = viewMatrix * vec4(lightPosition[idx], 1.0); // cameraspace
@@ -55,6 +57,7 @@ void main() {
 	lightColor = vec3(0.0);
 	for (int idx = 0; idx < lightCount; idx++) {
 		lightColor += adsShading(camPosition, camNorm, idx);
+		ShadowCoord[idx] = shadowMVP[idx] * vec4(vertexPosition, 1.0);
 	}
 	
 	UV = vertexUV;

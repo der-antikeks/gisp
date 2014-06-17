@@ -169,7 +169,7 @@ type Light struct {
 	Diffuse mgl32.Vec3
 	Power   float64
 
-	shadows *ShadowMap
+	Shadows *RenderTarget
 }
 
 func (c Light) Type() ComponentType {

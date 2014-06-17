@@ -967,8 +967,10 @@ func (ls *assetLoaderSystem) LoadShader(name string) *shaderprogram {
 		uniforms["lightPosition"] = []mgl32.Vec3{{0, 0, 0}}
 		uniforms["lightPower"] = []float64{50.0}
 
-		uniforms["ambientColor"] = mgl32.Vec3{1, 1, 1}
+		uniforms["shadowMVP"] = []mgl32.Mat4{}
+		uniforms["shadowMap"] = []*Texture{}
 
+		uniforms["ambientColor"] = mgl32.Vec3{1, 1, 1}
 		uniforms["diffuseMap"] = nil // *Texture
 		uniforms["opacity"] = 1.0
 
@@ -989,6 +991,16 @@ func (ls *assetLoaderSystem) LoadShader(name string) *shaderprogram {
 		uniforms["distanceFieldMap"] = nil // *Texture
 		uniforms["diffuse"] = mgl32.Vec3{1, 1, 1}
 		uniforms["opacity"] = 0.25
+
+	case "shadow":
+		uniforms = map[string]interface{}{
+			"projectionMatrix": nil,
+			"modelViewMatrix":  nil,
+		}
+		attributes = map[string]uint{
+			"vertexPosition": 3,
+		}
+
 	}
 
 	s := &shaderprogram{
@@ -1433,8 +1445,6 @@ func (ls *assetLoaderSystem) CreateString(f *Font, s string) (*meshbuffer, Bound
 	return mb, mb.Bounding
 }
 
-// TODO: Framebuffers
-
 type RenderTarget struct {
 	Color mgl32.Vec3
 	Alpha float64
@@ -1458,9 +1468,6 @@ func (t *RenderTarget) Cleanup() {
 }
 
 func (ls *assetLoaderSystem) NewRenderTarget(w, h int) *RenderTarget {
-	ls.lock.Lock()
-	defer ls.lock.Unlock()
-
 	// generate texture
 	t := &Texture{w: w, h: h}
 	GlContextSystem(nil).MainThread(func() {
@@ -1491,11 +1498,11 @@ func (ls *assetLoaderSystem) NewRenderTarget(w, h int) *RenderTarget {
 	GlContextSystem(nil).MainThread(func() {
 		rt.frameBuffer = gl.GenFramebuffer()
 		rt.frameBuffer.Bind()
-		defer rt.renderBuffer.Unbind()
+		defer rt.frameBuffer.Unbind()
 
 		rt.renderBuffer = gl.GenRenderbuffer()
 		rt.renderBuffer.Bind()
-		defer rt.frameBuffer.Unbind()
+		defer rt.renderBuffer.Unbind()
 
 		// configure renderbuffer
 		gl.RenderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT /* 16 */, rt.texture.w, rt.texture.h)
@@ -1503,7 +1510,6 @@ func (ls *assetLoaderSystem) NewRenderTarget(w, h int) *RenderTarget {
 
 		// configure framebuffer
 		gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, rt.texture.buffer, 0)
-		//gl.FramebufferTexture(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, t.texture.buffer, 0)
 		//gl.DrawBuffers(1, []gl.GLenum{gl.COLOR_ATTACHMENT0 + gl.GLenum(slot)})
 		//gl.Viewport(0, 0, t.width, t.height)
 
@@ -1513,16 +1519,59 @@ func (ls *assetLoaderSystem) NewRenderTarget(w, h int) *RenderTarget {
 		}
 	})
 
+	ls.lock.Lock()
+	defer ls.lock.Unlock()
 	ls.rendertargets = append(ls.rendertargets, rt)
 	return rt
 }
 
-type ShadowMap struct {
-	// distance texture
-}
+func (ls *assetLoaderSystem) NewShadowMap(w, h int) *RenderTarget {
+	rt := &RenderTarget{
+		Color:   mgl32.Vec3{0, 0, 0},
+		Alpha:   1.0,
+		Clear:   true,
+		texture: &Texture{w: w, h: h},
+	}
 
-func (ls *assetLoaderSystem) NewShadowMap(w, h int) *ShadowMap {
-	return nil
+	GlContextSystem(nil).MainThread(func() {
+		// generate depth texture
+		rt.texture.buffer = gl.GenTexture()
+		rt.texture.buffer.Bind(gl.TEXTURE_2D)
+		defer rt.texture.buffer.Unbind(gl.TEXTURE_2D)
+
+		// set texture parameters
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE)
+
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR) // gl.NEAREST
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+
+		// create storage
+		gl.TexImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT16,
+			rt.texture.w, rt.texture.h,
+			0, gl.DEPTH_COMPONENT, gl.FLOAT, nil)
+
+		// generate framebuffer
+		rt.frameBuffer = gl.GenFramebuffer()
+		rt.frameBuffer.Bind()
+		defer rt.frameBuffer.Unbind()
+
+		// configure framebuffer
+		gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, rt.texture.buffer, 0)
+		gl.DrawBuffer(gl.NONE)
+		gl.ReadBuffer(gl.NONE)
+
+		// check
+		if e := gl.CheckFramebufferStatus(gl.FRAMEBUFFER); e != gl.FRAMEBUFFER_COMPLETE {
+			log.Fatalf("could not initialize framebuffer: %x", e)
+		}
+	})
+
+	ls.lock.Lock()
+	defer ls.lock.Unlock()
+	ls.rendertargets = append(ls.rendertargets, rt)
+	return rt
 }
 
 func (ls *assetLoaderSystem) Cleanup() {
