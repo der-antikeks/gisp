@@ -86,8 +86,11 @@ func main() {
 
 		uniform vec3 ambientColor;
 
+		uniform mat4 shadowBiasMVP;
+
 		out vec2 UV;
 		out vec3 lightColor;
+		out vec4 shadowCoord;
 
 		vec3 adsShading(vec4 position, vec3 norm) {
 			vec4 lightPosCam = viewMatrix * vec4(lightPosition, 1.0); // cameraspace
@@ -120,6 +123,9 @@ func main() {
 			// Evaluate the lighting equation
 			lightColor = adsShading(camPosition, camNorm);
 
+			// Output position of the vertex, lights view matrix
+			shadowCoord = shadowBiasMVP * vec4(vertexPosition, 1.0);
+
 			// Output position of the vertex, clipspace
 			gl_Position = projectionMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
 		}
@@ -128,17 +134,26 @@ func main() {
 
 		in vec2 UV;
 		in vec3 lightColor;
+		in vec4 shadowCoord;
 
 		uniform vec3  diffuse;
 		uniform float opacity;
 		uniform sampler2D diffuseMap;
+
+		uniform sampler2D shadowMap;
 
 		out vec4 fragmentColor;
 
 		void main() {
 			vec3 materialColor = texture(diffuseMap, UV).rgb;
 
-			fragmentColor = vec4(lightColor * materialColor * diffuse, opacity);
+			float bias = 0.005;
+			float visibility = 1.0;
+			if (texture(shadowMap, (shadowCoord.xy/shadowCoord.w)).z < (shadowCoord.z - bias)/shadowCoord.w) {
+				visibility = 0.5;
+			}
+
+			fragmentColor = vec4(visibility * lightColor * materialColor * diffuse, opacity);
 		}
 	`)
 	defer program.Delete()
@@ -154,6 +169,8 @@ func main() {
 	lightDiffuseUniform := program.GetUniformLocation("lightDiffuse")
 	lightPowerUniform := program.GetUniformLocation("lightPower")
 	ambientColorUniform := program.GetUniformLocation("ambientColor")
+	shadowBiasMVPUniform := program.GetUniformLocation("shadowBiasMVP")
+	shadowMapUniform := program.GetUniformLocation("shadowMap")
 
 	positionAttribute := program.GetAttribLocation("vertexPosition")
 	normalAttribute := program.GetAttribLocation("vertexNormal")
@@ -197,13 +214,124 @@ func main() {
 	textureBuffer := LoadTexture("assets/uvtemplate.png")
 	defer textureBuffer.Delete()
 
+	// shadow map
+	sw, sh := 1024, 1024
+	depthBuffer, frameBuffer := GenShadowMap(sw, sh)
+	defer depthBuffer.Delete()
+	defer frameBuffer.Delete()
+
+	shadowProgram := LoadShader(`
+			#version 330 core
+
+			in vec3 vertexPosition;
+
+			uniform mat4 projectionMatrix;
+			uniform mat4 modelViewMatrix;
+
+			void main() {
+				gl_Position = projectionMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
+			}
+		`, `
+			#version 330 core
+
+			out vec4 fragmentDepth;
+
+			void main() {
+				fragmentDepth = gl_FragCoord.z;
+			}
+		`)
+	defer shadowProgram.Delete()
+
+	shadowProjectionUniform := shadowProgram.GetUniformLocation("projectionMatrix")
+	shadowModelViewUniform := shadowProgram.GetUniformLocation("modelViewMatrix")
+
+	shadowPositionAttribute := shadowProgram.GetAttribLocation("vertexPosition")
+
 	// main loop
 	var angle float32
 	for ok := true; ok; ok = (window.GetKey(glfw.KeyEscape) != glfw.Press && !window.ShouldClose()) {
 		angle += float32(math.Pi / 10000.0)
 		textureSlots := 0
 
+		// objects
+		var objects []mgl32.Mat4
+		var x, y, z, a float32
+		for x = -4; x <= 4; x += 4 {
+			a += math.Pi / 4.0
+
+			o := mgl32.Translate3D(x, y, z).Mul4(mgl32.HomogRotate3D(angle+a, (mgl32.Vec3{1, 0.8, 0.5}).Normalize()))
+			objects = append(objects, o)
+		}
+
+		// camera
+		projectionMatrix := mgl32.Perspective(45.0, float32(width)/float32(height), 0.1, 200.0)
+		viewMatrix := mgl32.LookAtV(mgl32.Vec3{10, 5, 2}, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0})
+
+		// object material
+		diffuseColor := mgl32.Vec3{0.5, 0.8, 1}
+		opacity := float32(1.0)
+
+		// light
+		lightPosition := mgl32.Vec3{10, 2, 0}
+		lightDiffuse := mgl32.Vec3{1, 1, 1}
+		lightPower := float32(100.0)
+		ambientColor := mgl32.Vec3{1, 1, 1}
+
+		// shadow
+		//shadowProjectionMatrix := mgl32.Ortho(-10, 10, -10, 10, -10, 20)
+		shadowProjectionMatrix := mgl32.Perspective(45.0, float32(sw)/float32(sh), 2.0, 50.0)
+		shadowViewMatrix := mgl32.LookAtV(lightPosition, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0})
+		biasMatrix := mgl32.Mat4{
+			0.5, 0.0, 0.0, 0.0,
+			0.0, 0.5, 0.0, 0.0,
+			0.0, 0.0, 0.5, 0.0,
+			0.5, 0.5, 0.5, 1.0,
+		}
+
+		// render to shadowmap
 		func() {
+			frameBuffer.Bind()
+			defer frameBuffer.Unbind()
+			gl.Viewport(0, 0, sw, sh)
+			gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+
+			// use program
+			shadowProgram.Use()
+			defer shadowProgram.Unuse()
+
+			// update uniforms
+			shadowProjectionUniform.UniformMatrix4fv(false, shadowProjectionMatrix)
+
+			// bind attributes
+			vertexArrayObject.Bind()
+			defer vertexArrayObject.Unbind()
+
+			vertexBuffer.Bind(gl.ARRAY_BUFFER)
+			defer vertexBuffer.Unbind(gl.ARRAY_BUFFER)
+			shadowPositionAttribute.EnableArray()
+			defer shadowPositionAttribute.DisableArray()
+			shadowPositionAttribute.AttribPointer(3, gl.FLOAT, false, 0, nil)
+
+			for _, modelMatrix := range objects {
+				modelUniform.UniformMatrix4fv(false, modelMatrix)
+
+				modelViewMatrix := shadowViewMatrix.Mul4(modelMatrix)
+				shadowModelViewUniform.UniformMatrix4fv(false, modelViewMatrix)
+
+				// draw elements
+				elementBuffer.Bind(gl.ELEMENT_ARRAY_BUFFER)
+				defer elementBuffer.Unbind(gl.ELEMENT_ARRAY_BUFFER)
+				gl.DrawElements(gl.TRIANGLES, len(mesh.Indices), gl.UNSIGNED_SHORT, nil)
+			}
+
+			// Swap buffers
+			window.SwapBuffers()
+			glfw.PollEvents()
+		}()
+
+		// render to screen
+		func() {
+			gl.Viewport(0, 0, width, height)
 			gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
 			// use program
@@ -211,28 +339,15 @@ func main() {
 			defer program.Unuse()
 
 			// update uniforms
-			projectionMatrix := mgl32.Perspective(45.0, float32(width)/float32(height), 0.1, 200.0)
 			projectionUniform.UniformMatrix4fv(false, projectionMatrix)
-
-			viewMatrix := mgl32.LookAtV(mgl32.Vec3{5, 0, 10}, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0})
 			viewUniform.UniformMatrix4fv(false, viewMatrix)
 
-			diffuseColor := mgl32.Vec3{0.5, 0.8, 1}
 			diffuseUniform.Uniform3f(diffuseColor[0], diffuseColor[1], diffuseColor[2])
-
-			opacity := float32(1.0)
 			opacityUniform.Uniform1f(opacity)
 
-			lightPosition := mgl32.Vec3{10, 2, 0}
 			lightPositionUniform.Uniform3f(lightPosition[0], lightPosition[1], lightPosition[2])
-
-			lightDiffuse := mgl32.Vec3{1, 1, 1}
 			lightDiffuseUniform.Uniform3f(lightDiffuse[0], lightDiffuse[1], lightDiffuse[2])
-
-			lightPower := float32(100.0)
 			lightPowerUniform.Uniform1f(lightPower)
-
-			ambientColor := mgl32.Vec3{1, 1, 1}
 			ambientColorUniform.Uniform3f(ambientColor[0], ambientColor[1], ambientColor[2])
 
 			// bind texture
@@ -240,6 +355,12 @@ func main() {
 			textureBuffer.Bind(gl.TEXTURE_2D)
 			defer textureBuffer.Unbind(gl.TEXTURE_2D)
 			diffuseMapUniform.Uniform1i(textureSlots)
+			textureSlots++
+
+			gl.ActiveTexture(gl.TEXTURE0 + gl.GLenum(textureSlots))
+			depthBuffer.Bind(gl.TEXTURE_2D)
+			defer depthBuffer.Unbind(gl.TEXTURE_2D)
+			shadowMapUniform.Uniform1i(textureSlots)
 			textureSlots++
 
 			// bind attributes
@@ -264,15 +385,15 @@ func main() {
 			defer uvAttribute.DisableArray()
 			uvAttribute.AttribPointer(2, gl.FLOAT, false, 0, nil)
 
-			var x, y, z, a float32
-			for x = -4; x <= 4; x += 4 {
-				a += math.Pi / 4.0
-
-				modelMatrix := mgl32.Translate3D(x, y, z).Mul4(mgl32.HomogRotate3D(angle+a, (mgl32.Vec3{1, 0.8, 0.5}).Normalize()))
+			for _, modelMatrix := range objects {
 				modelUniform.UniformMatrix4fv(false, modelMatrix)
 
 				modelViewMatrix := viewMatrix.Mul4(modelMatrix)
 				modelViewUniform.UniformMatrix4fv(false, modelViewMatrix)
+
+				shadowMVP := shadowProjectionMatrix.Mul4(shadowViewMatrix.Mul4(modelMatrix))
+				shadowBiasMVP := biasMatrix.Mul4(shadowMVP)
+				shadowBiasMVPUniform.UniformMatrix4fv(false, shadowBiasMVP)
 
 				// draw elements
 				elementBuffer.Bind(gl.ELEMENT_ARRAY_BUFFER)
@@ -589,7 +710,7 @@ func LoadTexture(path string) gl.Texture {
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR) // gl.LINEAR_MIPMAP_LINEAR
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
 
-	// give image(s) to opengl
+	// give image to opengl
 	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA,
 		rgba.Bounds().Dx(), rgba.Bounds().Dy(),
 		0, gl.RGBA, gl.UNSIGNED_BYTE, rgba.Pix)
@@ -600,4 +721,41 @@ func LoadTexture(path string) gl.Texture {
 	buffer.Unbind(gl.TEXTURE_2D)
 
 	return buffer
+}
+
+func GenShadowMap(w, h int) (gl.Texture, gl.Framebuffer) {
+	// generate depth texture
+	depthBuffer := gl.GenTexture()
+	depthBuffer.Bind(gl.TEXTURE_2D)
+	defer depthBuffer.Unbind(gl.TEXTURE_2D)
+
+	// set texture parameters
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE)
+
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR) // gl.NEAREST
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+
+	// create storage
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT16,
+		w, h,
+		0, gl.DEPTH_COMPONENT, gl.FLOAT, nil)
+
+	// generate framebuffer
+	frameBuffer := gl.GenFramebuffer()
+	frameBuffer.Bind()
+	defer frameBuffer.Unbind()
+
+	// configure framebuffer
+	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, depthBuffer, 0)
+	gl.DrawBuffer(gl.NONE)
+	gl.ReadBuffer(gl.NONE)
+
+	// check
+	if e := gl.CheckFramebufferStatus(gl.FRAMEBUFFER); e != gl.FRAMEBUFFER_COMPLETE {
+		log.Fatalf("could not initialize framebuffer: %x", e)
+	}
+
+	return depthBuffer, frameBuffer
 }
