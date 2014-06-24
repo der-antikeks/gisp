@@ -187,19 +187,19 @@ func main() {
 	vertexBuffer := gl.GenBuffer()
 	defer vertexBuffer.Delete()
 	vertexBuffer.Bind(gl.ARRAY_BUFFER)
-	size := len(mesh.Vertices) * int(glh.Sizeof(gl.FLOAT))
-	gl.BufferData(gl.ARRAY_BUFFER, size, mesh.Vertices, gl.STATIC_DRAW)
+	size := len(mesh.Positions) * 3 * int(glh.Sizeof(gl.FLOAT))
+	gl.BufferData(gl.ARRAY_BUFFER, size, mesh.Positions, gl.STATIC_DRAW)
 
 	uvBuffer := gl.GenBuffer()
 	defer uvBuffer.Delete()
 	uvBuffer.Bind(gl.ARRAY_BUFFER)
-	size = len(mesh.UVs) * int(glh.Sizeof(gl.FLOAT))
+	size = len(mesh.UVs) * 2 * int(glh.Sizeof(gl.FLOAT))
 	gl.BufferData(gl.ARRAY_BUFFER, size, mesh.UVs, gl.STATIC_DRAW)
 
 	normalBuffer := gl.GenBuffer()
 	defer normalBuffer.Delete()
 	normalBuffer.Bind(gl.ARRAY_BUFFER)
-	size = len(mesh.Normals) * int(glh.Sizeof(gl.FLOAT))
+	size = len(mesh.Normals) * 3 * int(glh.Sizeof(gl.FLOAT))
 	gl.BufferData(gl.ARRAY_BUFFER, size, mesh.Normals, gl.STATIC_DRAW)
 
 	// ebo
@@ -456,10 +456,10 @@ func LoadShader(vertex, fragment string) gl.Program {
 }
 
 type Mesh struct {
-	Indices  []uint16
-	Vertices []float32 //mgl32.Vec3
-	UVs      []float32 //mgl32.Vec2
-	Normals  []float32 //mgl32.Vec3
+	Indices   []uint16
+	Positions []mgl32.Vec3
+	UVs       []mgl32.Vec2
+	Normals   []mgl32.Vec3
 }
 
 type Vertex struct {
@@ -497,16 +497,13 @@ func LoadObjFile(path string) *Mesh {
 	reader := bufio.NewReader(file)
 
 	// cache
-	var cache struct {
-		vertices []mgl32.Vec3
-		uvs      []mgl32.Vec2
-		normals  []mgl32.Vec3
-	}
-
-	var result struct {
-		Vertices []Vertex
-		Faces    []Face
-	}
+	var (
+		positions []mgl32.Vec3
+		uvs       []mgl32.Vec2
+		normals   []mgl32.Vec3
+		vertices  []Vertex
+		faces     []Face
+	)
 
 	// helpers
 	mustFloat32 := func(v string) float32 {
@@ -531,20 +528,20 @@ func LoadObjFile(path string) *Mesh {
 
 			switch strings.ToLower(fields[0]) {
 			case "v": // geometric vertices: x, y, z, [w]
-				cache.vertices = append(cache.vertices, mgl32.Vec3{
+				positions = append(positions, mgl32.Vec3{
 					mustFloat32(fields[1]),
 					mustFloat32(fields[2]),
 					mustFloat32(fields[3]),
 				})
 
 			case "vt": // texture vertices: u, v, [w]
-				cache.uvs = append(cache.uvs, mgl32.Vec2{
+				uvs = append(uvs, mgl32.Vec2{
 					mustFloat32(fields[1]),
 					1.0 - mustFloat32(fields[2]),
 				})
 
 			case "vn": // vertex normals: i, j, k
-				cache.normals = append(cache.normals, mgl32.Vec3{
+				normals = append(normals, mgl32.Vec3{
 					mustFloat32(fields[1]),
 					mustFloat32(fields[2]),
 					mustFloat32(fields[3]),
@@ -554,40 +551,40 @@ func LoadObjFile(path string) *Mesh {
 
 				// quad instead of tri, split up
 				// f v/vt/vn v/vt/vn v/vt/vn v/vt/vn
-				var faces [][]string
+				var fcs [][]string
 				if len(fields) == 5 {
-					faces = [][]string{
+					fcs = [][]string{
 						[]string{"f", fields[1], fields[2], fields[4]},
 						[]string{"f", fields[2], fields[3], fields[4]},
 					}
 				} else {
-					faces = [][]string{fields}
+					fcs = [][]string{fields}
 				}
 
-				for _, fields := range faces {
-					var face [3]Vertex
+				for _, fields := range fcs {
+					face := make([]Vertex, 3)
 
 					// v/vt/vn
 					for i, f := range fields[1:4] {
 						a := strings.Split(f, "/")
 
 						// vertex
-						face[i].position = cache.vertices[mustUint64(a[0])-1]
+						face[i].position = positions[mustUint64(a[0])-1]
 
 						// uv
 						if len(a) > 1 && a[1] != "" {
-							face[i].uv = cache.uvs[mustUint64(a[1])-1]
+							face[i].uv = uvs[mustUint64(a[1])-1]
 						}
 
 						// normal
 						if len(a) == 3 {
-							face[i].normal = cache.normals[mustUint64(a[2])-1]
+							face[i].normal = normals[mustUint64(a[2])-1]
 						}
 					}
 
-					offset := len(result.Vertices)
-					result.Vertices = append(result.Vertices, face[0], face[1], face[2])
-					result.Faces = append(result.Faces, Face{offset, offset + 1, offset + 2})
+					offset := len(vertices)
+					vertices = append(vertices, face...)
+					faces = append(faces, Face{offset, offset + 1, offset + 2})
 				}
 			default:
 				// ignore
@@ -603,8 +600,7 @@ func LoadObjFile(path string) *Mesh {
 	lookup := map[string]int{}
 	unique := []Vertex{}
 	changed := map[int]int{}
-
-	for i, v := range result.Vertices {
+	for i, v := range vertices {
 		key := v.Key(4)
 
 		if j, found := lookup[key]; !found {
@@ -620,48 +616,32 @@ func LoadObjFile(path string) *Mesh {
 
 	// change faces
 	cleaned := []Face{}
-
-	for _, f := range result.Faces {
+	for _, f := range faces {
 		a, b, c := changed[f.A], changed[f.B], changed[f.C]
 		if a == b || b == c || c == a {
 			// degenerated face, remove
 			continue
 		}
 
-		nf := Face{a, b, c}
-		cleaned = append(cleaned, nf)
+		cleaned = append(cleaned, Face{a, b, c})
 	}
-
-	// replace with cleaned
-	result.Vertices = unique
-	result.Faces = cleaned
 
 	// copy values to buffers
-	n := len(result.Vertices)
+	n := len(unique)
 	m := Mesh{
-		Indices:  make([]uint16, len(result.Faces)*3),
-		Vertices: make([]float32, n*3),
-		UVs:      make([]float32, n*2),
-		Normals:  make([]float32, n*3),
+		Indices:   make([]uint16, len(cleaned)*3),
+		Positions: make([]mgl32.Vec3, n),
+		UVs:       make([]mgl32.Vec2, n),
+		Normals:   make([]mgl32.Vec3, n),
 	}
 
-	for i, v := range result.Vertices {
-		// position
-		m.Vertices[i*3] = float32(v.position[0])
-		m.Vertices[i*3+1] = float32(v.position[1])
-		m.Vertices[i*3+2] = float32(v.position[2])
-
-		// uv
-		m.UVs[i*2] = float32(v.uv[0])
-		m.UVs[i*2+1] = float32(v.uv[1])
-
-		// normal
-		m.Normals[i*3] = float32(v.normal[0])
-		m.Normals[i*3+1] = float32(v.normal[1])
-		m.Normals[i*3+2] = float32(v.normal[2])
+	for i, v := range unique {
+		m.Positions[i] = v.position
+		m.UVs[i] = v.uv
+		m.Normals[i] = v.normal
 	}
 
-	for i, f := range result.Faces {
+	for i, f := range cleaned {
 		m.Indices[i*3] = uint16(f.A)
 		m.Indices[i*3+1] = uint16(f.B)
 		m.Indices[i*3+2] = uint16(f.C)
