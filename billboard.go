@@ -131,8 +131,8 @@ func main() {
 	vertexBuffer := gl.GenBuffer()
 	defer vertexBuffer.Delete()
 	vertexBuffer.Bind(gl.ARRAY_BUFFER)
-	size := len(mesh.Vertices) * 3 * int(glh.Sizeof(gl.FLOAT))
-	gl.BufferData(gl.ARRAY_BUFFER, size, mesh.Vertices, gl.STATIC_DRAW)
+	size := len(mesh.Positions) * 3 * int(glh.Sizeof(gl.FLOAT))
+	gl.BufferData(gl.ARRAY_BUFFER, size, mesh.Positions, gl.STATIC_DRAW)
 
 	uvBuffer := gl.GenBuffer()
 	defer uvBuffer.Delete()
@@ -301,10 +301,10 @@ func LoadShader(vertex, fragment string) gl.Program {
 }
 
 type Mesh struct {
-	Indices  []uint16
-	Vertices []mgl32.Vec3
-	UVs      []mgl32.Vec2
-	Normals  []mgl32.Vec3
+	Indices   []uint16
+	Positions []mgl32.Vec3
+	UVs       []mgl32.Vec2
+	Normals   []mgl32.Vec3
 }
 
 func GeneratePlane(width, height float32) *Mesh {
@@ -329,10 +329,10 @@ func GeneratePlane(width, height float32) *Mesh {
 
 	// copy values to buffers
 	return &Mesh{
-		Indices:  []uint16{0, 1, 2, 2, 3, 0},
-		Vertices: []mgl32.Vec3{a, b, c, d},
-		UVs:      []mgl32.Vec2{tr, tl, bl, br},
-		Normals:  []mgl32.Vec3{n, n, n, n},
+		Indices:   []uint16{0, 1, 2, 2, 3, 0},
+		Positions: []mgl32.Vec3{a, b, c, d},
+		UVs:       []mgl32.Vec2{tr, tl, bl, br},
+		Normals:   []mgl32.Vec3{n, n, n, n},
 	}
 }
 
