@@ -18,10 +18,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/der-antikeks/mathgl/mgl32"
 	"github.com/go-gl/gl"
 	glfw "github.com/go-gl/glfw3"
 	"github.com/go-gl/glh"
+	"github.com/go-gl/mathgl/mgl32"
 )
 
 func main() {
@@ -469,7 +469,7 @@ type Vertex struct {
 }
 
 func (v Vertex) Key(precision int) string {
-	return fmt.Sprintf("%v_%v_%v_%v_%v_%v_%v_%v_%v_%v_%v",
+	return fmt.Sprintf("%v_%v_%v_%v_%v_%v_%v_%v",
 		mgl32.Round(v.position[0], precision),
 		mgl32.Round(v.position[1], precision),
 		mgl32.Round(v.position[2], precision),

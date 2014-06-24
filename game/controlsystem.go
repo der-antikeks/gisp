@@ -4,7 +4,7 @@ import (
 	"log"
 	"sync"
 
-	"github.com/der-antikeks/mathgl/mgl32"
+	"github.com/go-gl/mathgl/mgl32"
 )
 
 // change entities based on controller input

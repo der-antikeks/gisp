@@ -17,10 +17,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/der-antikeks/mathgl/mgl32"
-
 	"github.com/go-gl/gl"
 	"github.com/go-gl/glh"
+	"github.com/go-gl/mathgl/mgl32"
 
 	// TODO: freetype license or outsource as a separate sdf generator
 	"code.google.com/p/freetype-go/freetype"

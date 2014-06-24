@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/der-antikeks/mathgl/mgl32"
+	"github.com/go-gl/mathgl/mgl32"
 )
 
 // move entities with velocity
