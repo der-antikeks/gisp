@@ -144,13 +144,42 @@ func main() {
 
 		out vec4 fragmentColor;
 
+		vec2 poissonDisk[16] = vec2[](
+			vec2(-0.94201624, -0.39906216),
+			vec2(0.94558609, -0.76890725),
+			vec2(-0.094184101, -0.92938870),
+			vec2(0.34495938, 0.29387760),
+			vec2(-0.91588581, 0.45771432),
+			vec2(-0.81544232, -0.87912464),
+			vec2(-0.38277543, 0.27676845),
+			vec2(0.97484398, 0.75648379),
+			vec2(0.44323325, -0.97511554),
+			vec2(0.53742981, -0.47373420),
+			vec2(-0.26496911, -0.41893023),
+			vec2(0.79197514, 0.19090188),
+			vec2(-0.24188840, 0.99706507),
+			vec2(-0.81409955, 0.91437590),
+			vec2(0.19984126, 0.78641367),
+			vec2(0.14383161, -0.14100790)
+		);
+
+		float random(vec3 seed, int i) {
+			vec4 seed4 = vec4(seed, i);
+			float dot_product = dot(seed4, vec4(12.9898, 78.233, 45.164, 94.673));
+			return fract(sin(dot_product) * 43758.5453);
+		}
+
 		void main() {
 			vec3 materialColor = texture(diffuseMap, UV).rgb;
 
 			float bias = 0.005;
 			float visibility = 1.0;
-			if (texture(shadowMap, (shadowCoord.xy/shadowCoord.w)).z < (shadowCoord.z - bias)/shadowCoord.w) {
-				visibility = 0.5;
+			for (int i = 0; i < 4; i++){
+				//int index = int(16.0 * random(gl_FragCoord.xyy, i)) % 16;
+				int index = i;
+				if (texture(shadowMap, shadowCoord.xy + poissonDisk[index]/700.0).z < shadowCoord.z - bias) {
+					visibility -= 0.2;
+				}
 			}
 
 			fragmentColor = vec4(visibility * lightColor * materialColor * diffuse, opacity);
@@ -283,14 +312,17 @@ func main() {
 		opacity := float32(1.0)
 
 		// light
-		lightPosition := mgl32.Vec3{8, 2, 0}
+		lightPosition := mgl32.Vec3{10, 2, 0}
+		lightInvDir := lightPosition
 		lightDiffuse := mgl32.Vec3{1, 1, 1}
 		lightPower := float32(50.0)
 		ambientColor := mgl32.Vec3{1, 1, 1}
 
 		// shadow
-		shadowProjectionMatrix := mgl32.Perspective(45.0, float32(sw)/float32(sh), 1.0, 100.0)
-		shadowViewMatrix := mgl32.LookAtV(lightPosition, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0})
+		shadowProjectionMatrix := mgl32.Ortho(-10, 10, -10, 10, -10, 20)
+		//shadowProjectionMatrix := mgl32.Perspective(45.0, float32(sw)/float32(sh), 1.0, 100.0)
+		shadowViewMatrix := mgl32.LookAtV(lightInvDir, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0})
+		//shadowViewMatrix := mgl32.LookAtV(lightPosition, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0})
 		biasMatrix := mgl32.Mat4{
 			0.5, 0.0, 0.0, 0.0,
 			0.0, 0.5, 0.0, 0.0,
@@ -464,6 +496,20 @@ func LoadShader(vertex, fragment string) gl.Program {
 
 	return program
 }
+
+/*
+type Shader struct {
+	program
+	[]attrs/location,type
+	[]uniforms/location,type,default
+}
+
+type MeshBuffer struct {
+	vao
+	[]vbos/attr target,usage,type->draw name->shader
+	ebo/draw-type
+}
+*/
 
 type Mesh struct {
 	Indices   []uint16
@@ -715,6 +761,7 @@ func GenShadowMap(w, h int) (gl.Texture, gl.Framebuffer) {
 	// set texture parameters
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE)
 
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)

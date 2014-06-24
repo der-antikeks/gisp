@@ -41,12 +41,22 @@ func main() {
 	glfw.WindowHint(glfw.Resizable, 0)
 	glfw.WindowHint(glfw.Samples, 4)
 
+	/*
+		glfw.WindowHint(glfw.ContextVersionMajor, 3)
+		glfw.WindowHint(glfw.ContextVersionMinor, 3)
+		glfw.WindowHint(glfw.OpenglProfile, glfw.OpenglCoreProfile)
+		glfw.WindowHint(glfw.OpenglForwardCompatible, glfw.True)
+	*/
+	log.Println("glfw version:", glfw.GetVersionString())
+
 	window, err := glfw.CreateWindow(width, height, "Testing", nil, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 	window.MakeContextCurrent()
 	glfw.SwapInterval(1)
+
+	log.Println("gl version:", gl.GetString(gl.VERSION))
 
 	// setup gl
 	gl.Init()
@@ -274,9 +284,19 @@ func main() {
 	shadowPositionAttribute := shadowProgram.GetAttribLocation("vertexPosition")
 
 	// main loop
-	var angle float32
+	var (
+		lastTime    = time.Now()
+		currentTime time.Time
+		delta       time.Duration
+
+		angle float32
+	)
 	for ok := true; ok; ok = (window.GetKey(glfw.KeyEscape) != glfw.Press && !window.ShouldClose()) {
-		angle += float32(math.Pi / 10000.0)
+		currentTime = time.Now()
+		delta = currentTime.Sub(lastTime)
+		lastTime = currentTime
+
+		angle += float32(math.Pi/8.0) * float32(delta.Seconds())
 		textureSlots := 0
 
 		// objects
@@ -324,6 +344,8 @@ func main() {
 
 		// render to shadowmap
 		func() {
+			defer glh.OpenGLSentinel()
+
 			frameBuffer.Bind()
 			defer frameBuffer.Unbind()
 			gl.Viewport(0, 0, sw, sh)
@@ -338,7 +360,7 @@ func main() {
 				if e := gl.CheckFramebufferStatus(gl.FRAMEBUFFER); e != gl.FRAMEBUFFER_COMPLETE {
 					log.Fatalf("could not change framebuffer layer: %x", e)
 				}
-				gl.Clear(gl.DEPTH_BUFFER_BIT)
+				gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
 				// update uniforms
 				shadowProjectionUniform.UniformMatrix4fv(false, shadowProjectionMatrix)
@@ -370,6 +392,8 @@ func main() {
 
 		// render to screen
 		func() {
+			defer glh.OpenGLSentinel()
+
 			gl.Viewport(0, 0, width, height)
 			gl.ClearColor(0.1, 0.1, 0.4, 0.0)
 			gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
@@ -763,6 +787,8 @@ func LoadTexture(path string) gl.Texture {
 }
 
 func GenShadowCubeMap(w, h int) (gl.Texture, gl.Framebuffer) {
+	defer glh.OpenGLSentinel()
+
 	// generate depth texture
 	depthBuffer := gl.GenTexture()
 	depthBuffer.Bind(gl.TEXTURE_CUBE_MAP)
@@ -782,9 +808,9 @@ func GenShadowCubeMap(w, h int) (gl.Texture, gl.Framebuffer) {
 
 	// create storage
 	for face := 0; face < 6; face++ {
-		gl.TexImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X+gl.GLenum(face), 0, gl.DEPTH_COMPONENT32,
+		gl.TexImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X+gl.GLenum(face), 0, gl.DEPTH_COMPONENT16,
 			w, h,
-			0, gl.DEPTH_COMPONENT, gl.FLOAT, nil)
+			0, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, nil)
 	}
 
 	// generate framebuffer
