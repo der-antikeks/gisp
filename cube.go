@@ -47,6 +47,7 @@ func main() {
 		glfw.WindowHint(glfw.OpenglProfile, glfw.OpenglCoreProfile)
 		glfw.WindowHint(glfw.OpenglForwardCompatible, glfw.True)
 	*/
+
 	log.Println("glfw version:", glfw.GetVersionString())
 
 	window, err := glfw.CreateWindow(width, height, "Testing", nil, nil)
@@ -240,7 +241,6 @@ func main() {
 	// shadow map
 	sw, sh := 1024, 1024
 	depthBuffer, frameBuffer := GenShadowCubeMap(sw, sh)
-	defer depthBuffer.Delete()
 	defer frameBuffer.Delete()
 
 	shadowProgram := LoadShader(`
@@ -357,6 +357,7 @@ func main() {
 			for face := 0; face < 6; face++ {
 				// select framebuffer layer
 				gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_CUBE_MAP_POSITIVE_X+gl.GLenum(face), depthBuffer, 0)
+				//gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_CUBE_MAP_POSITIVE_X+gl.GLenum(face), depthBuffer, 0)
 				if e := gl.CheckFramebufferStatus(gl.FRAMEBUFFER); e != gl.FRAMEBUFFER_COMPLETE {
 					log.Fatalf("could not change framebuffer layer: %x", e)
 				}
@@ -806,11 +807,19 @@ func GenShadowCubeMap(w, h int) (gl.Texture, gl.Framebuffer) {
 	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_COMPARE_FUNC, gl.LEQUAL)
 	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.DEPTH_TEXTURE_MODE, gl.LUMINANCE)
 
+	gl.Enable(gl.TEXTURE_CUBE_MAP)
+	gl.Enable(gl.TEXTURE_CUBE_MAP_SEAMLESS)
+
 	// create storage
 	for face := 0; face < 6; face++ {
 		gl.TexImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X+gl.GLenum(face), 0, gl.DEPTH_COMPONENT16,
 			w, h,
-			0, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, nil)
+			0, gl.DEPTH_COMPONENT, gl.FLOAT, nil)
+		/*
+			gl.TexImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X+gl.GLenum(face), 0, gl.RGBA,
+				w, h,
+				0, gl.RGBA, gl.UNSIGNED_BYTE, nil)
+		*/
 	}
 
 	// generate framebuffer
@@ -818,10 +827,19 @@ func GenShadowCubeMap(w, h int) (gl.Texture, gl.Framebuffer) {
 	frameBuffer.Bind()
 	defer frameBuffer.Unbind()
 
+	renderBuffer := gl.GenRenderbuffer()
+	renderBuffer.Bind()
+	defer renderBuffer.Unbind()
+
+	// configure renderbuffer
+	gl.RenderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, w, h)
+	renderBuffer.FramebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER)
+
 	// configure framebuffer
 	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_CUBE_MAP_POSITIVE_X, depthBuffer, 0)
-	gl.DrawBuffer(gl.NONE)
-	gl.ReadBuffer(gl.NONE)
+	//gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_CUBE_MAP_POSITIVE_X, depthBuffer, 0)
+	//gl.DrawBuffer(gl.NONE)
+	//gl.ReadBuffer(gl.NONE)
 
 	// check
 	if e := gl.CheckFramebufferStatus(gl.FRAMEBUFFER); e != gl.FRAMEBUFFER_COMPLETE {
