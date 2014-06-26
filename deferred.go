@@ -68,9 +68,9 @@ func main() {
 	gl.BlendEquationSeparate(gl.FUNC_ADD, gl.FUNC_ADD)
 	gl.BlendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
 
-	// first pass, computation program
+	// first pass, geometry calculation program
 	// vertex, fragment (!)
-	computationProgram := LoadShader(`
+	geometryProgram := NewShaderProgram(LoadShader(`
 		#version 330 core
 
 		layout(location = 0) in vec3 vertexPosition;
@@ -82,13 +82,13 @@ func main() {
 		uniform mat4 modelMatrix;
 		uniform mat3 normalMatrix;
 
-		out vec4 Position;
+		out vec3 Position;
 		out vec3 Normal;
 		out vec2 UV;
 
 		void main() {
-			Position = viewMatrix * modelMatrix * vec4(vertexPosition, 1.0);
-			Normal = normalize((viewMatrix * modelMatrix * vec4(vertexNormal, 0.0)).xyz);
+			Position = (modelMatrix * vec4(vertexPosition, 1.0)).xyz;
+			Normal = (modelMatrix * vec4(vertexNormal, 0.0)).xyz;
 			UV = vertexUV;
 
 			gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(vertexPosition, 1.0);
@@ -96,7 +96,7 @@ func main() {
 	`, `
 		#version 330 core
 
-		in vec4 Position;
+		in vec3 Position;
 		in vec3 Normal;
 		in vec2 UV;
 
@@ -104,31 +104,32 @@ func main() {
 		uniform float opacity;
 		uniform sampler2D diffuseMap;
 
+		//	g-buffer
 		layout(location = 0) out vec4 fragmentColor;
 		layout(location = 1) out vec4 fragmentPosition;
 		layout(location = 2) out vec4 fragmentNormal;
 
 		void main() {
-			vec3 materialColor = texture(diffuseMap, UV).rgb;
+			vec4 materialColor = texture(diffuseMap, UV);
 
-			fragmentColor = vec4(materialColor * diffuse, opacity);
-			fragmentPosition = vec4(Position.xyz, 0);
-			fragmentNormal = vec4(Normal.xyz, 0);
+			fragmentColor = vec4(materialColor.rgb * diffuse, opacity);
+			fragmentPosition = vec4(Position, 1.0);
+			fragmentNormal = vec4(normalize(Normal), 1.0);
 		}
-	`)
-	defer computationProgram.Delete()
-
-	compProjectionUniform := computationProgram.GetUniformLocation("projectionMatrix")
-	compViewUniform := computationProgram.GetUniformLocation("viewMatrix")
-	compModelUniform := computationProgram.GetUniformLocation("modelMatrix")
-	compNormalUniform := computationProgram.GetUniformLocation("normalMatrix")
-	compDiffuseUniform := computationProgram.GetUniformLocation("diffuse")
-	compOpacityUniform := computationProgram.GetUniformLocation("opacity")
-	compDiffuseMapUniform := computationProgram.GetUniformLocation("diffuseMap")
-
-	compPositionAttribute := computationProgram.GetAttribLocation("vertexPosition")
-	compNormalAttribute := computationProgram.GetAttribLocation("vertexNormal")
-	compUvAttribute := computationProgram.GetAttribLocation("vertexUV")
+	`), []string{
+		"projectionMatrix",
+		"viewMatrix",
+		"modelMatrix",
+		"normalMatrix",
+		"diffuse",
+		"opacity",
+		"diffuseMap",
+	}, []string{
+		"vertexPosition",
+		"vertexNormal",
+		"vertexUV",
+	})
+	defer geometryProgram.Delete()
 
 	// setup mesh buffers
 	cubeMesh := NewMeshBuffer(LoadObjFile("assets/cube/cube.obj"))
@@ -138,9 +139,9 @@ func main() {
 	imageTexture := LoadTexture("assets/uvtemplate.png")
 	defer imageTexture.Delete()
 
-	// second pass, deferred shading program
+	// second pass, lighting calculation program
 	// vertex, fragment (!)
-	deferredProgram := LoadShader(`
+	lightingProgram := NewShaderProgram(LoadShader(`
 		#version 330 core
 
 		layout(location = 0) in vec3 vertexPosition;
@@ -161,7 +162,6 @@ func main() {
 
 		in vec2 UV;
 
-		uniform vec3 cameraPosition;
 		uniform sampler2D colorMap;
 		uniform sampler2D positionMap;
 		uniform sampler2D normalMap;
@@ -174,8 +174,7 @@ func main() {
 			vec3 normal = normalize(texture(normalMap, UV).xyz);
 
 			vec3 lightColor = vec3(1, 1, 1);
-			vec3 lightPosition = vec3(8, 2, 0);
-
+			vec3 lightPosition = vec3(4, 8, 0);
 			vec3 lightDir = normalize(lightPosition - position);
 
 			// ambient, simulates indirect lighting
@@ -183,37 +182,47 @@ func main() {
 
 			// diffuse, direct lightning
 			float cosTheta = clamp(dot(normal, lightDir), 0.0, 1.0);
-			//float cosTheta = max(dot(normal, lightDir), 0.0);
 			vec3 diff = lightColor * cosTheta;
 
 			// specular, reflective highlight, like a mirror
 			float cosAlpha = clamp(dot(normalize(-position), reflect(-lightDir, normal)), 0.0, 1.0);
-			//float cosAlpha = max(dot(normal, normalize(lightDir + normalize(cameraPosition - position))), 0.0);
 			vec3 spec = vec3(0.3, 0.3, 0.3) * lightColor * pow(cosAlpha, 5.0);
 
 			fragmentColor = vec4(color.rgb * (amb + diff + spec), color.a);
-			//fragmentColor = vec4(color.rgb, color.a);
 		}
-	`)
-	defer deferredProgram.Delete()
-
-	defProjectionUniform := deferredProgram.GetUniformLocation("projectionMatrix")
-	defViewUniform := deferredProgram.GetUniformLocation("viewMatrix")
-	defModelUniform := deferredProgram.GetUniformLocation("modelMatrix")
-	defCameraPositionUniform := deferredProgram.GetUniformLocation("cameraPosition")
-	defColorMapUniform := deferredProgram.GetUniformLocation("colorMap")
-	defPositionMapUniform := deferredProgram.GetUniformLocation("positionMap")
-	defNormalMapUniform := deferredProgram.GetUniformLocation("normalMap")
-
-	defPositionAttribute := deferredProgram.GetAttribLocation("vertexPosition")
-	defUvAttribute := deferredProgram.GetAttribLocation("vertexUV")
+	`), []string{
+		"projectionMatrix",
+		"viewMatrix",
+		"modelMatrix",
+		"normalMatrix",
+		"colorMap",
+		"positionMap",
+		"normalMap",
+	}, []string{
+		"vertexPosition",
+		"vertexUV",
+	})
+	defer lightingProgram.Delete()
 
 	// rendertarget
 	tw, th := 1024, 1024
 	colorTexture, positionTexture, normalTexture, frameBuffer := GenerateMRT(tw, th)
 
-	planeMesh := NewMeshBuffer(GeneratePlane(5, 5*float32(height)/float32(width)))
+	// mesh buffer
+	planeMesh := NewMeshBuffer(GeneratePlane(5, 5*float32(tw)/float32(th)))
 	defer planeMesh.Delete()
+
+	// cameras
+	cameraPosition := mgl32.Vec3{0, 5, 10}
+	geometryCamera := Camera{
+		Projection: mgl32.Perspective(45.0, float32(tw)/float32(th), 1.0, 100.0),
+		View:       mgl32.LookAtV(cameraPosition, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0}),
+	}
+
+	lightingCamera := Camera{
+		Projection: mgl32.Perspective(45.0, float32(width)/float32(height), 1.0, 100.0),
+		View:       mgl32.LookAtV(mgl32.Vec3{0, 0, 5}, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0}),
+	}
 
 	// main loop
 	var (
@@ -235,7 +244,7 @@ func main() {
 		var objects []mgl32.Mat4
 		var x, y, z, a float32
 		for x = -4; x <= 4; x += 4 {
-			for z = -4; z <= 4; z += 4 {
+			for z = 4; z >= -4; z -= 4 {
 				a += math.Pi / 4.0
 
 				o := mgl32.Translate3D(x, y, z).Mul4(mgl32.HomogRotate3D(angle+a, (mgl32.Vec3{1, 0.8, 0.5}).Normalize()))
@@ -243,17 +252,11 @@ func main() {
 			}
 		}
 
-		// camera
-		projectionMatrix := mgl32.Perspective(45.0, float32(width)/float32(height), 1.0, 100.0)
-		cameraPosition := mgl32.Vec3{0, 5, 10}
-		viewMatrix := mgl32.LookAtV(cameraPosition, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0})
-		targetViewMatrix := mgl32.LookAtV(mgl32.Vec3{0, 0, 5}, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0})
-
 		// object material
 		diffuseColor := mgl32.Vec3{0.5, 0.8, 1}
 		opacity := float32(1.0)
 
-		// render to fbo
+		// render to fbo, geometry calculation pass
 		func() {
 			frameBuffer.Bind()
 			defer frameBuffer.Unbind()
@@ -263,21 +266,21 @@ func main() {
 			gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
 			// use program
-			computationProgram.Use()
-			defer computationProgram.Unuse()
+			geometryProgram.Use()
+			defer geometryProgram.Unuse()
 
 			// update uniforms
-			compProjectionUniform.UniformMatrix4fv(false, projectionMatrix)
-			compViewUniform.UniformMatrix4fv(false, viewMatrix)
+			geometryProgram.Uniform("projectionMatrix").UniformMatrix4fv(false, geometryCamera.Projection)
+			geometryProgram.Uniform("viewMatrix").UniformMatrix4fv(false, geometryCamera.View)
 
-			compDiffuseUniform.Uniform3f(diffuseColor[0], diffuseColor[1], diffuseColor[2])
-			compOpacityUniform.Uniform1f(opacity)
+			geometryProgram.Uniform("diffuse").Uniform3f(diffuseColor[0], diffuseColor[1], diffuseColor[2])
+			geometryProgram.Uniform("opacity").Uniform1f(opacity)
 
 			// bind texture
 			gl.ActiveTexture(gl.TEXTURE0 + gl.GLenum(textureSlots))
 			imageTexture.Bind(gl.TEXTURE_2D)
 			defer imageTexture.Unbind(gl.TEXTURE_2D)
-			compDiffuseMapUniform.Uniform1i(textureSlots)
+			geometryProgram.Uniform("diffuseMap").Uniform1i(textureSlots)
 			textureSlots++
 
 			// bind attributes
@@ -286,28 +289,28 @@ func main() {
 
 			cubeMesh.Position.Bind(gl.ARRAY_BUFFER)
 			defer cubeMesh.Position.Unbind(gl.ARRAY_BUFFER)
-			compPositionAttribute.EnableArray()
-			defer compPositionAttribute.DisableArray()
-			compPositionAttribute.AttribPointer(3, gl.FLOAT, false, 0, nil)
+			geometryProgram.Attribute("vertexPosition").EnableArray()
+			defer geometryProgram.Attribute("vertexPosition").DisableArray()
+			geometryProgram.Attribute("vertexPosition").AttribPointer(3, gl.FLOAT, false, 0, nil)
 
 			cubeMesh.Normal.Bind(gl.ARRAY_BUFFER)
 			defer cubeMesh.Normal.Unbind(gl.ARRAY_BUFFER)
-			compNormalAttribute.EnableArray()
-			defer compNormalAttribute.DisableArray()
-			compNormalAttribute.AttribPointer(3, gl.FLOAT, false, 0, nil)
+			geometryProgram.Attribute("vertexNormal").EnableArray()
+			defer geometryProgram.Attribute("vertexNormal").DisableArray()
+			geometryProgram.Attribute("vertexNormal").AttribPointer(3, gl.FLOAT, false, 0, nil)
 
 			cubeMesh.UV.Bind(gl.ARRAY_BUFFER)
 			defer cubeMesh.UV.Unbind(gl.ARRAY_BUFFER)
-			compUvAttribute.EnableArray()
-			defer compUvAttribute.DisableArray()
-			compUvAttribute.AttribPointer(2, gl.FLOAT, false, 0, nil)
+			geometryProgram.Attribute("vertexUV").EnableArray()
+			defer geometryProgram.Attribute("vertexUV").DisableArray()
+			geometryProgram.Attribute("vertexUV").AttribPointer(2, gl.FLOAT, false, 0, nil)
 
 			for _, modelMatrix := range objects {
-				compModelUniform.UniformMatrix4fv(false, modelMatrix)
+				geometryProgram.Uniform("modelMatrix").UniformMatrix4fv(false, modelMatrix)
 
-				modelViewMatrix := viewMatrix.Mul4(modelMatrix)
+				modelViewMatrix := geometryCamera.View.Mul4(modelMatrix)
 				normalMatrix := mgl32.Mat4Normal(modelViewMatrix)
-				compNormalUniform.UniformMatrix3fv(false, normalMatrix)
+				geometryProgram.Uniform("normalMatrix").UniformMatrix3fv(false, normalMatrix)
 
 				// draw elements
 				cubeMesh.EBO.Bind(gl.ELEMENT_ARRAY_BUFFER)
@@ -316,40 +319,39 @@ func main() {
 			}
 		}()
 
-		// render to screen
+		// render to screen, lighting calculation pass
 		func() {
 			gl.Viewport(0, 0, width, height)
 			gl.ClearColor(0.1, 0.4, 0.1, 1.0)
 			gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
 			// use program
-			deferredProgram.Use()
-			defer deferredProgram.Unuse()
+			lightingProgram.Use()
+			defer lightingProgram.Unuse()
 
 			// update uniforms
-			defProjectionUniform.UniformMatrix4fv(false, projectionMatrix)
-			defViewUniform.UniformMatrix4fv(false, targetViewMatrix)
-			defCameraPositionUniform.Uniform3f(cameraPosition[0], cameraPosition[1], cameraPosition[2])
+			lightingProgram.Uniform("projectionMatrix").UniformMatrix4fv(false, lightingCamera.Projection)
+			lightingProgram.Uniform("viewMatrix").UniformMatrix4fv(false, lightingCamera.View)
 
-			defModelUniform.UniformMatrix4fv(false, mgl32.HomogRotate3D(angle, (mgl32.Vec3{0, 0, 1}).Normalize()))
+			lightingProgram.Uniform("modelMatrix").UniformMatrix4fv(false, mgl32.HomogRotate3D(angle/2.0, (mgl32.Vec3{0, 0, 1}).Normalize()))
 
 			// bind textures
 			gl.ActiveTexture(gl.TEXTURE0 + gl.GLenum(textureSlots))
 			colorTexture.Bind(gl.TEXTURE_2D)
 			defer colorTexture.Unbind(gl.TEXTURE_2D)
-			defColorMapUniform.Uniform1i(textureSlots)
+			lightingProgram.Uniform("colorMap").Uniform1i(textureSlots)
 			textureSlots++
 
 			gl.ActiveTexture(gl.TEXTURE0 + gl.GLenum(textureSlots))
 			positionTexture.Bind(gl.TEXTURE_2D)
 			defer positionTexture.Unbind(gl.TEXTURE_2D)
-			defPositionMapUniform.Uniform1i(textureSlots)
+			lightingProgram.Uniform("positionMap").Uniform1i(textureSlots)
 			textureSlots++
 
 			gl.ActiveTexture(gl.TEXTURE0 + gl.GLenum(textureSlots))
 			normalTexture.Bind(gl.TEXTURE_2D)
 			defer normalTexture.Unbind(gl.TEXTURE_2D)
-			defNormalMapUniform.Uniform1i(textureSlots)
+			lightingProgram.Uniform("normalMap").Uniform1i(textureSlots)
 			textureSlots++
 
 			// bind attributes
@@ -358,15 +360,15 @@ func main() {
 
 			planeMesh.Position.Bind(gl.ARRAY_BUFFER)
 			defer planeMesh.Position.Unbind(gl.ARRAY_BUFFER)
-			defPositionAttribute.EnableArray()
-			defer defPositionAttribute.DisableArray()
-			defPositionAttribute.AttribPointer(3, gl.FLOAT, false, 0, nil)
+			lightingProgram.Attribute("vertexPosition").EnableArray()
+			defer lightingProgram.Attribute("vertexPosition").DisableArray()
+			lightingProgram.Attribute("vertexPosition").AttribPointer(3, gl.FLOAT, false, 0, nil)
 
 			planeMesh.UV.Bind(gl.ARRAY_BUFFER)
 			defer planeMesh.UV.Unbind(gl.ARRAY_BUFFER)
-			defUvAttribute.EnableArray()
-			defer defUvAttribute.DisableArray()
-			defUvAttribute.AttribPointer(2, gl.FLOAT, false, 0, nil)
+			lightingProgram.Attribute("vertexUV").EnableArray()
+			defer lightingProgram.Attribute("vertexUV").DisableArray()
+			lightingProgram.Attribute("vertexUV").AttribPointer(2, gl.FLOAT, false, 0, nil)
 
 			// draw elements
 			planeMesh.EBO.Bind(gl.ELEMENT_ARRAY_BUFFER)
@@ -380,6 +382,41 @@ func main() {
 		glfw.PollEvents()
 	}
 }
+
+type Camera struct {
+	Projection, View mgl32.Mat4
+}
+
+type ShaderProgram struct {
+	program    gl.Program
+	uniforms   map[string]gl.UniformLocation
+	attributes map[string]gl.AttribLocation
+}
+
+func NewShaderProgram(p gl.Program, uniforms, attributes []string) *ShaderProgram {
+	sp := &ShaderProgram{
+		program:    p,
+		uniforms:   map[string]gl.UniformLocation{},
+		attributes: map[string]gl.AttribLocation{},
+	}
+
+	for _, u := range uniforms {
+		sp.uniforms[u] = p.GetUniformLocation(u)
+	}
+
+	for _, a := range attributes {
+		sp.attributes[a] = p.GetAttribLocation(a)
+	}
+
+	return sp
+}
+
+func (sp *ShaderProgram) Delete() { sp.program.Delete() }
+func (sp *ShaderProgram) Use()    { sp.program.Use() }
+func (sp *ShaderProgram) Unuse()  { sp.program.Unuse() }
+
+func (sp *ShaderProgram) Uniform(n string) gl.UniformLocation  { return sp.uniforms[n] }
+func (sp *ShaderProgram) Attribute(n string) gl.AttribLocation { return sp.attributes[n] }
 
 func LoadShaderFile(vertex, fragment string) gl.Program {
 	// load vertex shader
@@ -461,6 +498,7 @@ func NewMeshBuffer(mesh *Mesh) *MeshBuffer {
 	}
 
 	mb.VAO.Bind()
+	defer mb.VAO.Unbind()
 
 	// vbo's
 	mb.Position.Bind(gl.ARRAY_BUFFER)
@@ -755,37 +793,25 @@ func LoadTexture(path string) gl.Texture {
 	return buffer
 }
 
-func GenerateMRT(w, h int) (diffuse, position, normal gl.Texture, fbo gl.Framebuffer) {
+func GenerateMRT(w, h int) (color, position, normal gl.Texture, fbo gl.Framebuffer) {
 	// generate framebuffer
 	frameBuffer := gl.GenFramebuffer()
 	frameBuffer.Bind()
 	defer frameBuffer.Unbind()
 
-	// generate diffuse target
-	diffuseBuffer := gl.GenRenderbuffer()
-	diffuseBuffer.Bind()
-	defer diffuseBuffer.Unbind()
-	gl.RenderbufferStorage(gl.RENDERBUFFER, gl.RGBA, w, h)
-	diffuseBuffer.FramebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER)
-
-	diffuseTexture := gl.GenTexture()
-	diffuseTexture.Bind(gl.TEXTURE_2D)
-	defer diffuseTexture.Unbind(gl.TEXTURE_2D)
+	// generate color target
+	colorTexture := gl.GenTexture()
+	colorTexture.Bind(gl.TEXTURE_2D)
+	defer colorTexture.Unbind(gl.TEXTURE_2D)
 	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, nil)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
 
-	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, diffuseTexture, 0)
+	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, colorTexture, 0)
 
 	// generate position target
-	positionBuffer := gl.GenRenderbuffer()
-	positionBuffer.Bind()
-	defer positionBuffer.Unbind()
-	gl.RenderbufferStorage(gl.RENDERBUFFER, gl.RGBA32F, w, h)
-	positionBuffer.FramebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.RENDERBUFFER)
-
 	positionTexture := gl.GenTexture()
 	positionTexture.Bind(gl.TEXTURE_2D)
 	defer positionTexture.Unbind(gl.TEXTURE_2D)
@@ -798,12 +824,6 @@ func GenerateMRT(w, h int) (diffuse, position, normal gl.Texture, fbo gl.Framebu
 	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, positionTexture, 0)
 
 	// generate normal target
-	normalBuffer := gl.GenRenderbuffer()
-	normalBuffer.Bind()
-	defer normalBuffer.Unbind()
-	gl.RenderbufferStorage(gl.RENDERBUFFER, gl.RGBA16F, w, h)
-	normalBuffer.FramebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT2, gl.RENDERBUFFER)
-
 	normalTexture := gl.GenTexture()
 	normalTexture.Bind(gl.TEXTURE_2D)
 	defer normalTexture.Unbind(gl.TEXTURE_2D)
@@ -815,11 +835,26 @@ func GenerateMRT(w, h int) (diffuse, position, normal gl.Texture, fbo gl.Framebu
 
 	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT2, gl.TEXTURE_2D, normalTexture, 0)
 
+	// generate depth texture
+	/*
+		depthTexture := gl.GenTexture()
+		depthTexture.Bind(gl.TEXTURE_2D)
+		defer depthTexture.Unbind(gl.TEXTURE_2D)
+		gl.TexImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT16, w, h, 0, gl.DEPTH_COMPONENT, gl.FLOAT, nil)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+
+		gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, depthTexture, 0)
+	*/
+
+	//instead of depth texture
 	// generate depth buffer
 	depthBuffer := gl.GenRenderbuffer()
 	depthBuffer.Bind()
 	defer depthBuffer.Unbind()
-	gl.RenderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, w, h)
+	gl.RenderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, w, h)
 	depthBuffer.FramebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER)
 
 	gl.DrawBuffers(3, []gl.GLenum{gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2})
@@ -829,5 +864,5 @@ func GenerateMRT(w, h int) (diffuse, position, normal gl.Texture, fbo gl.Framebu
 		log.Fatalf("could not initialize framebuffer: %x", e)
 	}
 
-	return diffuseTexture, positionTexture, normalTexture, frameBuffer
+	return colorTexture, positionTexture, normalTexture, frameBuffer
 }
