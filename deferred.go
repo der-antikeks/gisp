@@ -54,7 +54,7 @@ func main() {
 	gl.ClearDepth(1)
 	gl.ClearStencil(0)
 
-	gl.Enable(gl.DEPTH_TEST)
+	//gl.Enable(gl.DEPTH_TEST)
 	gl.DepthFunc(gl.LESS)
 
 	gl.Enable(gl.CULL_FACE)
@@ -64,9 +64,9 @@ func main() {
 	gl.ShadeModel(gl.SMOOTH)
 	gl.Hint(gl.PERSPECTIVE_CORRECTION_HINT, gl.NICEST)
 
-	gl.Enable(gl.BLEND)
-	gl.BlendEquationSeparate(gl.FUNC_ADD, gl.FUNC_ADD)
-	gl.BlendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+	//gl.Enable(gl.BLEND)
+	//gl.BlendEquationSeparate(gl.FUNC_ADD, gl.FUNC_ADD)
+	//gl.BlendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
 
 	// first pass, geometry calculation program
 	// vertex, fragment (!)
@@ -106,8 +106,8 @@ func main() {
 
 		//	g-buffer
 		layout(location = 0) out vec4 fragmentColor;
-		layout(location = 1) out vec4 fragmentPosition;
-		layout(location = 2) out vec4 fragmentNormal;
+		layout(location = 1) out vec4 fragmentPosition;	// world-space, currently
+		layout(location = 2) out vec4 fragmentNormal;	// move to eye-space
 
 		void main() {
 			vec4 materialColor = texture(diffuseMap, UV);
@@ -261,9 +261,16 @@ func main() {
 			frameBuffer.Bind()
 			defer frameBuffer.Unbind()
 
+			gl.DepthMask(true) // only geometry pass updates depth buffer
+			defer gl.DepthMask(false)
+
 			gl.Viewport(0, 0, tw, th)
-			gl.ClearColor(0.0, 0.0, 0.0, 1.0)
+			gl.ClearColor(0.0, 0.0, 0.0, 0.0)
 			gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+
+			gl.Enable(gl.DEPTH_TEST)
+			defer gl.Disable(gl.DEPTH_TEST)
+			gl.Disable(gl.BLEND) // irrelevant in geometry pass
 
 			// use program
 			geometryProgram.Use()
@@ -321,60 +328,77 @@ func main() {
 
 		// render to screen, lighting calculation pass
 		func() {
+			gl.Enable(gl.BLEND)
+			gl.BlendEquation(gl.FUNC_ADD)
+			gl.BlendFunc(gl.ONE, gl.ONE)
+
 			gl.Viewport(0, 0, width, height)
-			gl.ClearColor(0.1, 0.4, 0.1, 1.0)
-			gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+			gl.ClearColor(0.0, 0.1, 0.2, 1.0)
+			gl.Clear(gl.COLOR_BUFFER_BIT)
 
-			// use program
-			lightingProgram.Use()
-			defer lightingProgram.Unuse()
+			// point light pass
+			//   shadow as spotlights
+			// directional light pass
+			//   like spotlights but with ortho instead of perspective
 
-			// update uniforms
-			lightingProgram.Uniform("projectionMatrix").UniformMatrix4fv(false, lightingCamera.Projection)
-			lightingProgram.Uniform("viewMatrix").UniformMatrix4fv(false, lightingCamera.View)
+			/*
+				for each spotlight
+					render shadowmap
+					blend to screen with g-buffer and shadowmap textures
+			*/
 
-			lightingProgram.Uniform("modelMatrix").UniformMatrix4fv(false, mgl32.HomogRotate3D(angle/2.0, (mgl32.Vec3{0, 0, 1}).Normalize()))
+			func() {
+				// use program
+				lightingProgram.Use()
+				defer lightingProgram.Unuse()
 
-			// bind textures
-			gl.ActiveTexture(gl.TEXTURE0 + gl.GLenum(textureSlots))
-			colorTexture.Bind(gl.TEXTURE_2D)
-			defer colorTexture.Unbind(gl.TEXTURE_2D)
-			lightingProgram.Uniform("colorMap").Uniform1i(textureSlots)
-			textureSlots++
+				// update uniforms
+				lightingProgram.Uniform("projectionMatrix").UniformMatrix4fv(false, lightingCamera.Projection)
+				lightingProgram.Uniform("viewMatrix").UniformMatrix4fv(false, lightingCamera.View)
 
-			gl.ActiveTexture(gl.TEXTURE0 + gl.GLenum(textureSlots))
-			positionTexture.Bind(gl.TEXTURE_2D)
-			defer positionTexture.Unbind(gl.TEXTURE_2D)
-			lightingProgram.Uniform("positionMap").Uniform1i(textureSlots)
-			textureSlots++
+				lightingProgram.Uniform("modelMatrix").UniformMatrix4fv(false, mgl32.HomogRotate3D(angle/2.0, (mgl32.Vec3{0, 0, 1}).Normalize()))
 
-			gl.ActiveTexture(gl.TEXTURE0 + gl.GLenum(textureSlots))
-			normalTexture.Bind(gl.TEXTURE_2D)
-			defer normalTexture.Unbind(gl.TEXTURE_2D)
-			lightingProgram.Uniform("normalMap").Uniform1i(textureSlots)
-			textureSlots++
+				// bind textures
+				gl.ActiveTexture(gl.TEXTURE0 + gl.GLenum(textureSlots))
+				colorTexture.Bind(gl.TEXTURE_2D)
+				defer colorTexture.Unbind(gl.TEXTURE_2D)
+				lightingProgram.Uniform("colorMap").Uniform1i(textureSlots)
+				textureSlots++
 
-			// bind attributes
-			planeMesh.VAO.Bind()
-			defer planeMesh.VAO.Unbind()
+				gl.ActiveTexture(gl.TEXTURE0 + gl.GLenum(textureSlots))
+				positionTexture.Bind(gl.TEXTURE_2D)
+				defer positionTexture.Unbind(gl.TEXTURE_2D)
+				lightingProgram.Uniform("positionMap").Uniform1i(textureSlots)
+				textureSlots++
 
-			planeMesh.Position.Bind(gl.ARRAY_BUFFER)
-			defer planeMesh.Position.Unbind(gl.ARRAY_BUFFER)
-			lightingProgram.Attribute("vertexPosition").EnableArray()
-			defer lightingProgram.Attribute("vertexPosition").DisableArray()
-			lightingProgram.Attribute("vertexPosition").AttribPointer(3, gl.FLOAT, false, 0, nil)
+				gl.ActiveTexture(gl.TEXTURE0 + gl.GLenum(textureSlots))
+				normalTexture.Bind(gl.TEXTURE_2D)
+				defer normalTexture.Unbind(gl.TEXTURE_2D)
+				lightingProgram.Uniform("normalMap").Uniform1i(textureSlots)
+				textureSlots++
 
-			planeMesh.UV.Bind(gl.ARRAY_BUFFER)
-			defer planeMesh.UV.Unbind(gl.ARRAY_BUFFER)
-			lightingProgram.Attribute("vertexUV").EnableArray()
-			defer lightingProgram.Attribute("vertexUV").DisableArray()
-			lightingProgram.Attribute("vertexUV").AttribPointer(2, gl.FLOAT, false, 0, nil)
+				// bind attributes
+				planeMesh.VAO.Bind()
+				defer planeMesh.VAO.Unbind()
 
-			// draw elements
-			planeMesh.EBO.Bind(gl.ELEMENT_ARRAY_BUFFER)
-			defer planeMesh.EBO.Unbind(gl.ELEMENT_ARRAY_BUFFER)
-			gl.DrawElements(gl.TRIANGLES, planeMesh.Size, gl.UNSIGNED_SHORT, nil)
+				planeMesh.Position.Bind(gl.ARRAY_BUFFER)
+				defer planeMesh.Position.Unbind(gl.ARRAY_BUFFER)
+				lightingProgram.Attribute("vertexPosition").EnableArray()
+				defer lightingProgram.Attribute("vertexPosition").DisableArray()
+				lightingProgram.Attribute("vertexPosition").AttribPointer(3, gl.FLOAT, false, 0, nil)
 
+				planeMesh.UV.Bind(gl.ARRAY_BUFFER)
+				defer planeMesh.UV.Unbind(gl.ARRAY_BUFFER)
+				lightingProgram.Attribute("vertexUV").EnableArray()
+				defer lightingProgram.Attribute("vertexUV").DisableArray()
+				lightingProgram.Attribute("vertexUV").AttribPointer(2, gl.FLOAT, false, 0, nil)
+
+				// draw elements
+				planeMesh.EBO.Bind(gl.ELEMENT_ARRAY_BUFFER)
+				defer planeMesh.EBO.Unbind(gl.ELEMENT_ARRAY_BUFFER)
+				gl.DrawElements(gl.TRIANGLES, planeMesh.Size, gl.UNSIGNED_SHORT, nil)
+
+			}()
 		}()
 
 		// Swap buffers
@@ -803,9 +827,9 @@ func GenerateMRT(w, h int) (color, position, normal gl.Texture, fbo gl.Framebuff
 	colorTexture := gl.GenTexture()
 	colorTexture.Bind(gl.TEXTURE_2D)
 	defer colorTexture.Unbind(gl.TEXTURE_2D)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, nil)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, nil)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
 
@@ -815,9 +839,9 @@ func GenerateMRT(w, h int) (color, position, normal gl.Texture, fbo gl.Framebuff
 	positionTexture := gl.GenTexture()
 	positionTexture.Bind(gl.TEXTURE_2D)
 	defer positionTexture.Unbind(gl.TEXTURE_2D)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, w, h, 0, gl.RGBA, gl.FLOAT, nil)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.FLOAT, nil)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
 
@@ -828,8 +852,8 @@ func GenerateMRT(w, h int) (color, position, normal gl.Texture, fbo gl.Framebuff
 	normalTexture.Bind(gl.TEXTURE_2D)
 	defer normalTexture.Unbind(gl.TEXTURE_2D)
 	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.FLOAT, nil)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
 
