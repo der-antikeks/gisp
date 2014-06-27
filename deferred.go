@@ -116,28 +116,35 @@ func main() {
 			fragmentPosition = vec4(Position, 1.0);
 			fragmentNormal = vec4(normalize(Normal), 1.0);
 		}
-	`), []string{
-		"projectionMatrix",
-		"viewMatrix",
-		"modelMatrix",
-		"normalMatrix",
-		"diffuse",
-		"opacity",
-		"diffuseMap",
-	}, []string{
-		"vertexPosition",
-		"vertexNormal",
-		"vertexUV",
+	`), []ShaderUniform{
+		{Name: "projectionMatrix"},
+		{Name: "viewMatrix"},
+		{Name: "modelMatrix"},
+		{Name: "normalMatrix"},
+		{Name: "diffuse"},
+		{Name: "opacity"},
+		{Name: "diffuseMap"},
+	}, []ShaderAttribute{
+		{Name: "vertexPosition", Stride: 3, Typ: gl.FLOAT},
+		{Name: "vertexNormal", Stride: 3, Typ: gl.FLOAT},
+		{Name: "vertexUV", Stride: 2, Typ: gl.FLOAT},
 	})
+
 	defer geometryProgram.Delete()
 
 	// setup mesh buffers
-	cubeMesh := NewMeshBuffer(LoadObjFile("assets/cube/cube.obj"))
+	cubeMesh := MeshBufferFromMesh(LoadObjFile("assets/cube/cube.obj"))
 	defer cubeMesh.Delete()
 
+	sphereMesh := MeshBufferFromMesh(GenerateSphere(1.5, 10, 5))
+	defer sphereMesh.Delete()
+
 	// setup texture
-	imageTexture := LoadTexture("assets/uvtemplate.png")
-	defer imageTexture.Delete()
+	gridTexture := LoadTexture("assets/uvtemplate.png")
+	defer gridTexture.Delete()
+
+	moonTexture := LoadTexture("assets/planets/moon_1024.jpg")
+	defer moonTexture.Delete()
 
 	// second pass, lighting calculation program
 	// vertex, fragment (!)
@@ -190,17 +197,17 @@ func main() {
 
 			fragmentColor = vec4(color.rgb * (amb + diff + spec), color.a);
 		}
-	`), []string{
-		"projectionMatrix",
-		"viewMatrix",
-		"modelMatrix",
-		"normalMatrix",
-		"colorMap",
-		"positionMap",
-		"normalMap",
-	}, []string{
-		"vertexPosition",
-		"vertexUV",
+	`), []ShaderUniform{
+		{Name: "projectionMatrix"},
+		{Name: "viewMatrix"},
+		{Name: "modelMatrix"},
+		{Name: "normalMatrix"},
+		{Name: "colorMap"},
+		{Name: "positionMap"},
+		{Name: "normalMap"},
+	}, []ShaderAttribute{
+		{Name: "vertexPosition", Stride: 3, Typ: gl.FLOAT},
+		{Name: "vertexUV", Stride: 2, Typ: gl.FLOAT},
 	})
 	defer lightingProgram.Delete()
 
@@ -209,7 +216,15 @@ func main() {
 	colorTexture, positionTexture, normalTexture, frameBuffer := GenerateMRT(tw, th)
 
 	// mesh buffer
-	planeMesh := NewMeshBuffer(GeneratePlane(5, 5*float32(tw)/float32(th)))
+	mesh := GeneratePlane(10, 5)
+	planeMesh := NewMeshBuffer([]MeshBufferAttribute{
+		{Name: "position", Target: gl.ARRAY_BUFFER, Usage: gl.STATIC_DRAW},
+		{Name: "uv", Target: gl.ARRAY_BUFFER, Usage: gl.STATIC_DRAW},
+		{Name: "index", Target: gl.ELEMENT_ARRAY_BUFFER, Usage: gl.STATIC_DRAW},
+	})
+	planeMesh.UpdateAttribute("position", mesh.Positions)
+	planeMesh.UpdateAttribute("uv", mesh.UVs)
+	planeMesh.UpdateAttribute("index", mesh.Indices)
 	defer planeMesh.Delete()
 
 	// cameras
@@ -224,37 +239,76 @@ func main() {
 		View:       mgl32.LookAtV(mgl32.Vec3{0, 0, 5}, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0}),
 	}
 
+	// create objects
+	var objects []Renderable
+	var x, y, z, a float32
+	for x = -4; x <= 4; x += 4 {
+		for z = 4; z >= -4; z -= 4 {
+			a += math.Pi / 4.0
+
+			g := cubeMesh
+			t := gridTexture
+
+			if len(objects)%2 == 0 {
+				g = sphereMesh
+				t = moonTexture
+			}
+
+			objects = append(objects, Renderable{
+				Transform:       mgl32.Translate3D(x, y, z).Mul4(mgl32.HomogRotate3D(a, (mgl32.Vec3{1, 0.8, 0.5}).Normalize())),
+				AngularVelocity: (mgl32.Vec3{1, 0.8, 0.5}).Normalize().Mul(a * float32(math.Pi/8.0)),
+				Geometry:        g,
+				Material: Material{
+					Color:   (mgl32.Vec3{x, 1, z}).Normalize(),
+					Opacity: 1.0,
+					Texture: t,
+				},
+			})
+		}
+	}
+
+	// texture cache
+	currentTextures := map[gl.Texture]int{}
+	bindTexture := func(t gl.Texture) int {
+		if slot, found := currentTextures[t]; found {
+			return slot
+		}
+
+		slot := len(currentTextures)
+
+		gl.ActiveTexture(gl.TEXTURE0 + gl.GLenum(slot))
+		t.Bind(gl.TEXTURE_2D)
+
+		currentTextures[t] = slot
+		return slot
+	}
+	unbindTextures := func() {
+		for t := range currentTextures {
+			t.Unbind(gl.TEXTURE_2D)
+			delete(currentTextures, t)
+		}
+	}
+
 	// main loop
 	var (
 		lastTime    = time.Now()
 		currentTime time.Time
 		delta       time.Duration
 
-		angle float32
+		currentGeometry *MeshBuffer
 	)
 	for ok := true; ok; ok = (window.GetKey(glfw.KeyEscape) != glfw.Press && !window.ShouldClose()) {
 		currentTime = time.Now()
 		delta = currentTime.Sub(lastTime)
 		lastTime = currentTime
 
-		angle += float32(math.Pi/8.0) * float32(delta.Seconds())
-		textureSlots := 0
+		// update objects
+		for i, o := range objects {
+			v := o.AngularVelocity.Mul(float32(delta.Seconds()))
+			r := mgl32.AnglesToQuat(v[0], v[1], v[2], mgl32.XYZ).Mat4()
 
-		// objects
-		var objects []mgl32.Mat4
-		var x, y, z, a float32
-		for x = -4; x <= 4; x += 4 {
-			for z = 4; z >= -4; z -= 4 {
-				a += math.Pi / 4.0
-
-				o := mgl32.Translate3D(x, y, z).Mul4(mgl32.HomogRotate3D(angle+a, (mgl32.Vec3{1, 0.8, 0.5}).Normalize()))
-				objects = append(objects, o)
-			}
+			objects[i].Transform = o.Transform.Mul4(r)
 		}
-
-		// object material
-		diffuseColor := mgl32.Vec3{0.5, 0.8, 1}
-		opacity := float32(1.0)
 
 		// render to fbo, geometry calculation pass
 		func() {
@@ -272,69 +326,66 @@ func main() {
 			defer gl.Disable(gl.DEPTH_TEST)
 			gl.Disable(gl.BLEND) // irrelevant in geometry pass
 
+			defer unbindTextures()
+
 			// use program
 			geometryProgram.Use()
 			defer geometryProgram.Unuse()
 
-			// update uniforms
-			geometryProgram.Uniform("projectionMatrix").UniformMatrix4fv(false, geometryCamera.Projection)
-			geometryProgram.Uniform("viewMatrix").UniformMatrix4fv(false, geometryCamera.View)
+			// update camera uniforms
+			geometryProgram.UpdateUniform("projectionMatrix", geometryCamera.Projection)
+			geometryProgram.UpdateUniform("viewMatrix", geometryCamera.View)
 
-			geometryProgram.Uniform("diffuse").Uniform3f(diffuseColor[0], diffuseColor[1], diffuseColor[2])
-			geometryProgram.Uniform("opacity").Uniform1f(opacity)
+			for _, o := range objects {
+				// update material uniforms
+				geometryProgram.UpdateUniform("diffuse", o.Material.Color)
+				geometryProgram.UpdateUniform("opacity", o.Material.Opacity)
 
-			// bind texture
-			gl.ActiveTexture(gl.TEXTURE0 + gl.GLenum(textureSlots))
-			imageTexture.Bind(gl.TEXTURE_2D)
-			defer imageTexture.Unbind(gl.TEXTURE_2D)
-			geometryProgram.Uniform("diffuseMap").Uniform1i(textureSlots)
-			textureSlots++
+				// update object uniforms
+				geometryProgram.UpdateUniform("modelMatrix", o.Transform)
 
-			// bind attributes
-			cubeMesh.VAO.Bind()
-			defer cubeMesh.VAO.Unbind()
-
-			cubeMesh.Position.Bind(gl.ARRAY_BUFFER)
-			defer cubeMesh.Position.Unbind(gl.ARRAY_BUFFER)
-			geometryProgram.Attribute("vertexPosition").EnableArray()
-			defer geometryProgram.Attribute("vertexPosition").DisableArray()
-			geometryProgram.Attribute("vertexPosition").AttribPointer(3, gl.FLOAT, false, 0, nil)
-
-			cubeMesh.Normal.Bind(gl.ARRAY_BUFFER)
-			defer cubeMesh.Normal.Unbind(gl.ARRAY_BUFFER)
-			geometryProgram.Attribute("vertexNormal").EnableArray()
-			defer geometryProgram.Attribute("vertexNormal").DisableArray()
-			geometryProgram.Attribute("vertexNormal").AttribPointer(3, gl.FLOAT, false, 0, nil)
-
-			cubeMesh.UV.Bind(gl.ARRAY_BUFFER)
-			defer cubeMesh.UV.Unbind(gl.ARRAY_BUFFER)
-			geometryProgram.Attribute("vertexUV").EnableArray()
-			defer geometryProgram.Attribute("vertexUV").DisableArray()
-			geometryProgram.Attribute("vertexUV").AttribPointer(2, gl.FLOAT, false, 0, nil)
-
-			for _, modelMatrix := range objects {
-				geometryProgram.Uniform("modelMatrix").UniformMatrix4fv(false, modelMatrix)
-
-				modelViewMatrix := geometryCamera.View.Mul4(modelMatrix)
+				modelViewMatrix := geometryCamera.View.Mul4(o.Transform)
 				normalMatrix := mgl32.Mat4Normal(modelViewMatrix)
-				geometryProgram.Uniform("normalMatrix").UniformMatrix3fv(false, normalMatrix)
+				geometryProgram.UpdateUniform("normalMatrix", normalMatrix)
+
+				// bind textures
+				geometryProgram.UpdateUniform("diffuseMap", bindTexture(o.Material.Texture))
+
+				// bind attributes
+				if currentGeometry != o.Geometry {
+					if currentGeometry != nil {
+						currentGeometry.Unbind()
+						geometryProgram.DisableAttributes()
+
+					}
+					currentGeometry = o.Geometry
+					currentGeometry.Bind() // enable vao
+
+					geometryProgram.BindAttribute("vertexPosition", currentGeometry, "position")
+					geometryProgram.BindAttribute("vertexNormal", currentGeometry, "normal")
+					geometryProgram.BindAttribute("vertexUV", currentGeometry, "uv")
+				}
 
 				// draw elements
-				cubeMesh.EBO.Bind(gl.ELEMENT_ARRAY_BUFFER)
-				defer cubeMesh.EBO.Unbind(gl.ELEMENT_ARRAY_BUFFER)
-				gl.DrawElements(gl.TRIANGLES, cubeMesh.Size, gl.UNSIGNED_SHORT, nil)
+				currentGeometry.WithAttribute("index", func(a MeshBufferAttribute) {
+					gl.DrawElements(gl.TRIANGLES, a.Count, a.Typ, nil)
+				})
 			}
 		}()
 
 		// render to screen, lighting calculation pass
 		func() {
 			gl.Enable(gl.BLEND)
-			gl.BlendEquation(gl.FUNC_ADD)
-			gl.BlendFunc(gl.ONE, gl.ONE)
+			//gl.BlendEquation(gl.FUNC_ADD)
+			//gl.BlendFunc(gl.ONE, gl.ONE)
+			gl.BlendEquationSeparate(gl.FUNC_ADD, gl.FUNC_ADD)
+			gl.BlendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
 
 			gl.Viewport(0, 0, width, height)
 			gl.ClearColor(0.0, 0.1, 0.2, 1.0)
 			gl.Clear(gl.COLOR_BUFFER_BIT)
+
+			defer unbindTextures()
 
 			// point light pass
 			//   shadow as spotlights
@@ -353,51 +404,33 @@ func main() {
 				defer lightingProgram.Unuse()
 
 				// update uniforms
-				lightingProgram.Uniform("projectionMatrix").UniformMatrix4fv(false, lightingCamera.Projection)
-				lightingProgram.Uniform("viewMatrix").UniformMatrix4fv(false, lightingCamera.View)
+				lightingProgram.UpdateUniform("projectionMatrix", lightingCamera.Projection)
+				lightingProgram.UpdateUniform("viewMatrix", lightingCamera.View)
 
-				lightingProgram.Uniform("modelMatrix").UniformMatrix4fv(false, mgl32.HomogRotate3D(angle/2.0, (mgl32.Vec3{0, 0, 1}).Normalize()))
+				lightingProgram.UpdateUniform("modelMatrix", mgl32.Ident4())
 
 				// bind textures
-				gl.ActiveTexture(gl.TEXTURE0 + gl.GLenum(textureSlots))
-				colorTexture.Bind(gl.TEXTURE_2D)
-				defer colorTexture.Unbind(gl.TEXTURE_2D)
-				lightingProgram.Uniform("colorMap").Uniform1i(textureSlots)
-				textureSlots++
-
-				gl.ActiveTexture(gl.TEXTURE0 + gl.GLenum(textureSlots))
-				positionTexture.Bind(gl.TEXTURE_2D)
-				defer positionTexture.Unbind(gl.TEXTURE_2D)
-				lightingProgram.Uniform("positionMap").Uniform1i(textureSlots)
-				textureSlots++
-
-				gl.ActiveTexture(gl.TEXTURE0 + gl.GLenum(textureSlots))
-				normalTexture.Bind(gl.TEXTURE_2D)
-				defer normalTexture.Unbind(gl.TEXTURE_2D)
-				lightingProgram.Uniform("normalMap").Uniform1i(textureSlots)
-				textureSlots++
+				lightingProgram.UpdateUniform("colorMap", bindTexture(colorTexture))
+				lightingProgram.UpdateUniform("positionMap", bindTexture(positionTexture))
+				lightingProgram.UpdateUniform("normalMap", bindTexture(normalTexture))
 
 				// bind attributes
-				planeMesh.VAO.Bind()
-				defer planeMesh.VAO.Unbind()
+				if currentGeometry != planeMesh {
+					if currentGeometry != nil {
+						currentGeometry.Unbind()
+						lightingProgram.DisableAttributes()
+					}
+					currentGeometry = planeMesh
+					currentGeometry.Bind()
 
-				planeMesh.Position.Bind(gl.ARRAY_BUFFER)
-				defer planeMesh.Position.Unbind(gl.ARRAY_BUFFER)
-				lightingProgram.Attribute("vertexPosition").EnableArray()
-				defer lightingProgram.Attribute("vertexPosition").DisableArray()
-				lightingProgram.Attribute("vertexPosition").AttribPointer(3, gl.FLOAT, false, 0, nil)
-
-				planeMesh.UV.Bind(gl.ARRAY_BUFFER)
-				defer planeMesh.UV.Unbind(gl.ARRAY_BUFFER)
-				lightingProgram.Attribute("vertexUV").EnableArray()
-				defer lightingProgram.Attribute("vertexUV").DisableArray()
-				lightingProgram.Attribute("vertexUV").AttribPointer(2, gl.FLOAT, false, 0, nil)
+					lightingProgram.BindAttribute("vertexPosition", currentGeometry, "position")
+					lightingProgram.BindAttribute("vertexUV", currentGeometry, "uv")
+				}
 
 				// draw elements
-				planeMesh.EBO.Bind(gl.ELEMENT_ARRAY_BUFFER)
-				defer planeMesh.EBO.Unbind(gl.ELEMENT_ARRAY_BUFFER)
-				gl.DrawElements(gl.TRIANGLES, planeMesh.Size, gl.UNSIGNED_SHORT, nil)
-
+				currentGeometry.WithAttribute("index", func(a MeshBufferAttribute) {
+					gl.DrawElements(gl.TRIANGLES, a.Count, a.Typ, nil)
+				})
 			}()
 		}()
 
@@ -407,40 +440,154 @@ func main() {
 	}
 }
 
+type Material struct {
+	Color   mgl32.Vec3
+	Opacity float32
+	Texture gl.Texture
+
+	Billboard, Wireframe,
+	CastShadow, ReceiveShadow bool
+}
+
+type Renderable struct {
+	Transform       mgl32.Mat4
+	AngularVelocity mgl32.Vec3
+	Geometry        *MeshBuffer
+	Material        Material
+}
+
+type Light struct {
+	Position   mgl32.Vec3
+	Color      mgl32.Vec3
+	Power      float32
+	CastShadow bool
+}
+
 type Camera struct {
 	Projection, View mgl32.Mat4
 }
 
-type ShaderProgram struct {
-	program    gl.Program
-	uniforms   map[string]gl.UniformLocation
-	attributes map[string]gl.AttribLocation
+type ShaderUniform struct {
+	Name string
+	//Typ  gl.GLenum // Vec3, Mat4, Texture ...
+
+	location gl.UniformLocation
 }
 
-func NewShaderProgram(p gl.Program, uniforms, attributes []string) *ShaderProgram {
+type ShaderAttribute struct {
+	Name   string
+	Stride uint      // Vec3 = 3, Vec2 = 2 ...
+	Typ    gl.GLenum // gl.FLOAT, gl.UNSIGNED_SJORT ...
+	// generate like in MeshBufferAttribute?
+
+	location gl.AttribLocation
+	enabled  bool
+}
+
+type ShaderProgram struct {
+	program    gl.Program
+	uniforms   map[string]ShaderUniform
+	attributes map[string]ShaderAttribute
+}
+
+func NewShaderProgram(p gl.Program, uniforms []ShaderUniform, attributes []ShaderAttribute) *ShaderProgram {
 	sp := &ShaderProgram{
 		program:    p,
-		uniforms:   map[string]gl.UniformLocation{},
-		attributes: map[string]gl.AttribLocation{},
+		uniforms:   map[string]ShaderUniform{},
+		attributes: map[string]ShaderAttribute{},
 	}
 
 	for _, u := range uniforms {
-		sp.uniforms[u] = p.GetUniformLocation(u)
+		u.location = p.GetUniformLocation(u.Name)
+		sp.uniforms[u.Name] = u
 	}
 
 	for _, a := range attributes {
-		sp.attributes[a] = p.GetAttribLocation(a)
+		a.location = p.GetAttribLocation(a.Name)
+		sp.attributes[a.Name] = a
 	}
 
 	return sp
 }
 
-func (sp *ShaderProgram) Delete() { sp.program.Delete() }
-func (sp *ShaderProgram) Use()    { sp.program.Use() }
-func (sp *ShaderProgram) Unuse()  { sp.program.Unuse() }
+func (sp *ShaderProgram) Delete() {
+	sp.program.Delete()
+}
 
-func (sp *ShaderProgram) Uniform(n string) gl.UniformLocation  { return sp.uniforms[n] }
-func (sp *ShaderProgram) Attribute(n string) gl.AttribLocation { return sp.attributes[n] }
+func (sp *ShaderProgram) Use() {
+	sp.program.Use()
+}
+
+func (sp *ShaderProgram) Unuse() {
+	sp.program.Unuse()
+}
+
+func (sp *ShaderProgram) UpdateUniform(name string, value interface{}) {
+	if _, found := sp.uniforms[name]; !found {
+		log.Fatalf("unsupported uniform: %v", name)
+	}
+
+	switch t := value.(type) {
+	default:
+		log.Fatalf("%v has unknown type: %T", name, t)
+
+	case int:
+		sp.uniforms[name].location.Uniform1i(t)
+	case float32:
+		sp.uniforms[name].location.Uniform1f(t)
+	case float64:
+		sp.uniforms[name].location.Uniform1f(float32(t))
+
+	case mgl32.Mat3:
+		sp.uniforms[name].location.UniformMatrix3fv(false, t)
+	case mgl32.Mat4:
+		sp.uniforms[name].location.UniformMatrix4fv(false, t)
+
+	case mgl32.Vec2:
+		sp.uniforms[name].location.Uniform2f(t[0], t[1])
+	case mgl32.Vec3:
+		sp.uniforms[name].location.Uniform3f(t[0], t[1], t[2])
+	case mgl32.Vec4:
+		sp.uniforms[name].location.Uniform4f(t[0], t[1], t[2], t[3])
+
+	case bool:
+		if t {
+			sp.uniforms[name].location.Uniform1i(1)
+		} else {
+			sp.uniforms[name].location.Uniform1i(0)
+		}
+	}
+}
+
+func (sp *ShaderProgram) BindAttribute(name string, buffer *MeshBuffer, bufname string) {
+	a, found := sp.attributes[name]
+	if !found {
+		log.Fatalf("unsupported attribute: %v", name)
+	}
+
+	// enable vao access to attribute, disabled by sp.Unuse()
+	if !a.enabled {
+		a.location.EnableArray()
+		a.enabled = true
+		sp.attributes[name] = a
+	}
+
+	buffer.WithAttribute(bufname, func(_ MeshBufferAttribute) {
+		// vertex attribute will get data from currently bound buffer
+		a.location.AttribPointer(a.Stride, a.Typ, false, 0, nil)
+	})
+}
+
+func (sp *ShaderProgram) DisableAttributes() {
+	for n, a := range sp.attributes {
+		if a.enabled {
+			a.location.DisableArray()
+			a.enabled = false
+
+			sp.attributes[n] = a
+		}
+	}
+}
 
 func LoadShaderFile(vertex, fragment string) gl.Program {
 	// load vertex shader
@@ -496,55 +643,120 @@ func LoadShader(vertex, fragment string) gl.Program {
 	return program
 }
 
+type MeshBufferAttribute struct {
+	Name   string
+	Target gl.GLenum // gl.ARRAY_BUFFER, gl.ELEMENT_ARRAY_BUFFER
+	Usage  gl.GLenum // gl.STATIC_DRAW, gl.DYNAMIC_DRAW, gl.STREAM_DRAW ...
+
+	Stride uint // overwritten at update
+	Typ    gl.GLenum
+	Count  int // current length of data
+	buffer gl.Buffer
+}
+
 type MeshBuffer struct {
-	VAO                  gl.VertexArray
-	Position, UV, Normal gl.Buffer // replace with dedicated mbattr (target, size, usage, ...)
-	EBO                  gl.Buffer
-	Size                 int
+	vao     gl.VertexArray
+	buffers map[string]MeshBufferAttribute
+}
+
+func NewMeshBuffer(buffers []MeshBufferAttribute) *MeshBuffer {
+	mb := &MeshBuffer{
+		vao:     gl.GenVertexArray(),
+		buffers: map[string]MeshBufferAttribute{},
+	}
+
+	for _, b := range buffers {
+		b.buffer = gl.GenBuffer()
+		mb.buffers[b.Name] = b
+	}
+
+	return mb
+}
+
+func MeshBufferFromMesh(mesh *Mesh) *MeshBuffer {
+	mb := NewMeshBuffer([]MeshBufferAttribute{
+		{Name: "position", Target: gl.ARRAY_BUFFER, Usage: gl.STATIC_DRAW},
+		{Name: "uv", Target: gl.ARRAY_BUFFER, Usage: gl.STATIC_DRAW},
+		{Name: "normal", Target: gl.ARRAY_BUFFER, Usage: gl.STATIC_DRAW},
+		{Name: "index", Target: gl.ELEMENT_ARRAY_BUFFER, Usage: gl.STATIC_DRAW},
+	})
+
+	mb.UpdateAttribute("position", mesh.Positions)
+	mb.UpdateAttribute("uv", mesh.UVs)
+	mb.UpdateAttribute("normal", mesh.Normals)
+	mb.UpdateAttribute("index", mesh.Indices)
+
+	return mb
 }
 
 func (mb *MeshBuffer) Delete() {
-	mb.VAO.Delete()
-	mb.Position.Delete()
-	mb.UV.Delete()
-	mb.Normal.Delete()
-	mb.EBO.Delete()
-	mb.Size = 0
+	mb.vao.Delete()
+
+	for _, a := range mb.buffers {
+		a.buffer.Delete()
+	}
 }
 
-func NewMeshBuffer(mesh *Mesh) *MeshBuffer {
-	mb := &MeshBuffer{
-		VAO:      gl.GenVertexArray(),
-		Position: gl.GenBuffer(),
-		UV:       gl.GenBuffer(),
-		Normal:   gl.GenBuffer(),
-		EBO:      gl.GenBuffer(),
+func (mb *MeshBuffer) Bind() {
+	mb.vao.Bind()
+}
+
+func (mb *MeshBuffer) Unbind() {
+	mb.vao.Unbind()
+}
+
+func (mb *MeshBuffer) WithAttribute(name string, do func(a MeshBufferAttribute)) {
+	a, found := mb.buffers[name]
+	if !found {
+		log.Fatalf("unsupported attribute: %v", name)
 	}
 
-	mb.VAO.Bind()
-	defer mb.VAO.Unbind()
+	// independent of vao state?
+	a.buffer.Bind(a.Target)
+	defer a.buffer.Unbind(a.Target)
 
-	// vbo's
-	mb.Position.Bind(gl.ARRAY_BUFFER)
-	size := len(mesh.Positions) * 3 * int(glh.Sizeof(gl.FLOAT))
-	gl.BufferData(gl.ARRAY_BUFFER, size, mesh.Positions, gl.STATIC_DRAW)
+	do(a)
+}
 
-	mb.UV.Bind(gl.ARRAY_BUFFER)
-	size = len(mesh.UVs) * 2 * int(glh.Sizeof(gl.FLOAT))
-	gl.BufferData(gl.ARRAY_BUFFER, size, mesh.UVs, gl.STATIC_DRAW)
+func (mb *MeshBuffer) UpdateAttribute(name string, value interface{}) {
+	a, found := mb.buffers[name]
+	if !found {
+		log.Fatalf("unsupported attribute: %v", name)
+	}
 
-	mb.Normal.Bind(gl.ARRAY_BUFFER)
-	size = len(mesh.Normals) * 3 * int(glh.Sizeof(gl.FLOAT))
-	gl.BufferData(gl.ARRAY_BUFFER, size, mesh.Normals, gl.STATIC_DRAW)
+	var count, stride int
+	var typ gl.GLenum
+	switch t := value.(type) {
+	default:
+		log.Fatalf("%v has unknown type: %T", name, t)
 
-	// ebo
-	mb.EBO.Bind(gl.ELEMENT_ARRAY_BUFFER)
-	size = len(mesh.Indices) * int(glh.Sizeof(gl.UNSIGNED_SHORT))
-	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, size, mesh.Indices, gl.STATIC_DRAW)
+	case []uint16:
+		count = len(t)
+		stride = 1
+		typ = gl.UNSIGNED_SHORT
+	case []mgl32.Vec2:
+		count = len(t)
+		stride = 2
+		typ = gl.FLOAT
+	case []mgl32.Vec3:
+		count = len(t)
+		stride = 3
+		typ = gl.FLOAT
+	}
 
-	mb.Size = len(mesh.Indices)
+	mb.Bind()
+	defer mb.Unbind()
 
-	return mb
+	a.buffer.Bind(a.Target)
+	defer a.buffer.Unbind(a.Target)
+
+	// consider using gl.BufferSubData when replacing the entire data
+	gl.BufferData(a.Target, count*stride*int(glh.Sizeof(typ)), value, a.Usage)
+
+	a.Count = count
+	a.Stride = uint(stride)
+	a.Typ = typ
+	mb.buffers[name] = a
 }
 
 type Mesh struct {
@@ -747,7 +959,7 @@ func GeneratePlane(width, height float32) *Mesh {
 	halfWidth := width / 2.0
 	halfHeight := height / 2.0
 
-	// vertices
+	// positions
 	a := mgl32.Vec3{halfWidth, halfHeight, 0}
 	b := mgl32.Vec3{-halfWidth, halfHeight, 0}
 	c := mgl32.Vec3{-halfWidth, -halfHeight, 0}
@@ -769,6 +981,194 @@ func GeneratePlane(width, height float32) *Mesh {
 		UVs:       []mgl32.Vec2{tr, tl, bl, br},
 		Normals:   []mgl32.Vec3{n, n, n, n},
 	}
+}
+
+func GenerateSphere(radius float64, widthSegments, heightSegments int) *Mesh {
+	// dimensions
+	if widthSegments < 3 {
+		widthSegments = 3
+	}
+	if heightSegments < 2 {
+		heightSegments = 2
+	}
+
+	phiStart, phiLength := 0.0, math.Pi*2
+	thetaStart, thetaLength := 0.0, math.Pi
+
+	// cache
+	var (
+		positions [][]mgl32.Vec3
+		uvs       [][]mgl32.Vec2
+		vertices  []Vertex
+		faces     []Face
+	)
+
+	for y := 0; y <= heightSegments; y++ {
+		var positionsRow []mgl32.Vec3
+		var uvsRow []mgl32.Vec2
+
+		for x := 0; x <= widthSegments; x++ {
+			u := float32(x) / float32(widthSegments)
+			v := float32(y) / float32(heightSegments)
+
+			position := mgl32.Vec3{
+				float32(-radius * math.Cos(phiStart+float64(u)*phiLength) * math.Sin(thetaStart+float64(v)*thetaLength)),
+				float32(radius * math.Cos(thetaStart+float64(v)*thetaLength)),
+				float32(radius * math.Sin(phiStart+float64(u)*phiLength) * math.Sin(thetaStart+float64(v)*thetaLength)),
+			}
+
+			positionsRow = append(positionsRow, position)
+			uvsRow = append(uvsRow, mgl32.Vec2{u, 1.0 - v})
+		}
+
+		positions = append(positions, positionsRow)
+		uvs = append(uvs, uvsRow)
+	}
+
+	for y := 0; y < heightSegments; y++ {
+		for x := 0; x < widthSegments; x++ {
+			// positions
+			v1 := positions[y][x+1]
+			v2 := positions[y][x]
+			v3 := positions[y+1][x]
+			v4 := positions[y+1][x+1]
+
+			// normals
+			n1 := v1.Normalize()
+			n2 := v2.Normalize()
+			n3 := v3.Normalize()
+			n4 := v4.Normalize()
+
+			// uvs
+			uv1 := uvs[y][x+1]
+			uv2 := uvs[y][x]
+			uv3 := uvs[y+1][x]
+			uv4 := uvs[y+1][x+1]
+
+			if math.Abs(float64(v1[1])) == radius {
+				offset := len(vertices)
+				vertices = append(vertices,
+					Vertex{
+						position: v1,
+						normal:   n1,
+						uv:       uv1,
+					}, Vertex{
+						position: v3,
+						normal:   n3,
+						uv:       uv3,
+					}, Vertex{
+						position: v4,
+						normal:   n4,
+						uv:       uv4,
+					})
+				faces = append(faces, Face{offset, offset + 1, offset + 2})
+
+			} else if math.Abs(float64(v3[1])) == radius {
+				offset := len(vertices)
+				vertices = append(vertices,
+					Vertex{
+						position: v1,
+						normal:   n1,
+						uv:       uv1,
+					}, Vertex{
+						position: v2,
+						normal:   n2,
+						uv:       uv2,
+					}, Vertex{
+						position: v3,
+						normal:   n3,
+						uv:       uv3,
+					})
+				faces = append(faces, Face{offset, offset + 1, offset + 2})
+
+			} else {
+				offset := len(vertices)
+				vertices = append(vertices,
+					Vertex{
+						position: v1,
+						normal:   n1,
+						uv:       uv1,
+					}, Vertex{
+						position: v2,
+						normal:   n2,
+						uv:       uv2,
+					}, Vertex{
+						position: v4,
+						normal:   n4,
+						uv:       uv4,
+					}, Vertex{
+						position: v2,
+						normal:   n2,
+						uv:       uv2,
+					}, Vertex{
+						position: v3,
+						normal:   n3,
+						uv:       uv3,
+					}, Vertex{
+						position: v4,
+						normal:   n4,
+						uv:       uv4,
+					})
+				faces = append(faces,
+					Face{offset, offset + 1, offset + 2},
+					Face{offset + 3, offset + 4, offset + 5},
+				)
+			}
+		}
+	}
+
+	// search and mark duplicate vertices
+	lookup := map[string]int{}
+	unique := []Vertex{}
+	changed := map[int]int{}
+	for i, v := range vertices {
+		key := v.Key(4)
+
+		if j, found := lookup[key]; !found {
+			// new vertex
+			lookup[key] = i
+			unique = append(unique, v)
+			changed[i] = len(unique) - 1
+		} else {
+			// duplicate vertex
+			changed[i] = changed[j]
+		}
+	}
+
+	// change faces
+	cleaned := []Face{}
+	for _, f := range faces {
+		a, b, c := changed[f.A], changed[f.B], changed[f.C]
+		if a == b || b == c || c == a {
+			// degenerated face, remove
+			continue
+		}
+
+		cleaned = append(cleaned, Face{a, b, c})
+	}
+
+	// copy values to buffers
+	n := len(unique)
+	m := Mesh{
+		Indices:   make([]uint16, len(cleaned)*3),
+		Positions: make([]mgl32.Vec3, n),
+		UVs:       make([]mgl32.Vec2, n),
+		Normals:   make([]mgl32.Vec3, n),
+	}
+
+	for i, v := range unique {
+		m.Positions[i] = v.position
+		m.UVs[i] = v.uv
+		m.Normals[i] = v.normal
+	}
+
+	for i, f := range cleaned {
+		m.Indices[i*3] = uint16(f.A)
+		m.Indices[i*3+1] = uint16(f.B)
+		m.Indices[i*3+2] = uint16(f.C)
+	}
+
+	return &m
 }
 
 func LoadTexture(path string) gl.Texture {
@@ -860,27 +1260,26 @@ func GenerateMRT(w, h int) (color, position, normal gl.Texture, fbo gl.Framebuff
 	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT2, gl.TEXTURE_2D, normalTexture, 0)
 
 	// generate depth texture
-	/*
-		depthTexture := gl.GenTexture()
-		depthTexture.Bind(gl.TEXTURE_2D)
-		defer depthTexture.Unbind(gl.TEXTURE_2D)
-		gl.TexImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT16, w, h, 0, gl.DEPTH_COMPONENT, gl.FLOAT, nil)
-		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+	depthTexture := gl.GenTexture()
+	depthTexture.Bind(gl.TEXTURE_2D)
+	defer depthTexture.Unbind(gl.TEXTURE_2D)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT16, w, h, 0, gl.DEPTH_COMPONENT, gl.FLOAT, nil)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
 
-		gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, depthTexture, 0)
-	*/
+	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, depthTexture, 0)
 
 	//instead of depth texture
 	// generate depth buffer
-	depthBuffer := gl.GenRenderbuffer()
-	depthBuffer.Bind()
-	defer depthBuffer.Unbind()
-	gl.RenderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, w, h)
-	depthBuffer.FramebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER)
-
+	/*
+		depthBuffer := gl.GenRenderbuffer()
+		depthBuffer.Bind()
+		defer depthBuffer.Unbind()
+		gl.RenderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, w, h)
+		depthBuffer.FramebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER)
+	*/
 	gl.DrawBuffers(3, []gl.GLenum{gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2})
 
 	// check
