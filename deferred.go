@@ -100,9 +100,13 @@ func main() {
 		in vec3 Normal;
 		in vec2 UV;
 
-		uniform vec3 diffuse;
-		uniform float opacity;
-		uniform sampler2D diffuseMap;
+		struct Material {
+			vec3 Diffuse;
+			sampler2D DiffuseMap;
+			float SpecularIntensity;
+			float SpecularPower;
+		};
+		uniform Material material;
 
 		//	g-buffer
 		layout(location = 0) out vec4 fragmentColor;
@@ -110,26 +114,27 @@ func main() {
 		layout(location = 2) out vec4 fragmentNormal;	// move to eye-space
 
 		void main() {
-			vec4 materialColor = texture(diffuseMap, UV);
+			vec3 materialColor = texture(material.DiffuseMap, UV).rgb;
 
-			fragmentColor = vec4(materialColor.rgb * diffuse, opacity);
+			fragmentColor = vec4(materialColor * material.Diffuse, material.SpecularIntensity);
 			fragmentPosition = vec4(Position, 1.0);
-			fragmentNormal = vec4(normalize(Normal), 1.0);
+			fragmentNormal = vec4(normalize(Normal), material.SpecularPower);
 		}
 	`), []ShaderUniform{
 		{Name: "projectionMatrix"},
 		{Name: "viewMatrix"},
 		{Name: "modelMatrix"},
 		{Name: "normalMatrix"},
-		{Name: "diffuse"},
-		{Name: "opacity"},
-		{Name: "diffuseMap"},
+
+		{Name: "material.Diffuse"},
+		{Name: "material.DiffuseMap"},
+		{Name: "material.SpecularIntensity"},
+		{Name: "material.SpecularPower"},
 	}, []ShaderAttribute{
 		{Name: "vertexPosition", Stride: 3, Typ: gl.FLOAT},
 		{Name: "vertexNormal", Stride: 3, Typ: gl.FLOAT},
 		{Name: "vertexUV", Stride: 2, Typ: gl.FLOAT},
 	})
-
 	defer geometryProgram.Delete()
 
 	// setup mesh buffers
@@ -211,6 +216,104 @@ func main() {
 	})
 	defer lightingProgram.Delete()
 
+	// vertex, fragment (!)
+	lightTestProgram := NewShaderProgram(LoadShader(`
+		#version 330 core
+
+		layout(location = 0) in vec3 vertexPosition;
+		layout(location = 1) in vec2 vertexUV;
+
+		uniform mat4 projectionMatrix;
+		uniform mat4 viewMatrix;
+		uniform mat4 modelMatrix;
+
+		out vec2 UV;
+
+		void main() {
+			UV = vertexUV;
+			gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(vertexPosition, 1.0);
+		}
+	`, `
+		#version 330 core
+
+		in vec2 UV;
+
+		uniform sampler2D colorMap;
+		uniform sampler2D positionMap;
+		uniform sampler2D normalMap;
+
+		struct Light {
+			vec3 Position;
+			vec3 Color;
+			float AmbientIntensity;
+			float DiffuseIntensity;
+			
+			struct {
+				float Constant;
+				float Linear;
+				float Quadratic;
+			} Atten;
+		};
+		uniform Light light;
+		uniform vec3 camPosition;
+
+		layout(location = 0) out vec4 fragmentColor;
+
+		void main() {
+			vec3 matColor = texture(colorMap, UV).rgb;
+			vec3 position = texture(positionMap, UV).xyz;
+			vec3 normal = normalize(texture(normalMap, UV).xyz);
+
+			float matSpecularIntensity = texture(colorMap, UV).a;
+			float matSpecularPower = texture(normalMap, UV).w;
+
+			vec3 viewDir = normalize(camPosition - position);
+			vec3 lightDir = normalize(light.Position - position);
+			float distance = length(light.Position - position);
+
+			// ambient, simulates indirect lighting
+			vec3 amb = light.Color * light.AmbientIntensity;
+
+			// diffuse, direct lightning
+			float cosTheta = clamp(dot(normal, lightDir), 0.0, 1.0);
+			vec3 diff = light.Color * light.DiffuseIntensity * cosTheta;
+
+			// specular, reflective highlight, like a mirror
+			float cosAlpha = clamp(dot(viewDir, reflect(-lightDir, normal)), 0.0, 1.0);
+			vec3 spec = light.Color * matSpecularIntensity * pow(cosAlpha, matSpecularPower);
+
+			// attenuation, fading effect
+			float att = light.Atten.Constant + 
+						light.Atten.Linear * distance + 
+						light.Atten.Quadratic * distance * distance;
+			vec3 lightColor = (amb + diff + spec) / att;
+
+			fragmentColor = vec4(matColor * lightColor, 1.0);
+		}
+	`), []ShaderUniform{
+		{Name: "projectionMatrix"},
+		{Name: "viewMatrix"},
+		{Name: "modelMatrix"},
+
+		{Name: "colorMap"},
+		{Name: "positionMap"},
+		{Name: "normalMap"},
+
+		{Name: "light.Position"},
+		{Name: "light.Color"},
+		{Name: "light.AmbientIntensity"},
+		{Name: "light.DiffuseIntensity"},
+		{Name: "light.Atten.Constant"},
+		{Name: "light.Atten.Linear"},
+		{Name: "light.Atten.Quadratic"},
+
+		{Name: "camPosition"},
+	}, []ShaderAttribute{
+		{Name: "vertexPosition", Stride: 3, Typ: gl.FLOAT},
+		{Name: "vertexUV", Stride: 2, Typ: gl.FLOAT},
+	})
+	defer lightTestProgram.Delete()
+
 	// rendertarget
 	tw, th := 1024, 1024
 	colorTexture, positionTexture, normalTexture, frameBuffer := GenerateMRT(tw, th)
@@ -236,7 +339,7 @@ func main() {
 
 	lightingCamera := Camera{
 		Projection: mgl32.Perspective(45.0, float32(width)/float32(height), 1.0, 100.0),
-		View:       mgl32.LookAtV(mgl32.Vec3{0, 0, 5}, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0}),
+		View:       mgl32.LookAtV(mgl32.Vec3{0, 0, 5}, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0}), // mgl32.Ident4()
 	}
 
 	// create objects
@@ -259,9 +362,12 @@ func main() {
 				AngularVelocity: (mgl32.Vec3{1, 0.8, 0.5}).Normalize().Mul(a * float32(math.Pi/8.0)),
 				Geometry:        g,
 				Material: Material{
-					Color:   (mgl32.Vec3{x, 1, z}).Normalize(),
-					Opacity: 1.0,
+					Color:   mgl32.Vec3{1, 1, 1}, //(mgl32.Vec3{x, 1, z}).Normalize(),
 					Texture: t,
+					Opacity: 1.0,
+
+					SpecularIntensity: 0.3,
+					SpecularPower:     5.0,
 				},
 			})
 		}
@@ -288,6 +394,29 @@ func main() {
 			delete(currentTextures, t)
 		}
 	}
+
+	// create lights
+	lights := []PointLight{{
+		Position:         mgl32.Vec3{5, 5, 0},
+		Color:            mgl32.Vec3{1, 1, 1},
+		AmbientIntensity: 0.2,
+		DiffuseIntensity: 1.0,
+		Attenuation: struct {
+			Constant,
+			Linear,
+			Quadratic float32
+		}{1, 0, 0},
+	}, {
+		Position:         mgl32.Vec3{-5, 0, 5},
+		Color:            mgl32.Vec3{0, 0, 1},
+		AmbientIntensity: 0.1,
+		DiffuseIntensity: 0.5,
+		Attenuation: struct {
+			Constant,
+			Linear,
+			Quadratic float32
+		}{0, 0, 0.1},
+	}}
 
 	// main loop
 	var (
@@ -338,8 +467,11 @@ func main() {
 
 			for _, o := range objects {
 				// update material uniforms
-				geometryProgram.UpdateUniform("diffuse", o.Material.Color)
-				geometryProgram.UpdateUniform("opacity", o.Material.Opacity)
+				geometryProgram.UpdateUniform("material.Diffuse", o.Material.Color)
+				//geometryProgram.UpdateUniform("opacity", o.Material.Opacity) // no opacity in geometry pass
+
+				geometryProgram.UpdateUniform("material.SpecularIntensity", o.Material.SpecularIntensity)
+				geometryProgram.UpdateUniform("material.SpecularPower", o.Material.SpecularPower)
 
 				// update object uniforms
 				geometryProgram.UpdateUniform("modelMatrix", o.Transform)
@@ -349,7 +481,7 @@ func main() {
 				geometryProgram.UpdateUniform("normalMatrix", normalMatrix)
 
 				// bind textures
-				geometryProgram.UpdateUniform("diffuseMap", bindTexture(o.Material.Texture))
+				geometryProgram.UpdateUniform("material.DiffuseMap", bindTexture(o.Material.Texture))
 
 				// bind attributes
 				if currentGeometry != o.Geometry {
@@ -376,13 +508,13 @@ func main() {
 		// render to screen, lighting calculation pass
 		func() {
 			gl.Enable(gl.BLEND)
-			//gl.BlendEquation(gl.FUNC_ADD)
-			//gl.BlendFunc(gl.ONE, gl.ONE)
-			gl.BlendEquationSeparate(gl.FUNC_ADD, gl.FUNC_ADD)
-			gl.BlendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+			gl.BlendEquation(gl.FUNC_ADD)
+			gl.BlendFunc(gl.ONE, gl.ONE)
+			//gl.BlendEquationSeparate(gl.FUNC_ADD, gl.FUNC_ADD)
+			//gl.BlendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
 
 			gl.Viewport(0, 0, width, height)
-			gl.ClearColor(0.0, 0.1, 0.2, 1.0)
+			gl.ClearColor(0.0, 0.0, 0.0, 1.0)
 			gl.Clear(gl.COLOR_BUFFER_BIT)
 
 			defer unbindTextures()
@@ -397,6 +529,57 @@ func main() {
 					render shadowmap
 					blend to screen with g-buffer and shadowmap textures
 			*/
+
+			// directional light testing
+			func() {
+				lightTestProgram.Use()
+				defer lightTestProgram.Unuse()
+
+				// update uniforms
+				lightTestProgram.UpdateUniform("projectionMatrix", lightingCamera.Projection)
+				lightTestProgram.UpdateUniform("viewMatrix", lightingCamera.View)
+
+				lightTestProgram.UpdateUniform("modelMatrix", mgl32.Ident4())
+
+				lightTestProgram.UpdateUniform("camPosition", cameraPosition)
+
+				// bind textures
+				lightTestProgram.UpdateUniform("colorMap", bindTexture(colorTexture))
+				lightTestProgram.UpdateUniform("positionMap", bindTexture(positionTexture))
+				lightTestProgram.UpdateUniform("normalMap", bindTexture(normalTexture))
+
+				for _, light := range lights {
+					lightTestProgram.UpdateUniform("light.Position", light.Position)
+					lightTestProgram.UpdateUniform("light.Color", light.Color)
+
+					lightTestProgram.UpdateUniform("light.AmbientIntensity", light.AmbientIntensity)
+					lightTestProgram.UpdateUniform("light.DiffuseIntensity", light.DiffuseIntensity)
+
+					lightTestProgram.UpdateUniform("light.Atten.Constant", light.Attenuation.Constant)
+					lightTestProgram.UpdateUniform("light.Atten.Linear", light.Attenuation.Linear)
+					lightTestProgram.UpdateUniform("light.Atten.Quadratic", light.Attenuation.Quadratic)
+
+					// bind attributes
+					if currentGeometry != planeMesh {
+						if currentGeometry != nil {
+							currentGeometry.Unbind()
+							lightTestProgram.DisableAttributes()
+						}
+						currentGeometry = planeMesh
+						currentGeometry.Bind()
+
+						lightTestProgram.BindAttribute("vertexPosition", currentGeometry, "position")
+						lightTestProgram.BindAttribute("vertexUV", currentGeometry, "uv")
+					}
+
+					// draw elements
+					currentGeometry.WithAttribute("index", func(a MeshBufferAttribute) {
+						gl.DrawElements(gl.TRIANGLES, a.Count, a.Typ, nil)
+					})
+				}
+			}()
+
+			return
 
 			func() {
 				// use program
@@ -442,8 +625,12 @@ func main() {
 
 type Material struct {
 	Color   mgl32.Vec3
-	Opacity float32
 	Texture gl.Texture
+
+	SpecularIntensity float32 // shininess factor
+	SpecularPower     float32 //
+
+	Opacity float32 // separete forward rendering pass if < 1.0
 
 	Billboard, Wireframe,
 	CastShadow, ReceiveShadow bool
@@ -456,10 +643,38 @@ type Renderable struct {
 	Material        Material
 }
 
-type Light struct {
-	Position   mgl32.Vec3
-	Color      mgl32.Vec3
-	Power      float32
+type BaseLight struct {
+	Color            mgl32.Vec3
+	AmbientIntensity float32
+	DiffuseIntensity float32
+
+	CastShadow bool
+}
+
+type DirectionalLight struct {
+	Direction mgl32.Vec3
+
+	//BaseLight
+	Color            mgl32.Vec3
+	AmbientIntensity float32
+	DiffuseIntensity float32
+
+	CastShadow bool
+}
+
+type PointLight struct {
+	Position    mgl32.Vec3
+	Attenuation struct {
+		Constant,
+		Linear,
+		Quadratic float32
+	}
+
+	//BaseLight
+	Color            mgl32.Vec3
+	AmbientIntensity float32
+	DiffuseIntensity float32
+
 	CastShadow bool
 }
 
