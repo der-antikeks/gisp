@@ -332,10 +332,12 @@ func main() {
 	planeMesh := NewMeshBuffer([]MeshBufferAttribute{
 		{Name: "position", Target: gl.ARRAY_BUFFER, Usage: gl.STATIC_DRAW},
 		{Name: "uv", Target: gl.ARRAY_BUFFER, Usage: gl.STATIC_DRAW},
+		{Name: "normal", Target: gl.ARRAY_BUFFER, Usage: gl.STATIC_DRAW},
 		{Name: "index", Target: gl.ELEMENT_ARRAY_BUFFER, Usage: gl.STATIC_DRAW},
 	})
 	planeMesh.UpdateAttribute("position", mesh.Positions)
 	planeMesh.UpdateAttribute("uv", mesh.UVs)
+	planeMesh.UpdateAttribute("normal", mesh.Normals)
 	planeMesh.UpdateAttribute("index", mesh.Indices)
 	defer planeMesh.Delete()
 
@@ -381,6 +383,44 @@ func main() {
 			})
 		}
 	}
+
+	objects = append(objects, Renderable{
+		Transform:       mgl32.Translate3D(0, -2, 0).Mul4(mgl32.LookAtV(mgl32.Vec3{0, -1, 0}, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 0, 1})),
+		AngularVelocity: mgl32.Vec3{},
+		Geometry:        planeMesh,
+		Material: Material{
+			Color:   mgl32.Vec3{1, 1, 1},
+			Texture: gridTexture,
+			Opacity: 1.0,
+
+			SpecularIntensity: 0.3,
+			SpecularPower:     5.0,
+		},
+	}, Renderable{
+		Transform:       mgl32.Translate3D(0, 0, -2).Mul4(mgl32.LookAtV(mgl32.Vec3{0, 0, 1}, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0})),
+		AngularVelocity: mgl32.Vec3{},
+		Geometry:        planeMesh,
+		Material: Material{
+			Color:   mgl32.Vec3{1, 1, 1},
+			Texture: gridTexture,
+			Opacity: 1.0,
+
+			SpecularIntensity: 0.3,
+			SpecularPower:     5.0,
+		},
+	}, Renderable{
+		Transform:       mgl32.Translate3D(-5, 0, 0).Mul4(mgl32.LookAtV(mgl32.Vec3{-1, 0, 0}, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0})),
+		AngularVelocity: mgl32.Vec3{},
+		Geometry:        planeMesh,
+		Material: Material{
+			Color:   mgl32.Vec3{1, 1, 1},
+			Texture: gridTexture,
+			Opacity: 1.0,
+
+			SpecularIntensity: 0.3,
+			SpecularPower:     5.0,
+		},
+	})
 
 	// texture cache
 	currentTextures := map[gl.Texture]int{}
@@ -501,7 +541,6 @@ func main() {
 					if currentGeometry != nil {
 						currentGeometry.Unbind()
 						geometryProgram.DisableAttributes()
-
 					}
 					currentGeometry = o.Geometry
 					currentGeometry.Bind() // enable vao
@@ -517,6 +556,9 @@ func main() {
 				})
 			}
 		}()
+
+		currentGeometry.Unbind()
+		currentGeometry = nil
 
 		// render to screen, lighting calculation pass
 		func() {
