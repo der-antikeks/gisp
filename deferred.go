@@ -253,6 +253,9 @@ func main() {
 				float Linear;
 				float Quadratic;
 			} Atten;
+
+			vec3 Direction;
+			float Cutoff;
 		};
 		uniform Light light;
 		uniform vec3 camPosition;
@@ -260,10 +263,9 @@ func main() {
 		layout(location = 0) out vec4 fragmentColor;
 
 		void main() {
-			vec3 matColor = texture(colorMap, UV).rgb;
+			vec3 color = texture(colorMap, UV).rgb;
 			vec3 position = texture(positionMap, UV).xyz;
 			vec3 normal = normalize(texture(normalMap, UV).xyz);
-
 			float matSpecularIntensity = texture(colorMap, UV).a;
 			float matSpecularPower = texture(normalMap, UV).w;
 
@@ -272,23 +274,28 @@ func main() {
 			float distance = length(light.Position - position);
 
 			// ambient, simulates indirect lighting
-			vec3 amb = light.Color * light.AmbientIntensity;
+			vec3 ambColor = light.Color * light.AmbientIntensity;
 
 			// diffuse, direct lightning
-			float cosTheta = clamp(dot(normal, lightDir), 0.0, 1.0);
-			vec3 diff = light.Color * light.DiffuseIntensity * cosTheta;
+			float diffFactor = clamp(dot(normal, lightDir), 0.0, 1.0);
+			vec3 diffColor = light.Color * light.DiffuseIntensity * diffFactor;
 
 			// specular, reflective highlight, like a mirror
-			float cosAlpha = clamp(dot(viewDir, reflect(-lightDir, normal)), 0.0, 1.0);
-			vec3 spec = light.Color * matSpecularIntensity * pow(cosAlpha, matSpecularPower);
+			float specFactor = clamp(dot(viewDir, reflect(-lightDir, normal)), 0.0, 1.0);
+			specFactor = pow(specFactor, matSpecularPower);
+			vec3 specColor = light.Color * matSpecularIntensity * specFactor;
 
-			// attenuation, fading effect
-			float att = light.Atten.Constant + 
+			// attenuation, distance fading effect
+			float attFactor = light.Atten.Constant + 
 						light.Atten.Linear * distance + 
 						light.Atten.Quadratic * distance * distance;
-			vec3 lightColor = (amb + diff + spec) / att;
 
-			fragmentColor = vec4(matColor * lightColor, 1.0);
+			// spot, shedding light only within a limited cone
+			float spotFactor = dot(-lightDir, light.Direction);
+			spotFactor = clamp((1.0 - (1.0 - spotFactor) * 1.0 / (1.0 - light.Cutoff)), 0.0, 1.0);
+
+			// combine colors
+			fragmentColor = vec4(color * (ambColor + diffColor + specColor) / attFactor * spotFactor, 1.0);
 		}
 	`), []ShaderUniform{
 		{Name: "projectionMatrix"},
@@ -306,6 +313,8 @@ func main() {
 		{Name: "light.Atten.Constant"},
 		{Name: "light.Atten.Linear"},
 		{Name: "light.Atten.Quadratic"},
+		{Name: "light.Direction"},
+		{Name: "light.Cutoff"},
 
 		{Name: "camPosition"},
 	}, []ShaderAttribute{
@@ -396,7 +405,7 @@ func main() {
 	}
 
 	// create lights
-	lights := []PointLight{{
+	lights := []SpotLight{{
 		Position:         mgl32.Vec3{5, 5, 0},
 		Color:            mgl32.Vec3{1, 1, 1},
 		AmbientIntensity: 0.2,
@@ -406,6 +415,8 @@ func main() {
 			Linear,
 			Quadratic float32
 		}{1, 0, 0},
+		Direction: (mgl32.Vec3{0, 0, 0}).Sub(mgl32.Vec3{5, 5, 0}).Normalize(),
+		Cutoff:    float32(math.Cos(45 * math.Pi / 180)),
 	}, {
 		Position:         mgl32.Vec3{-5, 0, 5},
 		Color:            mgl32.Vec3{0, 0, 1},
@@ -416,6 +427,8 @@ func main() {
 			Linear,
 			Quadratic float32
 		}{0, 0, 0.1},
+		Direction: (mgl32.Vec3{0, 0, -1}).Normalize(),
+		Cutoff:    float32(math.Cos(90 * math.Pi / 180)),
 	}}
 
 	// main loop
@@ -559,6 +572,9 @@ func main() {
 					lightTestProgram.UpdateUniform("light.Atten.Linear", light.Attenuation.Linear)
 					lightTestProgram.UpdateUniform("light.Atten.Quadratic", light.Attenuation.Quadratic)
 
+					lightTestProgram.UpdateUniform("light.Direction", light.Direction)
+					lightTestProgram.UpdateUniform("light.Cutoff", light.Cutoff)
+
 					// bind attributes
 					if currentGeometry != planeMesh {
 						if currentGeometry != nil {
@@ -663,6 +679,26 @@ type DirectionalLight struct {
 }
 
 type PointLight struct {
+	Position    mgl32.Vec3
+	Attenuation struct {
+		Constant,
+		Linear,
+		Quadratic float32
+	}
+
+	//BaseLight
+	Color            mgl32.Vec3
+	AmbientIntensity float32
+	DiffuseIntensity float32
+
+	CastShadow bool
+}
+
+type SpotLight struct {
+	Direction mgl32.Vec3
+	Cutoff    float32 //  maximum angle (cosine of) between the light direction and the light to pixel vector
+
+	//PointLight
 	Position    mgl32.Vec3
 	Attenuation struct {
 		Constant,
