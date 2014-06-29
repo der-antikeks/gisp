@@ -221,22 +221,16 @@ func main() {
 		#version 330 core
 
 		layout(location = 0) in vec3 vertexPosition;
-		layout(location = 1) in vec2 vertexUV;
 
 		uniform mat4 projectionMatrix;
 		uniform mat4 viewMatrix;
 		uniform mat4 modelMatrix;
 
-		out vec2 UV;
-
 		void main() {
-			UV = vertexUV;
 			gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(vertexPosition, 1.0);
 		}
 	`, `
 		#version 330 core
-
-		in vec2 UV;
 
 		uniform sampler2D colorMap;
 		uniform sampler2D positionMap;
@@ -262,7 +256,13 @@ func main() {
 
 		layout(location = 0) out vec4 fragmentColor;
 
+		vec2 calcUV() {
+			return gl_FragCoord.xy / vec2(800, 400);
+		}
+
 		void main() {
+			vec2 UV = calcUV();
+
 			vec3 color = texture(colorMap, UV).rgb;
 			vec3 position = texture(positionMap, UV).xyz;
 			vec3 normal = normalize(texture(normalMap, UV).xyz);
@@ -293,9 +293,11 @@ func main() {
 			// spot, shedding light only within a limited cone
 			float spotFactor = dot(-lightDir, light.Direction);
 			spotFactor = clamp((1.0 - (1.0 - spotFactor) * 1.0 / (1.0 - light.Cutoff)), 0.0, 1.0);
+			//spotFactor = 1.0; // point instead of spot light
 
 			// combine colors
 			fragmentColor = vec4(color * (ambColor + diffColor + specColor) / attFactor * spotFactor, 1.0);
+			//fragmentColor = vec4(color,1);
 		}
 	`), []ShaderUniform{
 		{Name: "projectionMatrix"},
@@ -319,7 +321,6 @@ func main() {
 		{Name: "camPosition"},
 	}, []ShaderAttribute{
 		{Name: "vertexPosition", Stride: 3, Typ: gl.FLOAT},
-		{Name: "vertexUV", Stride: 2, Typ: gl.FLOAT},
 	})
 	defer lightTestProgram.Delete()
 
@@ -397,7 +398,7 @@ func main() {
 			SpecularPower:     5.0,
 		},
 	}, Renderable{
-		Transform:       mgl32.Translate3D(0, 0, -2).Mul4(mgl32.LookAtV(mgl32.Vec3{0, 0, 1}, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0})),
+		Transform:       mgl32.Translate3D(0, 0, -5).Mul4(mgl32.LookAtV(mgl32.Vec3{0, 0, 1}, mgl32.Vec3{0, 0, 0}, mgl32.Vec3{0, 1, 0})),
 		AngularVelocity: mgl32.Vec3{},
 		Geometry:        planeMesh,
 		Material: Material{
@@ -446,30 +447,39 @@ func main() {
 
 	// create lights
 	lights := []SpotLight{{
-		Position:         mgl32.Vec3{5, 5, 0},
+		Position:         mgl32.Vec3{4, 4, 0},
 		Color:            mgl32.Vec3{1, 1, 1},
-		AmbientIntensity: 0.2,
+		AmbientIntensity: 0.0,
 		DiffuseIntensity: 1.0,
 		Attenuation: struct {
 			Constant,
 			Linear,
 			Quadratic float32
-		}{1, 0, 0},
+		}{1, 0.09, 0.032},
 		Direction: (mgl32.Vec3{0, 0, 0}).Sub(mgl32.Vec3{5, 5, 0}).Normalize(),
-		Cutoff:    float32(math.Cos(45 * math.Pi / 180)),
+		Cutoff:    float32(math.Cos(90 / 2 * math.Pi / 180)),
 	}, {
-		Position:         mgl32.Vec3{-5, 0, 5},
-		Color:            mgl32.Vec3{0, 0, 1},
-		AmbientIntensity: 0.1,
-		DiffuseIntensity: 0.5,
+		Position:         mgl32.Vec3{-3, 0, 6},
+		Color:            mgl32.Vec3{0.5, 0.5, 1},
+		AmbientIntensity: 0.0,
+		DiffuseIntensity: 1.0,
 		Attenuation: struct {
 			Constant,
 			Linear,
 			Quadratic float32
-		}{0, 0, 0.1},
+		}{1, 0.14, 0.07},
 		Direction: (mgl32.Vec3{0, 0, -1}).Normalize(),
-		Cutoff:    float32(math.Cos(90 * math.Pi / 180)),
+		Cutoff:    float32(math.Cos(45 * math.Pi / 180)),
 	}}
+
+	mesh = GenerateSphere(1, 20, 10)
+	pointLightBoundingMesh := NewMeshBuffer([]MeshBufferAttribute{
+		{Name: "position", Target: gl.ARRAY_BUFFER, Usage: gl.STATIC_DRAW},
+		{Name: "index", Target: gl.ELEMENT_ARRAY_BUFFER, Usage: gl.STATIC_DRAW},
+	})
+	pointLightBoundingMesh.UpdateAttribute("position", mesh.Positions)
+	pointLightBoundingMesh.UpdateAttribute("index", mesh.Indices)
+	defer pointLightBoundingMesh.Delete()
 
 	// main loop
 	var (
@@ -572,6 +582,9 @@ func main() {
 			gl.ClearColor(0.0, 0.0, 0.0, 1.0)
 			gl.Clear(gl.COLOR_BUFFER_BIT)
 
+			gl.Disable(gl.CULL_FACE) // light is not rendered when camera is inside of bounding sphere
+			defer gl.Enable(gl.CULL_FACE)
+
 			defer unbindTextures()
 
 			// point light pass
@@ -585,16 +598,14 @@ func main() {
 					blend to screen with g-buffer and shadowmap textures
 			*/
 
-			// directional light testing
+			// point light testing
 			func() {
 				lightTestProgram.Use()
 				defer lightTestProgram.Unuse()
 
 				// update uniforms
-				lightTestProgram.UpdateUniform("projectionMatrix", lightingCamera.Projection)
-				lightTestProgram.UpdateUniform("viewMatrix", lightingCamera.View)
-
-				lightTestProgram.UpdateUniform("modelMatrix", mgl32.Ident4())
+				lightTestProgram.UpdateUniform("projectionMatrix", geometryCamera.Projection)
+				lightTestProgram.UpdateUniform("viewMatrix", geometryCamera.View)
 
 				lightTestProgram.UpdateUniform("camPosition", cameraPosition)
 
@@ -604,6 +615,13 @@ func main() {
 				lightTestProgram.UpdateUniform("normalMap", bindTexture(normalTexture))
 
 				for _, light := range lights {
+					scale := light.Sphere()
+					//log.Println(scale)
+					//scale = 10 // DEBUG
+
+					modelMatrix := mgl32.Translate3D(light.Position[0], light.Position[1], light.Position[2]).Mul4(mgl32.Scale3D(scale, scale, scale))
+					lightTestProgram.UpdateUniform("modelMatrix", modelMatrix)
+
 					lightTestProgram.UpdateUniform("light.Position", light.Position)
 					lightTestProgram.UpdateUniform("light.Color", light.Color)
 
@@ -618,16 +636,15 @@ func main() {
 					lightTestProgram.UpdateUniform("light.Cutoff", light.Cutoff)
 
 					// bind attributes
-					if currentGeometry != planeMesh {
+					if currentGeometry != pointLightBoundingMesh {
 						if currentGeometry != nil {
 							currentGeometry.Unbind()
 							lightTestProgram.DisableAttributes()
 						}
-						currentGeometry = planeMesh
+						currentGeometry = pointLightBoundingMesh
 						currentGeometry.Bind()
 
 						lightTestProgram.BindAttribute("vertexPosition", currentGeometry, "position")
-						lightTestProgram.BindAttribute("vertexUV", currentGeometry, "uv")
 					}
 
 					// draw elements
@@ -754,6 +771,16 @@ type SpotLight struct {
 	DiffuseIntensity float32
 
 	CastShadow bool
+}
+
+func (l SpotLight) Sphere() float32 {
+	c := float32(math.Max(math.Max(float64(l.Color[0]), float64(l.Color[1])), float64(l.Color[2])))
+	b := float32(16777216)
+
+	//o := (-l.Attenuation.Linear + float32(math.Sqrt(float64(l.Attenuation.Linear*l.Attenuation.Linear-4*l.Attenuation.Quadratic*(l.Attenuation.Constant-b*c*l.DiffuseIntensity))))) / 2 * l.Attenuation.Quadratic
+	w := (-l.Attenuation.Linear + float32(math.Sqrt(float64(4*l.DiffuseIntensity*b*c*l.Attenuation.Quadratic-4*l.Attenuation.Constant*l.Attenuation.Quadratic+l.Attenuation.Linear*l.Attenuation.Linear)))) / 2 * l.Attenuation.Quadratic
+
+	return w
 }
 
 type Camera struct {
