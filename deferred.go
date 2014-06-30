@@ -234,17 +234,19 @@ func main() {
 		uniform sampler2D normalMap;
 
 		struct Light {
+			// basic
 			vec3 Position;
 			vec3 Color;
 			float AmbientIntensity;
 			float DiffuseIntensity;
 			
-			float Constant;
-			float Linear;
-			float Quadratic;
-
-			vec3 Direction;
+			// attenuation
+			float Range;
 			float Cutoff;
+
+			// spot
+			vec3 Direction;
+			float Angle;
 		};
 		uniform Light light;
 		uniform vec3 camPosition;
@@ -255,19 +257,7 @@ func main() {
 			return gl_FragCoord.xy / vec2(800, 400);
 		}
 
-		void main() {
-			vec2 UV = calcUV();
-
-			vec3 color = texture(colorMap, UV).rgb;
-			vec3 position = texture(positionMap, UV).xyz;
-			vec3 normal = normalize(texture(normalMap, UV).xyz);
-			float matSpecularIntensity = texture(colorMap, UV).a;
-			float matSpecularPower = texture(normalMap, UV).w;
-
-			vec3 viewDir = normalize(camPosition - position);
-			vec3 lightDir = normalize(light.Position - position);
-			float distance = length(light.Position - position);
-
+		vec3 calcPhong(vec3 normal, vec3 lightDir, vec3 viewDir, float specPower, float specIntensity) {
 			// ambient, simulates indirect lighting
 			vec3 ambColor = light.Color * light.AmbientIntensity;
 
@@ -277,22 +267,48 @@ func main() {
 
 			// specular, reflective highlight, like a mirror
 			float specFactor = clamp(dot(viewDir, reflect(-lightDir, normal)), 0.0, 1.0);
-			specFactor = pow(specFactor, matSpecularPower);
-			vec3 specColor = light.Color * matSpecularIntensity * specFactor;
+			specFactor = pow(specFactor, specPower);
+			vec3 specColor = light.Color * specIntensity * specFactor;
 
-			// attenuation, distance fading effect
-			float attFactor = light.Constant + 
-						light.Linear * distance + 
-						light.Quadratic * distance * distance;
+			return (ambColor + diffColor + specColor);
+		}
 
-			// spot, shedding light only within a limited cone
+		// attenuation, distance fading effect
+		float calcAttenuation(float distance) {
+			float max = light.Range * (sqrt(1 / light.Cutoff) - 1);
+			float d = distance / (1 - pow(distance / max, 2));
+
+			return 1 / pow(d / light.Range + 1, 2);
+		}
+
+		// spot, shedding light only within a limited cone
+		float calcSpotCone(vec3 lightDir) {
 			float spotFactor = dot(-lightDir, light.Direction);
-			spotFactor = clamp((1.0 - (1.0 - spotFactor) * 1.0 / (1.0 - light.Cutoff)), 0.0, 1.0);
-			//spotFactor = 1.0; // point instead of spot light
+
+			return clamp((1.0 - (1.0 - spotFactor) * 1.0 / (1.0 - light.Angle)), 0.0, 1.0);
+		}
+
+		void main() {
+			// get data from g-buffer
+			vec2 UV = calcUV();
+			vec3 color = texture(colorMap, UV).rgb;
+			vec3 position = texture(positionMap, UV).xyz;
+			vec3 normal = normalize(texture(normalMap, UV).xyz);
+			float matSpecularIntensity = texture(colorMap, UV).a;
+			float matSpecularPower = texture(normalMap, UV).w;
+
+			// calculate directions
+			vec3 viewDir = normalize(camPosition - position);
+			vec3 lightDir = normalize(light.Position - position);
+			float distance = length(light.Position - position);
+
+			// calculate factors
+			vec3 phong = calcPhong(normal, lightDir, viewDir, matSpecularPower, matSpecularIntensity);
+			float att = calcAttenuation(distance);
+			float spot = calcSpotCone(lightDir);
 
 			// combine colors
-			fragmentColor = vec4(color * (ambColor + diffColor + specColor) / attFactor * spotFactor, 1.0);
-			//fragmentColor = vec4(color,1);
+			fragmentColor = vec4(color * phong * att * spot, 1.0);
 		}
 	`), []ShaderUniform{
 		{Name: "projectionMatrix"},
@@ -307,11 +323,12 @@ func main() {
 		{Name: "light.Color"},
 		{Name: "light.AmbientIntensity"},
 		{Name: "light.DiffuseIntensity"},
-		{Name: "light.Constant"},
-		{Name: "light.Linear"},
-		{Name: "light.Quadratic"},
-		{Name: "light.Direction"},
+
+		{Name: "light.Range"},
 		{Name: "light.Cutoff"},
+
+		{Name: "light.Direction"},
+		{Name: "light.Angle"},
 
 		{Name: "camPosition"},
 	}, []ShaderAttribute{
@@ -442,29 +459,27 @@ func main() {
 
 	// create lights
 	lights := []SpotLight{{
-		Position:         mgl32.Vec3{4, 4, 0},
+		Position:         mgl32.Vec3{0, 4, 0},
 		Color:            mgl32.Vec3{1, 1, 1},
 		AmbientIntensity: 0.0,
 		DiffuseIntensity: 1.0,
-		Attenuation: struct {
-			Constant,
-			Linear,
-			Quadratic float32
-		}{1, 0.09, 0.032},
-		Direction: (mgl32.Vec3{0, 0, 0}).Sub(mgl32.Vec3{5, 5, 0}).Normalize(),
-		Cutoff:    float32(math.Cos(90 / 2 * math.Pi / 180)),
+
+		Range:  10,
+		Cutoff: 0.01,
+
+		Direction: (mgl32.Vec3{0, -1, 0}).Normalize(), // (mgl32.Vec3{0, 0, 0}).Sub(mgl32.Vec3{4, 4, 0}).Normalize(),
+		Angle:     float32(math.Cos(90 / 2 * math.Pi / 180)),
 	}, {
 		Position:         mgl32.Vec3{-3, 0, 6},
 		Color:            mgl32.Vec3{0.5, 0.5, 1},
 		AmbientIntensity: 0.0,
 		DiffuseIntensity: 1.0,
-		Attenuation: struct {
-			Constant,
-			Linear,
-			Quadratic float32
-		}{1, 0.14, 0.07},
+
+		Range:  5,
+		Cutoff: 0.01,
+
 		Direction: (mgl32.Vec3{0, 0, -1}).Normalize(),
-		Cutoff:    float32(math.Cos(45 * math.Pi / 180)),
+		Angle:     float32(math.Cos(45 * math.Pi / 180)),
 	}}
 
 	mesh = GenerateSphere(1, 20, 10)
@@ -612,23 +627,21 @@ func main() {
 				for _, light := range lights {
 					scale := light.Sphere()
 					//log.Println(scale)
-					//scale = 10 // DEBUG
+					//scale = 100 // DEBUG
 
 					modelMatrix := mgl32.Translate3D(light.Position[0], light.Position[1], light.Position[2]).Mul4(mgl32.Scale3D(scale, scale, scale))
 					lightTestProgram.UpdateUniform("modelMatrix", modelMatrix)
 
 					lightTestProgram.UpdateUniform("light.Position", light.Position)
 					lightTestProgram.UpdateUniform("light.Color", light.Color)
-
 					lightTestProgram.UpdateUniform("light.AmbientIntensity", light.AmbientIntensity)
 					lightTestProgram.UpdateUniform("light.DiffuseIntensity", light.DiffuseIntensity)
 
-					lightTestProgram.UpdateUniform("light.Constant", light.Attenuation.Constant)
-					lightTestProgram.UpdateUniform("light.Linear", light.Attenuation.Linear)
-					lightTestProgram.UpdateUniform("light.Quadratic", light.Attenuation.Quadratic)
+					lightTestProgram.UpdateUniform("light.Range", light.Range)
+					lightTestProgram.UpdateUniform("light.Cutoff", light.Cutoff)
 
 					lightTestProgram.UpdateUniform("light.Direction", light.Direction)
-					lightTestProgram.UpdateUniform("light.Cutoff", light.Cutoff)
+					lightTestProgram.UpdateUniform("light.Angle", light.Angle)
 
 					// bind attributes
 					if currentGeometry != pointLightBoundingMesh {
@@ -749,33 +762,29 @@ type PointLight struct {
 }
 
 type SpotLight struct {
-	Direction mgl32.Vec3
-	Cutoff    float32 //  maximum angle (cosine of) between the light direction and the light to pixel vector
-
-	//PointLight
-	Position    mgl32.Vec3
-	Attenuation struct {
-		Constant,
-		Linear,
-		Quadratic float32
-	}
-
-	//BaseLight
+	// base
+	Position         mgl32.Vec3
 	Color            mgl32.Vec3
 	AmbientIntensity float32
 	DiffuseIntensity float32
 
+	// attenuation
+	Range  float32
+	Cutoff float32
+
+	// spot light
+	Direction mgl32.Vec3
+	Angle     float32 //  maximum angle (cosine of) between the light direction and the light to pixel vector
+
+	// shadows
 	CastShadow bool
 }
 
 func (l SpotLight) Sphere() float32 {
-	c := float32(math.Max(math.Max(float64(l.Color[0]), float64(l.Color[1])), float64(l.Color[2])))
-	b := float32(16777216)
+	intensity := math.Max(math.Max(float64(l.Color[0]), float64(l.Color[1])), float64(l.Color[2]))
+	max := l.Range * float32(math.Sqrt(intensity/float64(l.Cutoff))-1.0)
 
-	//o := (-l.Attenuation.Linear + float32(math.Sqrt(float64(l.Attenuation.Linear*l.Attenuation.Linear-4*l.Attenuation.Quadratic*(l.Attenuation.Constant-b*c*l.DiffuseIntensity))))) / 2 * l.Attenuation.Quadratic
-	w := (-l.Attenuation.Linear + float32(math.Sqrt(float64(4*l.DiffuseIntensity*b*c*l.Attenuation.Quadratic-4*l.Attenuation.Constant*l.Attenuation.Quadratic+l.Attenuation.Linear*l.Attenuation.Linear)))) / 2 * l.Attenuation.Quadratic
-
-	return w
+	return max
 }
 
 type Camera struct {
