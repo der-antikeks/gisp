@@ -100,13 +100,10 @@ func main() {
 		in vec3 Normal;
 		in vec2 UV;
 
-		struct Material {
-			vec3 Diffuse;
-			sampler2D DiffuseMap;
-			float SpecularIntensity;
-			float SpecularPower;
-		};
-		uniform Material material;
+		uniform vec3 Diffuse;
+		uniform sampler2D DiffuseMap;
+		uniform float SpecularIntensity;
+		uniform float SpecularPower;
 
 		//	g-buffer
 		layout(location = 0) out vec4 fragmentColor;
@@ -114,11 +111,11 @@ func main() {
 		layout(location = 2) out vec4 fragmentNormal;	// move to eye-space
 
 		void main() {
-			vec3 materialColor = texture(material.DiffuseMap, UV).rgb;
+			vec3 materialColor = texture(DiffuseMap, UV).rgb;
 
-			fragmentColor = vec4(materialColor * material.Diffuse, material.SpecularIntensity);
+			fragmentColor = vec4(materialColor * Diffuse, SpecularIntensity);
 			fragmentPosition = vec4(Position, 1.0);
-			fragmentNormal = vec4(normalize(Normal), material.SpecularPower);
+			fragmentNormal = vec4(normalize(Normal), SpecularPower);
 		}
 	`), []ShaderUniform{
 		{Name: "projectionMatrix"},
@@ -126,10 +123,10 @@ func main() {
 		{Name: "modelMatrix"},
 		{Name: "normalMatrix"},
 
-		{Name: "material.Diffuse"},
-		{Name: "material.DiffuseMap"},
-		{Name: "material.SpecularIntensity"},
-		{Name: "material.SpecularPower"},
+		{Name: "Diffuse"},
+		{Name: "DiffuseMap"},
+		{Name: "SpecularIntensity"},
+		{Name: "SpecularPower"},
 	}, []ShaderAttribute{
 		{Name: "vertexPosition", Stride: 3, Typ: gl.FLOAT},
 		{Name: "vertexNormal", Stride: 3, Typ: gl.FLOAT},
@@ -242,11 +239,9 @@ func main() {
 			float AmbientIntensity;
 			float DiffuseIntensity;
 			
-			struct {
-				float Constant;
-				float Linear;
-				float Quadratic;
-			} Atten;
+			float Constant;
+			float Linear;
+			float Quadratic;
 
 			vec3 Direction;
 			float Cutoff;
@@ -286,9 +281,9 @@ func main() {
 			vec3 specColor = light.Color * matSpecularIntensity * specFactor;
 
 			// attenuation, distance fading effect
-			float attFactor = light.Atten.Constant + 
-						light.Atten.Linear * distance + 
-						light.Atten.Quadratic * distance * distance;
+			float attFactor = light.Constant + 
+						light.Linear * distance + 
+						light.Quadratic * distance * distance;
 
 			// spot, shedding light only within a limited cone
 			float spotFactor = dot(-lightDir, light.Direction);
@@ -312,9 +307,9 @@ func main() {
 		{Name: "light.Color"},
 		{Name: "light.AmbientIntensity"},
 		{Name: "light.DiffuseIntensity"},
-		{Name: "light.Atten.Constant"},
-		{Name: "light.Atten.Linear"},
-		{Name: "light.Atten.Quadratic"},
+		{Name: "light.Constant"},
+		{Name: "light.Linear"},
+		{Name: "light.Quadratic"},
 		{Name: "light.Direction"},
 		{Name: "light.Cutoff"},
 
@@ -530,11 +525,11 @@ func main() {
 
 			for _, o := range objects {
 				// update material uniforms
-				geometryProgram.UpdateUniform("material.Diffuse", o.Material.Color)
+				geometryProgram.UpdateUniform("Diffuse", o.Material.Color)
 				//geometryProgram.UpdateUniform("opacity", o.Material.Opacity) // no opacity in geometry pass
 
-				geometryProgram.UpdateUniform("material.SpecularIntensity", o.Material.SpecularIntensity)
-				geometryProgram.UpdateUniform("material.SpecularPower", o.Material.SpecularPower)
+				geometryProgram.UpdateUniform("SpecularIntensity", o.Material.SpecularIntensity)
+				geometryProgram.UpdateUniform("SpecularPower", o.Material.SpecularPower)
 
 				// update object uniforms
 				geometryProgram.UpdateUniform("modelMatrix", o.Transform)
@@ -544,7 +539,7 @@ func main() {
 				geometryProgram.UpdateUniform("normalMatrix", normalMatrix)
 
 				// bind textures
-				geometryProgram.UpdateUniform("material.DiffuseMap", bindTexture(o.Material.Texture))
+				geometryProgram.UpdateUniform("DiffuseMap", bindTexture(o.Material.Texture))
 
 				// bind attributes
 				if currentGeometry != o.Geometry {
@@ -628,9 +623,9 @@ func main() {
 					lightTestProgram.UpdateUniform("light.AmbientIntensity", light.AmbientIntensity)
 					lightTestProgram.UpdateUniform("light.DiffuseIntensity", light.DiffuseIntensity)
 
-					lightTestProgram.UpdateUniform("light.Atten.Constant", light.Attenuation.Constant)
-					lightTestProgram.UpdateUniform("light.Atten.Linear", light.Attenuation.Linear)
-					lightTestProgram.UpdateUniform("light.Atten.Quadratic", light.Attenuation.Quadratic)
+					lightTestProgram.UpdateUniform("light.Constant", light.Attenuation.Constant)
+					lightTestProgram.UpdateUniform("light.Linear", light.Attenuation.Linear)
+					lightTestProgram.UpdateUniform("light.Quadratic", light.Attenuation.Quadratic)
 
 					lightTestProgram.UpdateUniform("light.Direction", light.Direction)
 					lightTestProgram.UpdateUniform("light.Cutoff", light.Cutoff)
