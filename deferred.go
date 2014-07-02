@@ -493,11 +493,16 @@ func main() {
 	defer pointLightBoundingMesh.Delete()
 
 	mesh = GenerateCylinder(0, 1, 1, 8, 1, true)
+	mesh.Transform(mgl32.HomogRotate3DX(-math.Pi / 2.0)) // pre-rotate
 	spotLightBoundingMesh := NewMeshBuffer([]MeshBufferAttribute{
 		{Name: "position", Target: gl.ARRAY_BUFFER, Usage: gl.STATIC_DRAW},
+		{Name: "uv", Target: gl.ARRAY_BUFFER, Usage: gl.STATIC_DRAW},
+		{Name: "normal", Target: gl.ARRAY_BUFFER, Usage: gl.STATIC_DRAW},
 		{Name: "index", Target: gl.ELEMENT_ARRAY_BUFFER, Usage: gl.STATIC_DRAW},
 	})
 	spotLightBoundingMesh.UpdateAttribute("position", mesh.Positions)
+	spotLightBoundingMesh.UpdateAttribute("uv", mesh.UVs)
+	spotLightBoundingMesh.UpdateAttribute("normal", mesh.Normals)
 	spotLightBoundingMesh.UpdateAttribute("index", mesh.Indices)
 	defer spotLightBoundingMesh.Delete()
 
@@ -645,10 +650,9 @@ func main() {
 						// render back faces of the light volume comparing to stencil
 					}
 
-					scaleLength, scaleWidth := light.Range, light.Range*float32(math.Tan(float64(light.Angle)))
-					rotation := mgl32.LookAtV(mgl32.Vec3{}, light.Direction, mgl32.Vec3{0, 1, 0})
+					scaleLength, scaleWidth := light.Range, light.Range*float32(math.Tan(float64(light.Angle/2)))
 					modelMatrix := mgl32.Translate3D(light.Position[0], light.Position[1], light.Position[2]).
-						Mul4(rotation).
+						Mul4(mgl32.LookAtV(mgl32.Vec3{}, light.Direction, mgl32.Vec3{0, 1, 0})).
 						Mul4(mgl32.Scale3D(scaleWidth, scaleWidth, scaleLength))
 					lightTestProgram.UpdateUniform("modelMatrix", modelMatrix)
 
@@ -1103,6 +1107,18 @@ type Mesh struct {
 	Normals   []mgl32.Vec3
 }
 
+func (m Mesh) Transform(mat mgl32.Mat4) {
+	normal := mgl32.Mat4Normal(mat)
+
+	for i, p := range m.Positions {
+		m.Positions[i] = mat.Mul4x1(p.Vec4(1.0)).Vec3()
+	}
+
+	for i, n := range m.Normals {
+		m.Normals[i] = normal.Mul3x1(n)
+	}
+}
+
 type Vertex struct {
 	position mgl32.Vec3
 	uv       mgl32.Vec2
@@ -1325,6 +1341,9 @@ func GenerateCylinder(radiusTop, radiusBottom, height float64, radialSegments, h
 	if radialSegments < 3 {
 		radialSegments = 3
 	}
+	if heightSegments < 1 {
+		heightSegments = 1
+	}
 
 	halfHeight := height / 2.0
 	tanTheta := (radiusBottom - radiusTop) / height
@@ -1338,6 +1357,7 @@ func GenerateCylinder(radiusTop, radiusBottom, height float64, radialSegments, h
 		faces    []Face
 	)
 
+	// create cylindrical positions
 	for y := 0; y <= heightSegments; y++ {
 		var positionsRow []mgl32.Vec3
 		var uvsRow []mgl32.Vec2
@@ -1366,7 +1386,7 @@ func GenerateCylinder(radiusTop, radiusBottom, height float64, radialSegments, h
 		uvs = append(uvs, uvsRow)
 	}
 
-	// cylinder
+	// combine positions to faces
 	for x := 0; x < radialSegments; x++ {
 		var na, nb mgl32.Vec3
 		if radiusTop != 0 {
@@ -1377,8 +1397,11 @@ func GenerateCylinder(radiusTop, radiusBottom, height float64, radialSegments, h
 			nb = positions[1][x+1]
 		}
 
+		// normals
 		na[1] = float32(math.Sqrt(float64(na[0]*na[0]+na[2]*na[2])) * tanTheta)
-		nb[1] = float32(math.Sqrt(float64(na[0]*na[0]+na[2]*na[2])) * tanTheta)
+		na = na.Normalize()
+		nb[1] = float32(math.Sqrt(float64(nb[0]*nb[0]+nb[2]*nb[2])) * tanTheta)
+		nb = nb.Normalize()
 
 		for y := 0; y < heightSegments; y++ {
 			// positions
@@ -1386,12 +1409,6 @@ func GenerateCylinder(radiusTop, radiusBottom, height float64, radialSegments, h
 			v2 := positions[y+1][x]
 			v3 := positions[y+1][x+1]
 			v4 := positions[y][x+1]
-
-			// normals
-			n1 := na.Normalize()
-			n2 := na.Normalize()
-			n3 := nb.Normalize()
-			n4 := nb.Normalize()
 
 			// uvs
 			uv1 := uvs[y][x]
@@ -1403,28 +1420,28 @@ func GenerateCylinder(radiusTop, radiusBottom, height float64, radialSegments, h
 			vertices = append(vertices,
 				Vertex{
 					position: v1,
-					normal:   n1,
+					normal:   na,
 					uv:       uv1,
 				}, Vertex{
 					position: v2,
-					normal:   n2,
+					normal:   na,
 					uv:       uv2,
 				}, Vertex{
 					position: v4,
-					normal:   n4,
+					normal:   nb,
 					uv:       uv4,
 				},
 				Vertex{
 					position: v2,
-					normal:   n2,
+					normal:   na,
 					uv:       uv2,
 				}, Vertex{
 					position: v3,
-					normal:   n3,
+					normal:   nb,
 					uv:       uv3,
 				}, Vertex{
 					position: v4,
-					normal:   n4,
+					normal:   nb,
 					uv:       uv4,
 				})
 			faces = append(faces,
@@ -1436,15 +1453,16 @@ func GenerateCylinder(radiusTop, radiusBottom, height float64, radialSegments, h
 
 	// top
 	if !open && radiusTop > 0 {
-		v3 := mgl32.Vec3{0, float32(halfHeight), 0}
+		// center
+		c := mgl32.Vec3{0, float32(halfHeight), 0}
+
+		// normal
+		n := mgl32.Vec3{0, 1, 0}
 
 		for x := 0; x < radialSegments; x++ {
 			// positions
 			v1 := positions[0][x]
 			v2 := positions[0][x+1]
-
-			// normals
-			n := mgl32.Vec3{0, 1, 0}
 
 			// uvs
 			uv1 := uvs[0][x]
@@ -1462,7 +1480,7 @@ func GenerateCylinder(radiusTop, radiusBottom, height float64, radialSegments, h
 					normal:   n,
 					uv:       uv2,
 				}, Vertex{
-					position: v3,
+					position: c,
 					normal:   n,
 					uv:       uv3,
 				})
@@ -1472,16 +1490,19 @@ func GenerateCylinder(radiusTop, radiusBottom, height float64, radialSegments, h
 
 	// bottom
 	if !open && radiusBottom > 0 {
-		y := heightSegments - 1
-		v3 := mgl32.Vec3{0, float32(-halfHeight), 0}
+		// last position ring
+		y := heightSegments
+
+		// center
+		c := mgl32.Vec3{0, float32(-halfHeight), 0}
+
+		// normal
+		n := mgl32.Vec3{0, -1, 0}
 
 		for x := 0; x < radialSegments; x++ {
 			// positions
 			v1 := positions[y][x+1]
 			v2 := positions[y][x]
-
-			// normals
-			n := mgl32.Vec3{0, -1, 0}
 
 			// uvs
 			uv1 := uvs[y][x+1]
@@ -1499,7 +1520,7 @@ func GenerateCylinder(radiusTop, radiusBottom, height float64, radialSegments, h
 					normal:   n,
 					uv:       uv2,
 				}, Vertex{
-					position: v3,
+					position: c,
 					normal:   n,
 					uv:       uv3,
 				})
