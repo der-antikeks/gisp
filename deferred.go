@@ -100,15 +100,16 @@ func main() {
 		in vec3 Normal;
 		in vec2 UV;
 
+		// material attributes
 		uniform vec3 Diffuse;
 		uniform sampler2D DiffuseMap;
 		uniform float SpecularIntensity;
 		uniform float SpecularPower;
 
-		//	g-buffer
+		// g-buffer
 		layout(location = 0) out vec4 fragmentColor;
-		layout(location = 1) out vec4 fragmentPosition;	// world-space, currently
-		layout(location = 2) out vec4 fragmentNormal;	// move to eye-space
+		layout(location = 1) out vec4 fragmentPosition; // world-space, move to eye-space?
+		layout(location = 2) out vec4 fragmentNormal;
 
 		void main() {
 			vec3 materialColor = texture(DiffuseMap, UV).rgb;
@@ -242,19 +243,21 @@ func main() {
 			
 			// attenuation
 			float Range;
-			float Cutoff;
+			float Falloff;
 
 			// spot
 			vec3 Direction;
 			float Angle;
 		};
 		uniform Light light;
+
 		uniform vec3 camPosition;
+		uniform vec2 screenSize;
 
 		layout(location = 0) out vec4 fragmentColor;
 
 		vec2 calcUV() {
-			return gl_FragCoord.xy / vec2(800, 400);
+			return gl_FragCoord.xy / screenSize;
 		}
 
 		vec3 calcPhong(vec3 normal, vec3 lightDir, vec3 viewDir, float specPower, float specIntensity) {
@@ -275,16 +278,13 @@ func main() {
 
 		// attenuation, distance fading effect
 		float calcAttenuation(float distance) {
-			float max = light.Range * (sqrt(1 / light.Cutoff) - 1);
-			float d = distance / (1 - pow(distance / max, 2));
-
-			return 1 / pow(d / light.Range + 1, 2);
+			float attFactor = clamp(1 - (distance / light.Range), 0.0, 1.0);
+			return pow(attFactor, light.Falloff);
 		}
 
 		// spot, shedding light only within a limited cone
 		float calcSpotCone(vec3 lightDir) {
 			float spotFactor = dot(-lightDir, light.Direction);
-
 			return clamp((1.0 - (1.0 - spotFactor) * 1.0 / (1.0 - light.Angle)), 0.0, 1.0);
 		}
 
@@ -325,12 +325,13 @@ func main() {
 		{Name: "light.DiffuseIntensity"},
 
 		{Name: "light.Range"},
-		{Name: "light.Cutoff"},
+		{Name: "light.Falloff"},
 
 		{Name: "light.Direction"},
 		{Name: "light.Angle"},
 
 		{Name: "camPosition"},
+		{Name: "screenSize"},
 	}, []ShaderAttribute{
 		{Name: "vertexPosition", Stride: 3, Typ: gl.FLOAT},
 	})
@@ -459,27 +460,27 @@ func main() {
 
 	// create lights
 	lights := []SpotLight{{
-		Position:         mgl32.Vec3{0, 4, 0},
+		Position:         mgl32.Vec3{4, 4, 0},
 		Color:            mgl32.Vec3{1, 1, 1},
 		AmbientIntensity: 0.0,
 		DiffuseIntensity: 1.0,
 
-		Range:  10,
-		Cutoff: 0.01,
+		Range:   10,
+		Falloff: 0.5,
 
-		Direction: (mgl32.Vec3{0, -1, 0}).Normalize(), // (mgl32.Vec3{0, 0, 0}).Sub(mgl32.Vec3{4, 4, 0}).Normalize(),
-		Angle:     float32(math.Cos(90 / 2 * math.Pi / 180)),
+		Direction: (mgl32.Vec3{0, 0, 0}).Sub(mgl32.Vec3{4, 4, 0}).Normalize(),
+		Angle:     mgl32.DegToRad(90.0),
 	}, {
-		Position:         mgl32.Vec3{-3, 0, 6},
+		Position:         mgl32.Vec3{-4, 2, 6},
 		Color:            mgl32.Vec3{0.5, 0.5, 1},
 		AmbientIntensity: 0.0,
 		DiffuseIntensity: 1.0,
 
-		Range:  5,
-		Cutoff: 0.01,
+		Range:   13,
+		Falloff: 1.0,
 
 		Direction: (mgl32.Vec3{0, 0, -1}).Normalize(),
-		Angle:     float32(math.Cos(45 * math.Pi / 180)),
+		Angle:     mgl32.DegToRad(45.0),
 	}}
 
 	mesh = GenerateSphere(1, 20, 10)
@@ -490,6 +491,15 @@ func main() {
 	pointLightBoundingMesh.UpdateAttribute("position", mesh.Positions)
 	pointLightBoundingMesh.UpdateAttribute("index", mesh.Indices)
 	defer pointLightBoundingMesh.Delete()
+
+	mesh = GenerateCylinder(0, 1, 1, 8, 1, true)
+	spotLightBoundingMesh := NewMeshBuffer([]MeshBufferAttribute{
+		{Name: "position", Target: gl.ARRAY_BUFFER, Usage: gl.STATIC_DRAW},
+		{Name: "index", Target: gl.ELEMENT_ARRAY_BUFFER, Usage: gl.STATIC_DRAW},
+	})
+	spotLightBoundingMesh.UpdateAttribute("position", mesh.Positions)
+	spotLightBoundingMesh.UpdateAttribute("index", mesh.Indices)
+	defer spotLightBoundingMesh.Delete()
 
 	// main loop
 	var (
@@ -608,7 +618,7 @@ func main() {
 					blend to screen with g-buffer and shadowmap textures
 			*/
 
-			// point light testing
+			// spot light testing
 			func() {
 				lightTestProgram.Use()
 				defer lightTestProgram.Unuse()
@@ -616,8 +626,9 @@ func main() {
 				// update uniforms
 				lightTestProgram.UpdateUniform("projectionMatrix", geometryCamera.Projection)
 				lightTestProgram.UpdateUniform("viewMatrix", geometryCamera.View)
-
 				lightTestProgram.UpdateUniform("camPosition", cameraPosition)
+
+				lightTestProgram.UpdateUniform("screenSize", mgl32.Vec2{float32(width), float32(height)})
 
 				// bind textures
 				lightTestProgram.UpdateUniform("colorMap", bindTexture(colorTexture))
@@ -625,11 +636,20 @@ func main() {
 				lightTestProgram.UpdateUniform("normalMap", bindTexture(normalTexture))
 
 				for _, light := range lights {
-					scale := light.Sphere()
-					//log.Println(scale)
-					//scale = 100 // DEBUG
+					if distance := light.Position.Sub(cameraPosition).Len(); distance < light.Range {
+						// camera inside of light volume
+						// render back faces of the light volume (ignore stenciling)
+					} else {
+						// camera outside of light volume
+						// render front faces of the light volume and mask them out in the stencil buffer
+						// render back faces of the light volume comparing to stencil
+					}
 
-					modelMatrix := mgl32.Translate3D(light.Position[0], light.Position[1], light.Position[2]).Mul4(mgl32.Scale3D(scale, scale, scale))
+					scaleLength, scaleWidth := light.Range, light.Range*float32(math.Tan(float64(light.Angle)))
+					rotation := mgl32.LookAtV(mgl32.Vec3{}, light.Direction, mgl32.Vec3{0, 1, 0})
+					modelMatrix := mgl32.Translate3D(light.Position[0], light.Position[1], light.Position[2]).
+						Mul4(rotation).
+						Mul4(mgl32.Scale3D(scaleWidth, scaleWidth, scaleLength))
 					lightTestProgram.UpdateUniform("modelMatrix", modelMatrix)
 
 					lightTestProgram.UpdateUniform("light.Position", light.Position)
@@ -638,18 +658,18 @@ func main() {
 					lightTestProgram.UpdateUniform("light.DiffuseIntensity", light.DiffuseIntensity)
 
 					lightTestProgram.UpdateUniform("light.Range", light.Range)
-					lightTestProgram.UpdateUniform("light.Cutoff", light.Cutoff)
+					lightTestProgram.UpdateUniform("light.Falloff", light.Falloff)
 
 					lightTestProgram.UpdateUniform("light.Direction", light.Direction)
-					lightTestProgram.UpdateUniform("light.Angle", light.Angle)
+					lightTestProgram.UpdateUniform("light.Angle", math.Cos(float64(light.Angle/2)))
 
 					// bind attributes
-					if currentGeometry != pointLightBoundingMesh {
+					if currentGeometry != spotLightBoundingMesh {
 						if currentGeometry != nil {
 							currentGeometry.Unbind()
 							lightTestProgram.DisableAttributes()
 						}
-						currentGeometry = pointLightBoundingMesh
+						currentGeometry = spotLightBoundingMesh
 						currentGeometry.Bind()
 
 						lightTestProgram.BindAttribute("vertexPosition", currentGeometry, "position")
@@ -713,7 +733,7 @@ type Material struct {
 	SpecularIntensity float32 // shininess factor
 	SpecularPower     float32 //
 
-	Opacity float32 // separete forward rendering pass if < 1.0
+	Opacity float32 // separate forward rendering pass if < 1.0
 
 	Billboard, Wireframe,
 	CastShadow, ReceiveShadow bool
@@ -769,22 +789,15 @@ type SpotLight struct {
 	DiffuseIntensity float32
 
 	// attenuation
-	Range  float32
-	Cutoff float32
+	Range   float32 // 100% light range
+	Falloff float32 // f=1 - 50% light at 1/2 range, f<1 - moves 50% toward range, f>1 - toward light position (0 distance)
 
 	// spot light
 	Direction mgl32.Vec3
-	Angle     float32 //  maximum angle (cosine of) between the light direction and the light to pixel vector
+	Angle     float32 //  maximum angle between the light direction and the light to pixel vector
 
 	// shadows
 	CastShadow bool
-}
-
-func (l SpotLight) Sphere() float32 {
-	intensity := math.Max(math.Max(float64(l.Color[0]), float64(l.Color[1])), float64(l.Color[2]))
-	max := l.Range * float32(math.Sqrt(intensity/float64(l.Cutoff))-1.0)
-
-	return max
 }
 
 type Camera struct {
@@ -1305,6 +1318,247 @@ func GeneratePlane(width, height float32) *Mesh {
 		UVs:       []mgl32.Vec2{tr, tl, bl, br},
 		Normals:   []mgl32.Vec3{n, n, n, n},
 	}
+}
+
+func GenerateCylinder(radiusTop, radiusBottom, height float64, radialSegments, heightSegments int, open bool) *Mesh {
+	// dimensions
+	if radialSegments < 3 {
+		radialSegments = 3
+	}
+
+	halfHeight := height / 2.0
+	tanTheta := (radiusBottom - radiusTop) / height
+
+	// cache
+	var (
+		positions [][]mgl32.Vec3
+		uvs       [][]mgl32.Vec2
+
+		vertices []Vertex
+		faces    []Face
+	)
+
+	for y := 0; y <= heightSegments; y++ {
+		var positionsRow []mgl32.Vec3
+		var uvsRow []mgl32.Vec2
+
+		v := float64(y) / float64(heightSegments)
+		radius := v*(radiusBottom-radiusTop) + radiusTop
+
+		for x := 0; x <= radialSegments; x++ {
+			u := float64(x) / float64(radialSegments)
+			s, c := math.Sincos(u * math.Pi * 2)
+
+			position := mgl32.Vec3{
+				float32(radius * s),
+				float32(-v*height + halfHeight),
+				float32(radius * c),
+			}
+
+			positionsRow = append(positionsRow, position)
+			uvsRow = append(uvsRow, mgl32.Vec2{
+				float32(u),
+				float32(1.0 - v),
+			})
+		}
+
+		positions = append(positions, positionsRow)
+		uvs = append(uvs, uvsRow)
+	}
+
+	// cylinder
+	for x := 0; x < radialSegments; x++ {
+		var na, nb mgl32.Vec3
+		if radiusTop != 0 {
+			na = positions[0][x]
+			nb = positions[0][x+1]
+		} else {
+			na = positions[1][x]
+			nb = positions[1][x+1]
+		}
+
+		na[1] = float32(math.Sqrt(float64(na[0]*na[0]+na[2]*na[2])) * tanTheta)
+		nb[1] = float32(math.Sqrt(float64(na[0]*na[0]+na[2]*na[2])) * tanTheta)
+
+		for y := 0; y < heightSegments; y++ {
+			// positions
+			v1 := positions[y][x]
+			v2 := positions[y+1][x]
+			v3 := positions[y+1][x+1]
+			v4 := positions[y][x+1]
+
+			// normals
+			n1 := na.Normalize()
+			n2 := na.Normalize()
+			n3 := nb.Normalize()
+			n4 := nb.Normalize()
+
+			// uvs
+			uv1 := uvs[y][x]
+			uv2 := uvs[y+1][x]
+			uv3 := uvs[y+1][x+1]
+			uv4 := uvs[y][x+1]
+
+			offset := len(vertices)
+			vertices = append(vertices,
+				Vertex{
+					position: v1,
+					normal:   n1,
+					uv:       uv1,
+				}, Vertex{
+					position: v2,
+					normal:   n2,
+					uv:       uv2,
+				}, Vertex{
+					position: v4,
+					normal:   n4,
+					uv:       uv4,
+				},
+				Vertex{
+					position: v2,
+					normal:   n2,
+					uv:       uv2,
+				}, Vertex{
+					position: v3,
+					normal:   n3,
+					uv:       uv3,
+				}, Vertex{
+					position: v4,
+					normal:   n4,
+					uv:       uv4,
+				})
+			faces = append(faces,
+				Face{offset, offset + 1, offset + 2},
+				Face{offset + 3, offset + 4, offset + 5},
+			)
+		}
+	}
+
+	// top
+	if !open && radiusTop > 0 {
+		v3 := mgl32.Vec3{0, float32(halfHeight), 0}
+
+		for x := 0; x < radialSegments; x++ {
+			// positions
+			v1 := positions[0][x]
+			v2 := positions[0][x+1]
+
+			// normals
+			n := mgl32.Vec3{0, 1, 0}
+
+			// uvs
+			uv1 := uvs[0][x]
+			uv2 := uvs[0][x+1]
+			uv3 := mgl32.Vec2{uv2[0], 0}
+
+			offset := len(vertices)
+			vertices = append(vertices,
+				Vertex{
+					position: v1,
+					normal:   n,
+					uv:       uv1,
+				}, Vertex{
+					position: v2,
+					normal:   n,
+					uv:       uv2,
+				}, Vertex{
+					position: v3,
+					normal:   n,
+					uv:       uv3,
+				})
+			faces = append(faces, Face{offset, offset + 1, offset + 2})
+		}
+	}
+
+	// bottom
+	if !open && radiusBottom > 0 {
+		y := heightSegments - 1
+		v3 := mgl32.Vec3{0, float32(-halfHeight), 0}
+
+		for x := 0; x < radialSegments; x++ {
+			// positions
+			v1 := positions[y][x+1]
+			v2 := positions[y][x]
+
+			// normals
+			n := mgl32.Vec3{0, -1, 0}
+
+			// uvs
+			uv1 := uvs[y][x+1]
+			uv2 := uvs[y][x]
+			uv3 := mgl32.Vec2{uv2[0], 1}
+
+			offset := len(vertices)
+			vertices = append(vertices,
+				Vertex{
+					position: v1,
+					normal:   n,
+					uv:       uv1,
+				}, Vertex{
+					position: v2,
+					normal:   n,
+					uv:       uv2,
+				}, Vertex{
+					position: v3,
+					normal:   n,
+					uv:       uv3,
+				})
+			faces = append(faces, Face{offset, offset + 1, offset + 2})
+		}
+	}
+
+	// search and mark duplicate vertices
+	lookup := map[string]int{}
+	unique := []Vertex{}
+	changed := map[int]int{}
+	for i, v := range vertices {
+		key := v.Key(4)
+
+		if j, found := lookup[key]; !found {
+			// new vertex
+			lookup[key] = i
+			unique = append(unique, v)
+			changed[i] = len(unique) - 1
+		} else {
+			// duplicate vertex
+			changed[i] = changed[j]
+		}
+	}
+
+	// change faces
+	cleaned := []Face{}
+	for _, f := range faces {
+		a, b, c := changed[f.A], changed[f.B], changed[f.C]
+		if a == b || b == c || c == a {
+			// degenerated face, remove
+			continue
+		}
+
+		cleaned = append(cleaned, Face{a, b, c})
+	}
+
+	// copy values to buffers
+	n := len(unique)
+	m := Mesh{
+		Indices:   make([]uint16, len(cleaned)*3),
+		Positions: make([]mgl32.Vec3, n),
+		UVs:       make([]mgl32.Vec2, n),
+		Normals:   make([]mgl32.Vec3, n),
+	}
+
+	for i, v := range unique {
+		m.Positions[i] = v.position
+		m.UVs[i] = v.uv
+		m.Normals[i] = v.normal
+	}
+
+	for i, f := range cleaned {
+		m.Indices[i*3] = uint16(f.A)
+		m.Indices[i*3+1] = uint16(f.B)
+		m.Indices[i*3+2] = uint16(f.C)
+	}
+
+	return &m
 }
 
 func GenerateSphere(radius float64, widthSegments, heightSegments int) *Mesh {
